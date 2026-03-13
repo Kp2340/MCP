@@ -1,0 +1,44 @@
+{
+  "zeveal-backend": {
+    "root": "C:/Users/kushp/liferay-workspace/zeveal-backend-6/zeveal-backend",
+    "type": "liferay-backend",
+    "buildCommand": "gradlew build",
+    "branchPrefix": "ZB"
+  },
+  "zeveal-frontend": {
+    "root": "C:/Users/kushp/liferay-workspace/zeveal-ui-3/zeveal-ui",
+    "type": "react-vite",
+    "buildCommand": "npm run build",
+    "branchPrefix": "ZF"
+  },
+  "decorom-frontend": {
+    "root": "G:/Secret Invasion S01 (2023) 1080p/shubh/Decorom3.5",
+    "type": "react-vite",
+    "buildCommand": "npm run build",
+    "branchPrefix": "DF"
+  },
+  "decorom-backend": {
+    "root": "C:/Users/kushp/IdeaProjects/Decorom Backend",
+    "type": "spring-boot",
+    "buildCommand": "mvn clean install",
+    "branchPrefix": "DB"
+  },
+  "whatsapp-backend": {
+    "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp",
+    "type": "spring-boot",
+    "buildCommand": "mvn clean install",
+    "branchPrefix": "WB"
+  },
+  "whatsapp-frontend": {
+    "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp UI",
+    "type": "react-vite",
+    "buildCommand": "npm run build",
+    "branchPrefix": "WF"
+  },
+  "jsv": {
+    "root": "C:/Users/kushp/IdeaProjects/jsv solution",
+    "type": "nextjs",
+    "buildCommand": "npm run build",
+    "branchPrefix": "JSV"
+  }
+}

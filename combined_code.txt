@@ -1,0 +1,2169 @@
+﻿========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\export-project.ps1
+========================================
+$projectRoot = "C:\Users\kushp\IdeaProjects\MCP"
+$outputFile = "$projectRoot\combined_code.txt"
+
+# Remove previous export
+if (Test-Path $outputFile) {
+    Remove-Item $outputFile -Force
+}
+
+# UTF-8 writer
+$writer = New-Object System.IO.StreamWriter($outputFile, $false, [System.Text.Encoding]::UTF8)
+
+# Allowed extensions
+$extensions = @(
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".json",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".ps1"
+)
+
+# Folders to ignore
+$ignoreFolders = @(
+    "node_modules",
+    ".git",
+    ".next",
+    "out",
+    "dist",
+    "build",
+    "target",
+    ".gradle",
+    ".cache",
+    "coverage"
+)
+
+Write-Host "Exporting project files..."
+
+Get-ChildItem $projectRoot -Recurse -File |
+Where-Object {
+
+    $path = $_.FullName
+
+    # Skip ignored folders
+    foreach ($folder in $ignoreFolders) {
+        if ($path -like "*\$folder\*") { return $false }
+    }
+
+    # Skip export file
+    if ($_.Name -eq "combined_code.txt") { return $false }
+
+    # Skip lock files
+    if ($_.Name -eq "package-lock.json") { return $false }
+
+    # Skip secrets
+    if ($_.Name -eq ".env") { return $false }
+
+    # Only allowed extensions
+    if ($extensions -notcontains $_.Extension) { return $false }
+
+    return $true
+
+} |
+ForEach-Object {
+
+    $writer.WriteLine("========================================")
+    $writer.WriteLine("FILE: $($_.FullName)")
+    $writer.WriteLine("========================================")
+
+    try {
+
+        # Prevent exporting very large files
+        if ($_.Length -gt 2MB) {
+            $writer.WriteLine("[FILE TOO LARGE - SKIPPED]")
+        }
+        else {
+            $content = Get-Content $_.FullName -Raw -ErrorAction Stop
+            $writer.WriteLine($content)
+        }
+
+    }
+    catch {
+        $writer.WriteLine("[ERROR READING FILE]")
+    }
+
+    $writer.WriteLine("")
+}
+
+$writer.Close()
+
+Write-Host "Export complete -> $outputFile"
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
+========================================
+{
+  "name": "mcp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kp2340/MCP.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Kp2340/MCP/issues"
+  },
+  "homepage": "https://github.com/Kp2340/MCP#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@xenova/transformers": "^2.17.2",
+    "chromadb": "^3.3.3",
+    "node-fetch": "^3.3.2",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2"
+  }
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\README.md
+========================================
+# AI Dev MCP
+
+AI Dev MCP is a **local autonomous coding environment** that enables AI models to safely interact with real software projects using the **Model Context Protocol (MCP)**.
+
+It allows an AI agent to:
+
+* explore large codebases
+* perform semantic code search
+* read and modify files
+* run project builds
+* automatically fix compilation errors
+* analyze project dependencies
+
+All components run **locally**, ensuring privacy, security, and full control over development workflows.
+
+---
+
+# Features
+
+* MCP Tool Server
+* semantic code indexing
+* vector code search using ChromaDB
+* dependency graph analysis
+* Git branch automation
+* automated builds
+* build error auto-fix loop
+* AST-based project indexing
+* multi-project configuration
+* local LLM integration using Ollama
+
+---
+
+# Requirements
+
+Install the following dependencies before running the system:
+
+| Tool            | Purpose                          |
+| --------------- | -------------------------------- |
+| Node.js **20+** | Runtime for MCP server and agent |
+| Ollama          | Local LLM inference              |
+| ChromaDB CLI    | Vector database                  |
+| Ripgrep         | Fast code searching              |
+
+---
+
+## Install Ripgrep
+
+Windows:
+
+```
+winget install BurntSushi.ripgrep.MSVC
+```
+
+---
+
+# Installation
+
+Clone the repository and install dependencies.
+
+```
+git clone https://github.com/kp2340/mcp
+cd mcp
+npm install
+```
+
+---
+
+# Project Configuration
+
+Projects are defined in:
+
+```
+src/config/projects.json
+```
+
+Example configuration:
+
+```
+{
+  "jsv": {
+    "root": "C:/Users/kushp/IdeaProjects/jsv solution",
+    "type": "nextjs",
+    "buildCommand": "npm run build",
+    "branchPrefix": "JSV"
+  }
+}
+```
+
+This allows the agent to operate across **multiple codebases**.
+
+---
+
+# First Time Setup
+
+Before running the agent, build the **vector index** for your project.
+
+```
+node src/vector/runIndex.js <project-name>
+```
+
+Example:
+
+```
+node src/vector/runIndex.js jsv
+```
+
+This process:
+
+1. scans project files
+2. splits code into chunks
+3. generates embeddings
+4. stores vectors in ChromaDB
+
+---
+
+# Running the System
+
+Start the environment:
+
+```
+start-ai-dev.bat
+```
+
+This launches three services.
+
+| Service      | Description              |
+| ------------ | ------------------------ |
+| ChromaDB     | Vector database          |
+| MCP Server   | Tool server              |
+| AI Agent CLI | Interactive coding agent |
+
+Ollama runs automatically in the background.
+
+---
+
+# Quick Start
+
+1️⃣ Install dependencies
+
+```
+npm install
+```
+
+2️⃣ Build vector index
+
+```
+node src/vector/runIndex.js jsv
+```
+
+3️⃣ Start MCP environment
+
+```
+start-ai-dev.bat
+```
+
+4️⃣ Enter a prompt in the Agent CLI
+
+Example:
+
+```
+Create login page in jsv project
+```
+
+---
+
+# Example Prompt
+
+```
+Create a login page in jsv project with email/password authentication
+```
+
+Agent workflow:
+
+```
+vector search
+↓
+planner
+↓
+executor
+↓
+MCP tools
+↓
+code modification
+↓
+project build
+↓
+auto fix errors
+```
+
+---
+
+# MCP Tools
+
+The MCP server exposes tools that the AI agent can use to interact with projects.
+
+| Tool                     | Purpose                           |
+| ------------------------ | --------------------------------- |
+| project_scan             | Scan project structure            |
+| project_search           | Search code using ripgrep         |
+| project_read_files       | Read project files                |
+| project_apply_changes    | Write files and commit            |
+| project_apply_patch      | Apply git diff patch              |
+| project_build            | Run project build                 |
+| project_build_and_fix    | Build project and auto-fix errors |
+| project_index            | Build semantic code index         |
+| project_find_symbol      | Find classes/functions            |
+| project_dependency_graph | Analyze project dependencies      |
+
+---
+
+# Architecture
+
+```
+User
+ │
+Agent CLI
+ │
+Planner LLM
+ │
+Executor LLM
+ │
+Vector Retrieval
+ │
+MCP Client
+ │
+MCP Tool Server
+ │
+Tools
+ │
+Filesystem / Git
+ │
+Build + Auto Fix
+ │
+Dependency Graph Analysis
+```
+
+---
+
+# Project Structure
+
+```
+src/
+├─ agent/
+│  ├─ planner.js
+│  ├─ executor.js
+│  ├─ mcpClient.js
+│  └─ retriever.js
+│
+├─ analysis/
+│  └─ dependencyGraph.js
+│
+├─ autoFixLoop/
+│  └─ autoFixLoop.js
+│
+├─ build/
+│  └─ parseBuildErrors.js
+│
+├─ config/
+│  └─ projects.json
+│
+├─ core/
+│  ├─ constants.js
+│  ├─ projectRegistry.js
+│  └─ validator.js
+│
+├─ git/
+│  ├─ branch.js
+│  └─ commit.js
+│
+├─ indexer/
+│  ├─ languageLoader.js
+│  └─ semanticIndexer.js
+│
+├─ tools/
+│  ├─ scanProject.js
+│  ├─ projectSearch.js
+│  ├─ projectBuild.js
+│  ├─ projectPatch.js
+│  ├─ projectIndex.js
+│  └─ applyChanges.js
+│
+├─ vector/
+│  ├─ embedder.js
+│  ├─ queryCodebase.js
+│  ├─ runIndex.js
+│  └─ runIndexCore.js
+│
+└─ index.js
+```
+
+---
+
+# Troubleshooting
+
+### Chroma collection error
+
+Run indexing again:
+
+```
+node src/vector/runIndex.js <project-name>
+```
+
+---
+
+### Ollama port error
+
+Ollama runs as a background service.
+
+Do **not run**:
+
+```
+ollama serve
+```
+
+---
+
+### Missing vector results
+
+Rebuild the index:
+
+```
+node src/vector/runIndex.js <project-name>
+```
+
+---
+
+# Security
+
+The MCP server includes safeguards to prevent unsafe file access:
+
+* path validation
+* project root isolation
+* controlled git operations
+* patch validation
+
+---
+
+# Future Improvements
+
+* AST patch editing
+* dependency graph reasoning improvements
+* token-efficient memory compression
+* multi-agent architecture (planner / coder / reviewer)
+* repository-wide reasoning
+* long-term project memory
+
+---
+
+# License
+
+MIT License
+
+---
+
+# Author
+
+Kp2340
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\index.js
+========================================
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+    ListToolsRequestSchema,
+    CallToolRequestSchema
+} from "@modelcontextprotocol/sdk/types.js";
+
+import { scanProject } from "./tools/scanProject.js";
+import { readFiles } from "./tools/readFiles.js";
+import { applyChanges } from "./tools/applyChanges.js";
+import { searchProject } from "./tools/projectSearch.js";
+import { applyPatch } from "./tools/projectPatch.js";
+import { buildProject } from "./tools/projectBuild.js";
+import { projectFindSymbol } from "./tools/projectFindSymbol.js";
+import { projectIndex } from "./tools/projectIndex.js";
+import { runAutoFix } from "./autoFixLoop/autoFixLoop.js";
+
+import { getProject } from "./core/projectRegistry.js";
+import { buildDependencyGraph } from "./analysis/dependencyGraph.js";
+
+const server = new Server(
+    { name: "ai-dev-mcp", version: "8.2.0" },
+    { capabilities: { tools: {} } }
+);
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+        {
+            name: "project_scan",
+            description: "Scan project structure",
+            inputSchema: {
+                type: "object",
+                properties: { project: { type: "string" } },
+                required: ["project"]
+            }
+        },
+        {
+            name: "project_read_files",
+            description: "Read project files",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    paths: { type: "array", items: { type: "string" } }
+                },
+                required: ["project", "paths"]
+            }
+        },
+        {
+            name: "project_apply_changes",
+            description: "Write files and commit",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    files: { type: "array" },
+                    commitMessage: { type: "string" },
+                    increment: { type: "boolean" }
+                },
+                required: ["project", "files", "commitMessage"]
+            }
+        },
+        {
+            name: "project_search",
+            description: "Search code using ripgrep",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    query: { type: "string" }
+                },
+                required: ["project", "query"]
+            }
+        },
+        {
+            name: "project_apply_patch",
+            description: "Apply git diff patch",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    patch: { type: "string" }
+                },
+                required: ["project", "patch"]
+            }
+        },
+        {
+            name: "project_build",
+            description: "Run project build command",
+            inputSchema: {
+                type: "object",
+                properties: { project: { type: "string" } },
+                required: ["project"]
+            }
+        },
+        {
+            name: "project_index",
+            description: "Build semantic index of project",
+            inputSchema: {
+                type: "object",
+                properties: { project: { type: "string" } },
+                required: ["project"]
+            }
+        },
+        {
+            name: "project_find_symbol",
+            description: "Find symbol in semantic index",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    name: { type: "string" }
+                },
+                required: ["project", "name"]
+            }
+        },
+        {
+            name: "project_dependency_graph",
+            description: "Analyze project dependency graph",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" }
+                },
+                required: ["project"]
+            }
+        },
+        {
+            name: "project_build_and_fix",
+            description: "Build project and auto-fix compilation errors",
+            inputSchema: {
+                type: "object",
+                properties: { project: { type: "string" } },
+                required: ["project"]
+            }
+        }
+    ]
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+
+    const tool = req.params.name;
+    const args = req.params.arguments;
+
+    if (tool === "project_scan") return scanProject(args);
+    if (tool === "project_read_files") return readFiles(args);
+    if (tool === "project_apply_changes") return applyChanges(args);
+    if (tool === "project_search") return searchProject(args);
+    if (tool === "project_apply_patch") return applyPatch(args);
+    if (tool === "project_build") return buildProject(args);
+    if (tool === "project_index") return projectIndex(args);
+    if (tool === "project_find_symbol") return projectFindSymbol(args);
+
+    if (tool === "project_dependency_graph") {
+
+        const projectRoot = getProject(args.project).root;
+
+        const graph = buildDependencyGraph(projectRoot);
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify(graph, null, 2)
+                }
+            ]
+        };
+    }
+
+    if (tool === "project_build_and_fix") {
+
+        await runAutoFix(args.project);
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: "Build + auto-fix completed"
+                }
+            ]
+        };
+    }
+
+    throw new Error("Unknown tool: " + tool);
+});
+
+await server.connect(new StdioServerTransport());
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\agent.js
+========================================
+import readline from "readline";
+import { MCPClient } from "./mcpClient.js";
+import { createPlan } from "./planner.js";
+import { executeStep } from "./executor.js";
+import { retrieveContext } from "./retriever.js";
+
+process.env.NODE_NO_WARNINGS = "1";
+
+const mcp = new MCPClient();
+
+function cleanJSON(text) {
+    if (!text) return "";
+
+    return text
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+}
+
+async function runAgent(prompt) {
+
+    console.log("\nCreating plan...\n");
+
+    const context = await retrieveContext(prompt, "decorom-frontend");
+
+    const enrichedPrompt = `
+User request:
+${prompt}
+
+Context:
+${context}
+`;
+
+    const plan = await createPlan(enrichedPrompt);
+
+    console.log("\nPlan:\n");
+    console.log(plan);
+
+    const steps = plan
+        .split("\n")
+        .map(s => s.replace(/^\d+\.\s*/, "").trim())
+        .filter(Boolean);
+
+    let executionContext = "";
+
+    const MAX_STEPS = 20;
+
+    for (let i = 0; i < steps.length && i < MAX_STEPS; i++) {
+
+        const step = steps[i].trim();
+
+        if (!step) continue;
+
+        console.log("\nExecuting:", step);
+
+        const vectorContext = await retrieveContext(step, "decorom-frontend");
+
+        const action = await executeStep(
+            step,
+            executionContext + "\n" + vectorContext
+        );
+
+        try {
+
+            const cleaned = cleanJSON(action);
+
+            if (!cleaned.startsWith("{")) {
+                console.log(cleaned);
+                continue;
+            }
+
+            const parsed = JSON.parse(cleaned);
+
+            if (parsed.tool) {
+
+                console.log("\nCalling tool:", parsed.tool);
+
+                const result = await mcp.callTool(
+                    parsed.tool,
+                    parsed.args || {}
+                );
+
+                console.log("\nTool result:\n", result);
+
+                executionContext += "\n" + JSON.stringify(result);
+
+            }
+
+            if (parsed.done) {
+                console.log("\nTask completed\n");
+                break;
+            }
+
+        } catch (err) {
+
+            console.log("\nInvalid JSON from model:");
+            console.log(action);
+
+        }
+
+    }
+
+    console.log("\nAgent finished\n");
+}
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+rl.question("Prompt: ", async (prompt) => {
+
+    try {
+        await runAgent(prompt);
+    } catch (err) {
+        console.error("Agent error:", err);
+    }
+
+    process.exit();
+
+});
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executor.js
+========================================
+import { askLLM } from "./ollamaClient.js";
+
+const MODEL = "qwen2.5-coder:7b";
+
+export async function executeStep(step, context) {
+
+    const prompt = `
+You are an AI coding executor.
+
+Step:
+${step}
+
+Context:
+${context}
+
+Available tools:
+project_scan
+project_search
+project_find_symbol
+project_read_files
+project_apply_changes
+project_build_and_fix
+
+Rules:
+- Always read files before modifying them
+- Use project_search to locate files
+- Use project_read_files before editing
+- After editing run project_build_and_fix
+
+Respond ONLY JSON.
+
+{
+ "tool": "...",
+ "args": {}
+}
+
+OR
+
+{
+ "done": true
+}
+`;
+
+    return await askLLM(MODEL, prompt);
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\mcpClient.js
+========================================
+import { spawn } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export class MCPClient {
+
+    constructor() {
+
+        const serverPath = path.resolve(__dirname, "../index.js");
+
+        this.proc = spawn("node", [serverPath], {
+            stdio: ["pipe", "pipe", "inherit"]
+        });
+
+        this.buffer = "";
+        this.pending = new Map();
+
+        this.proc.stdout.on("data", (data) => {
+            this.handleData(data.toString());
+        });
+
+        this.proc.on("exit", () => {
+            console.error("MCP server exited");
+        });
+    }
+
+    handleData(chunk) {
+
+        this.buffer += chunk;
+
+        let boundary;
+
+        while ((boundary = this.buffer.indexOf("\n")) >= 0) {
+
+            const line = this.buffer.slice(0, boundary).trim();
+            this.buffer = this.buffer.slice(boundary + 1);
+
+            if (!line) continue;
+
+            try {
+
+                const msg = JSON.parse(line);
+
+                if (msg.id && this.pending.has(msg.id)) {
+
+                    const { resolve } = this.pending.get(msg.id);
+
+                    this.pending.delete(msg.id);
+
+                    resolve(msg.result);
+
+                }
+
+            } catch {}
+
+        }
+    }
+
+    callTool(name, args = {}) {
+
+        const id = Date.now() + Math.random();
+
+        const req = {
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name, arguments: args }
+        };
+
+        return new Promise((resolve, reject) => {
+
+            const timeout = setTimeout(() => {
+
+                this.pending.delete(id);
+
+                reject(new Error("MCP timeout"));
+
+            }, 20000);
+
+            this.pending.set(id, {
+                resolve: (res) => {
+
+                    clearTimeout(timeout);
+
+                    resolve(res);
+
+                }
+            });
+
+            this.proc.stdin.write(JSON.stringify(req) + "\n");
+
+        });
+    }
+
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\ollamaClient.js
+========================================
+import fetch from "node-fetch";
+
+const OLLAMA_URL = "http://localhost:11434/api/generate";
+
+export async function askLLM(model, prompt) {
+
+    const response = await fetch(OLLAMA_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model,
+            prompt,
+            stream: false,
+            options: {
+                temperature: 0.1,
+                num_predict: 400,
+                top_p: 0.9
+            }
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error("Ollama request failed");
+    }
+
+    const data = await response.json();
+
+    return data.response.trim();
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\planner.js
+========================================
+import { askLLM } from "./ollamaClient.js";
+
+const MODEL = "qwen2.5-coder:7b";
+
+export async function createPlan(prompt) {
+
+    const planPrompt = `
+You are a senior software planning agent.
+
+Available MCP tools:
+
+project_scan
+project_search
+project_find_symbol
+project_read_files
+project_apply_changes
+project_build_and_fix
+
+Rules:
+- Always read relevant files before modifying them
+- After applying code changes ALWAYS run project_build_and_fix
+- Return only numbered steps
+- No explanations
+
+Task:
+${prompt}
+`;
+
+    return await askLLM(MODEL, planPrompt);
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\retriever.js
+========================================
+import { queryCodebase } from "../vector/queryCodebase.js";
+import { embed } from "../vector/embedder.js";
+import { projectIndex } from "../tools/projectIndex.js";
+
+const MAX_SNIPPET = 600;
+const MAX_RESULTS = 4;
+
+function compress(doc) {
+
+    if (!doc) return "";
+
+    if (doc.length > MAX_SNIPPET) {
+        return doc.substring(0, MAX_SNIPPET) + "\n...";
+    }
+
+    return doc;
+}
+
+export async function retrieveContext(prompt, project = null) {
+
+    try {
+
+        const embedding = await embed(prompt);
+
+        let docs;
+
+        try {
+
+            docs = await queryCodebase(embedding);
+
+        } catch (err) {
+
+            console.log("\nVector index missing. Building index automatically...\n");
+
+            if (project) {
+                await projectIndex({ project });
+            }
+
+            docs = await queryCodebase(embedding);
+        }
+
+        if (!docs || docs.length === 0) {
+            return "";
+        }
+
+        return docs
+            .slice(0, MAX_RESULTS)
+            .map(compress)
+            .join("\n\n");
+
+    } catch (err) {
+
+        console.error("Retriever error:", err);
+
+        return "";
+
+    }
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\analysis\dependencyGraph.js
+========================================
+import fs from "fs";
+import path from "path";
+
+export function buildDependencyGraph(root) {
+
+    const graph = {};
+
+    function walk(dir) {
+
+        const files = fs.readdirSync(dir);
+
+        for (const f of files) {
+
+            const full = path.join(dir, f);
+            const stat = fs.statSync(full);
+
+            if (stat.isDirectory()) {
+                walk(full);
+                continue;
+            }
+
+            if (
+                full.endsWith(".js") ||
+                full.endsWith(".ts") ||
+                full.endsWith(".java")
+            ) {
+
+                const content = fs.readFileSync(full, "utf8");
+
+                const imports =
+                    content.match(/import\s+.*?\s+from\s+['"](.*?)['"]/g) || [];
+
+                graph[full] = imports.map(i =>
+                    i.match(/['"](.*?)['"]/)[1]
+                );
+
+            }
+
+        }
+
+    }
+
+    walk(root);
+
+    return graph;
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\autoFixLoop\autoFixLoop.js
+========================================
+import { buildProject } from "../build/buildProject.js";
+import { parseErrors } from "../build/parseBuildErrors.js";
+import { askLLM } from "../agent/ollamaClient.js";
+import { getProject } from "../core/projectRegistry.js";
+import { applyChanges } from "../tools/applyChanges.js";
+
+export async function runAutoFix(projectName) {
+
+    const project = getProject(projectName);
+
+    const MAX_ATTEMPTS = 5;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+
+        console.log("Running build attempt:", attempt + 1);
+
+        const result = await buildProject({ project: projectName });
+
+        if (result.success) {
+            console.log("Build successful");
+            return;
+        }
+
+        const errors = parseErrors(result.stderr);
+
+        const prompt = `
+Fix the following build errors.
+
+Errors:
+${errors.join("\n")}
+
+Return JSON:
+
+{
+ "files":[
+   {
+     "path":"relative/path/file.js",
+     "content":"corrected code"
+   }
+ ]
+}
+`;
+
+        const response = await askLLM("qwen2.5-coder:7b", prompt);
+
+        try {
+
+            const patch = JSON.parse(response);
+
+            await applyChanges({
+                project: projectName,
+                files: patch.files,
+                commitMessage: "Auto fix",
+                increment: false
+            });
+
+        } catch {
+            console.log("Invalid patch returned");
+        }
+    }
+
+    console.log("Auto fix attempts exceeded");
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
+========================================
+{
+  "zeveal-backend": {
+    "root": "C:/Users/kushp/liferay-workspace/zeveal-backend-6/zeveal-backend",
+    "type": "liferay-backend",
+    "buildCommand": "gradlew build",
+    "branchPrefix": "ZB"
+  },
+  "zeveal-frontend": {
+    "root": "C:/Users/kushp/liferay-workspace/zeveal-ui-3/zeveal-ui",
+    "type": "react-vite",
+    "buildCommand": "npm run build",
+    "branchPrefix": "ZF"
+  },
+  "decorom-frontend": {
+    "root": "G:/Secret Invasion S01 (2023) 1080p/shubh/Decorom3.5",
+    "type": "react-vite",
+    "buildCommand": "npm run build",
+    "branchPrefix": "DF"
+  },
+  "decorom-backend": {
+    "root": "C:/Users/kushp/IdeaProjects/Decorom Backend",
+    "type": "spring-boot",
+    "buildCommand": "mvn clean install",
+    "branchPrefix": "DB"
+  },
+  "whatsapp-backend": {
+    "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp",
+    "type": "spring-boot",
+    "buildCommand": "mvn clean install",
+    "branchPrefix": "WB"
+  },
+  "whatsapp-frontend": {
+    "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp UI",
+    "type": "react-vite",
+    "buildCommand": "npm run build",
+    "branchPrefix": "WF"
+  },
+  "jsv": {
+    "root": "C:/Users/kushp/IdeaProjects/jsv solution",
+    "type": "nextjs",
+    "buildCommand": "npm run build",
+    "branchPrefix": "JSV"
+  }
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\constants.js
+========================================
+export const IGNORE_FOLDERS = [
+    ".git",
+    "node_modules",
+    ".gradle",
+    "build",
+    "target",
+    "dist"
+];
+
+export const MAX_FILE_SIZE = 12000;
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\projectRegistry.js
+========================================
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const projectsPath = path.join(__dirname, "../config/projects.json");
+
+const projects = JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
+
+export function getProject(name) {
+
+    if (!projects[name]) {
+        throw new Error("Project not found: " + name);
+    }
+
+    return projects[name];
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\validator.js
+========================================
+import path from "path";
+
+export function validatePath(projectRoot, relativePath) {
+
+    if (relativePath.includes("..") || path.isAbsolute(relativePath)) {
+        throw new Error("Invalid file path");
+    }
+
+    const resolved = path.resolve(projectRoot, relativePath);
+
+    if (!resolved.startsWith(path.resolve(projectRoot))) {
+        throw new Error("Path escapes project root");
+    }
+
+    return resolved;
+}
+
+export function validateChangeRequest(files, projectRoot) {
+
+    for (const file of files) {
+
+        if (!file.path || !file.content) {
+            throw new Error("Invalid file structure");
+        }
+
+        validatePath(projectRoot, file.path);
+    }
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\git\branch.js
+========================================
+import { execSync } from "child_process";
+
+function getLatestBranchNumber(projectRoot, prefix) {
+
+    const output = execSync("git branch", {
+        cwd: projectRoot
+    }).toString();
+
+    const branches = output.split("\n");
+
+    let max = 0;
+
+    const regex = new RegExp(`${prefix}-(\\d+)`);
+
+    for (const branch of branches) {
+
+        const match = branch.match(regex);
+
+        if (match) {
+
+            const num = parseInt(match[1]);
+
+            if (num > max) {
+                max = num;
+            }
+        }
+    }
+
+    return max;
+}
+
+export function createNextBranch(projectRoot, prefix) {
+
+    const latest = getLatestBranchNumber(projectRoot, prefix);
+
+    const next = latest + 1;
+
+    const branchName = `${prefix}-${next}`;
+
+    execSync(`git checkout -b ${branchName}`, {
+        cwd: projectRoot
+    });
+
+    return {
+        branchName,
+        number: next
+    };
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\git\commit.js
+========================================
+import { execSync } from "child_process";
+
+export function commitChanges(projectRoot, message) {
+
+    execSync("git add .", { cwd: projectRoot });
+
+    execSync(`git commit -m "${message}"`, {
+        cwd: projectRoot
+    });
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\indexer\languageLoader.js
+========================================
+import Parser from "tree-sitter";
+import JavaScript from "tree-sitter-javascript";
+import TypeScript from "tree-sitter-typescript";
+import Java from "tree-sitter-java";
+
+export function getParser(ext) {
+
+    const parser = new Parser();
+
+    if (ext === ".js" || ext === ".jsx") {
+        parser.setLanguage(JavaScript);
+    }
+
+    else if (ext === ".ts") {
+        parser.setLanguage(TypeScript.typescript);
+    }
+
+    else if (ext === ".tsx") {
+        parser.setLanguage(TypeScript.tsx);
+    }
+
+    else if (ext === ".java") {
+        parser.setLanguage(Java);
+    }
+
+    else {
+        return null;
+    }
+
+    return parser;
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\indexer\semanticIndexer.js
+========================================
+import fs from "fs";
+import path from "path";
+import { getParser } from "./languageLoader.js";
+
+export function buildSemanticIndex(projectRoot) {
+
+    const index = {
+        classes: [],
+        functions: []
+    };
+
+    function walk(dir) {
+
+        const files = fs.readdirSync(dir);
+
+        for (const file of files) {
+
+            const full = path.join(dir, file);
+
+            const stat = fs.statSync(full);
+
+            if (stat.isDirectory()) {
+                walk(full);
+                continue;
+            }
+
+            const ext = path.extname(file);
+
+            const parser = getParser(ext);
+
+            if (!parser) continue;
+
+            const source = fs.readFileSync(full, "utf8");
+
+            const tree = parser.parse(source);
+
+            scanNode(tree.rootNode, full);
+        }
+    }
+
+    function scanNode(node, file) {
+
+        if (node.type === "class_declaration") {
+
+            index.classes.push({
+                name: node.firstChild.text,
+                file
+            });
+        }
+
+        if (
+            node.type === "function_declaration" ||
+            node.type === "method_definition"
+        ) {
+            index.functions.push({
+                name: node.firstChild.text,
+                file
+            });
+        }
+
+        node.children.forEach(child => scanNode(child, file));
+    }
+
+    walk(projectRoot);
+
+    return index;
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\applyChanges.js
+========================================
+import path from "path";
+import fs from "fs";
+import { execSync } from "child_process";
+
+import { getProject } from "../core/projectRegistry.js";
+import { validateChangeRequest } from "../core/validator.js";
+
+function getNextBranch(root, prefix) {
+
+    const branches = execSync("git branch", { cwd: root }).toString();
+
+    let max = 0;
+
+    const regex = new RegExp(`${prefix}-(\\d+)`);
+
+    branches.split("\n").forEach(b => {
+
+        const clean = b.replace("*", "").trim();
+
+        const m = clean.match(regex);
+
+        if (m) {
+
+            const n = parseInt(m[1]);
+
+            if (n > max) max = n;
+
+        }
+
+    });
+
+    return `${prefix}-${max + 1}`;
+}
+
+export function applyChanges({ project, files, commitMessage, increment }) {
+
+    const config = getProject(project);
+
+    const root = config.root;
+
+    validateChangeRequest(files, root);
+
+    for (const file of files) {
+
+        const full = path.resolve(root, file.path);
+
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+
+        fs.writeFileSync(full, file.content, "utf8");
+
+    }
+
+    execSync("git add .", { cwd: root });
+
+    if (increment) {
+
+        const branch = getNextBranch(root, config.branchPrefix);
+
+        execSync(`git checkout -b ${branch}`, { cwd: root });
+
+        execSync(`git commit -m "${branch} ${commitMessage}"`, { cwd: root });
+
+        return {
+            content: [{
+                type: "text",
+                text: `Created branch ${branch}`
+            }]
+        };
+
+    }
+
+    execSync(`git commit -m "${commitMessage}"`, { cwd: root });
+
+    return {
+        content: [{
+            type: "text",
+            text: "Changes committed"
+        }]
+    };
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectBuild.js
+========================================
+import { exec } from "child_process";
+import { getProject } from "../core/projectRegistry.js";
+
+export function buildProject({ project }) {
+
+    const config = getProject(project);
+
+    return new Promise((resolve) => {
+
+        exec(
+            config.buildCommand,
+            { cwd: config.root },
+            (error, stdout, stderr) => {
+
+                resolve({
+                    content: [
+                        {
+                            type: "text",
+                            text: stdout + "\n" + stderr
+                        }
+                    ],
+                    success: !error
+                });
+
+            }
+        );
+
+    });
+
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectFindSymbol.js
+========================================
+import { getIndex } from "./projectIndex.js";
+
+export function projectFindSymbol({ project, name }) {
+
+    const index = getIndex(project);
+
+    if (!index) {
+        throw new Error("Project index not built");
+    }
+
+    const matches = [];
+
+    index.classes.forEach(c => {
+        if (c.name.includes(name)) matches.push(c);
+    });
+
+    index.functions.forEach(f => {
+        if (f.name.includes(name)) matches.push(f);
+    });
+
+    return {
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(matches, null, 2)
+            }
+        ]
+    };
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectIndex.js
+========================================
+import { getProject } from "../core/projectRegistry.js";
+import { buildSemanticIndex } from "../indexer/semanticIndexer.js";
+
+let cachedIndexes = {};
+
+export async function projectIndex({ project }) {
+
+    const root = getProject(project).root;
+
+    if (cachedIndexes[project]) {
+
+        return {
+            content: [{
+                type: "text",
+                text: "Index already exists"
+            }]
+        };
+
+    }
+
+    console.log("Building semantic index:", project);
+
+    const index = buildSemanticIndex(root);
+
+    cachedIndexes[project] = index;
+
+    return {
+        content: [
+            {
+                type: "text",
+                text: "Index built successfully"
+            }
+        ]
+    };
+
+}
+
+export function getIndex(project) {
+    return cachedIndexes[project];
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectPatch.js
+========================================
+import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
+import { getProject } from "../core/projectRegistry.js";
+
+export function applyPatch({ project, patch }) {
+
+    const root = getProject(project).root;
+
+    if (patch.includes("../")) {
+        throw new Error("Unsafe patch path");
+    }
+
+    const patchPath = path.join(root, "ai.patch");
+
+    fs.writeFileSync(patchPath, patch);
+
+    execSync(`git apply ${patchPath}`, { cwd: root });
+
+    fs.unlinkSync(patchPath);
+
+    return {
+        content: [{ type: "text", text: "Patch applied" }]
+    };
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectSearch.js
+========================================
+import { execFileSync } from "child_process";
+import { getProject } from "../core/projectRegistry.js";
+
+export function searchProject({ project, query }) {
+
+    const root = getProject(project).root;
+
+    try {
+
+        const result = execFileSync(
+            "rg",
+            [
+                query,
+                "-n",
+                "--max-count",
+                "20",
+                "--max-columns",
+                "200",
+                "--no-heading"
+            ],
+            { cwd: root }
+        ).toString();
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: result.substring(0, 4000)
+                }
+            ]
+        };
+
+    } catch {
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: "No results found"
+                }
+            ]
+        };
+
+    }
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\readFiles.js
+========================================
+import fs from "fs";
+import { getProject } from "../core/projectRegistry.js";
+import { validatePath } from "../core/validator.js";
+import { readFileLimited } from "../utils/fileUtils.js";
+import { MAX_FILE_SIZE } from "../core/constants.js";
+
+export function readFiles({ project, paths }) {
+
+    const projectRoot = getProject(project).root;
+
+    const results = [];
+
+    for (const relativePath of paths) {
+
+        try {
+
+            const fullPath = validatePath(projectRoot, relativePath);
+
+            if (!fs.existsSync(fullPath)) {
+
+                results.push({
+                    path: relativePath,
+                    error: "File not found"
+                });
+
+                continue;
+            }
+
+            const content = readFileLimited(
+                fullPath,
+                MAX_FILE_SIZE
+            );
+
+            results.push({
+                path: relativePath,
+                content
+            });
+
+        } catch (err) {
+
+            results.push({
+                path: relativePath,
+                error: err.message
+            });
+        }
+    }
+
+    return {
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(results, null, 2)
+            }
+        ]
+    };
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\scanProject.js
+========================================
+import fs from "fs";
+import path from "path";
+import { getProject } from "../core/projectRegistry.js";
+import { IGNORE_FOLDERS } from "../core/constants.js";
+
+function walkDir(dir, root, options, depth = 0) {
+
+    const { extensions, maxDepth } = options;
+
+    if (depth > maxDepth) return [];
+
+    let results = [];
+
+    const items = fs.readdirSync(dir, { withFileTypes: true });
+
+    for (const item of items) {
+
+        if (IGNORE_FOLDERS.includes(item.name)) continue;
+
+        const fullPath = path.join(dir, item.name);
+
+        if (item.isDirectory()) {
+
+            results.push({
+                type: "directory",
+                path: path.relative(root, fullPath)
+            });
+
+            results = results.concat(
+                walkDir(fullPath, root, options, depth + 1)
+            );
+
+        } else {
+
+            if (
+                extensions.length === 0 ||
+                extensions.some(ext => item.name.endsWith(ext))
+            ) {
+                results.push({
+                    type: "file",
+                    path: path.relative(root, fullPath)
+                });
+            }
+
+        }
+    }
+
+    return results;
+}
+
+export function scanProject({ project, extensions = [], maxDepth = 5 }) {
+
+    const projectRoot = getProject(project).root;
+
+    const files = walkDir(
+        projectRoot,
+        projectRoot,
+        { extensions, maxDepth }
+    );
+
+    return {
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(
+                    { totalItems: files.length, items: files },
+                    null,
+                    2
+                )
+            }
+        ]
+    };
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\utils\fileUtils.js
+========================================
+import fs from "fs";
+import path from "path";
+
+export function resolveSafePath(root, relative) {
+
+    const resolved = path.resolve(root, relative);
+
+    if (!resolved.startsWith(path.resolve(root))) {
+        throw new Error("Unsafe path detected");
+    }
+
+    return resolved;
+}
+
+export function readFileLimited(filePath, maxSize) {
+
+    const content = fs.readFileSync(filePath, "utf8");
+
+    if (content.length > maxSize) {
+        return content.substring(0, maxSize) + "\n\n--- FILE TRUNCATED ---";
+    }
+
+    return content;
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\embedder.js
+========================================
+import { pipeline } from "@xenova/transformers";
+
+let embedder = null;
+
+export async function getEmbedder() {
+
+    if (!embedder) {
+
+        embedder = await pipeline(
+            "feature-extraction",
+            "Xenova/all-MiniLM-L6-v2"
+        );
+    }
+
+    return embedder;
+}
+
+export async function embed(text) {
+
+    const model = await getEmbedder();
+
+    const output = await model(text, {
+        pooling: "mean",
+        normalize: true
+    });
+
+    return Array.from(output.data);
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\indexCodebase.js
+========================================
+import { ChromaClient } from "chromadb";
+
+const client = new ChromaClient({
+    host: "localhost",
+    port: 8000
+});
+
+let cachedCollection = null;
+
+export async function getCollection() {
+
+    if (cachedCollection) return cachedCollection;
+
+    const collections = await client.listCollections();
+
+    const exists = collections.find(c => c.name === "codebase");
+
+    if (exists) {
+
+        cachedCollection = await client.getCollection({
+            name: "codebase"
+        });
+
+    } else {
+
+        cachedCollection = await client.createCollection({
+            name: "codebase",
+            embeddingFunction: null
+        });
+
+    }
+
+    return cachedCollection;
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\queryCodebase.js
+========================================
+import { ChromaClient } from "chromadb";
+
+const client = new ChromaClient({
+    host: "localhost",
+    port: 8000
+});
+
+let collectionCache = null;
+
+async function getCollection() {
+
+    if (collectionCache) return collectionCache;
+
+    collectionCache = await client.getCollection({
+        name: "codebase"
+    });
+
+    return collectionCache;
+}
+
+export async function queryCodebase(queryEmbedding) {
+
+    const collection = await getCollection();
+
+    const results = await collection.query({
+        queryEmbeddings: [queryEmbedding],
+        nResults: 6
+    });
+
+    if (!results.documents || results.documents.length === 0) {
+        return [];
+    }
+
+    return results.documents[0];
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\runIndex.js
+========================================
+import { getProject } from "../core/projectRegistry.js";
+import { indexProject } from "./runIndexCore.js";
+
+async function main() {
+
+    const projectName = process.argv[2] || "jsv";
+
+    const config = getProject(projectName);
+
+    console.log("Building vector index for:", projectName);
+
+    await indexProject(config.root);
+
+    console.log("Vector index completed");
+
+}
+
+main().catch(err => {
+    console.error("Indexing failed:", err);
+});
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\runIndexCore.js
+========================================
+import fs from "fs";
+import path from "path";
+import { getCollection } from "./indexCodebase.js";
+import { embed } from "./embedder.js";
+
+const IGNORE_FOLDERS = [
+    "node_modules",
+    ".git",
+    ".next",
+    "out",
+    "dist",
+    "build",
+    "target",
+    ".gradle",
+    ".cache"
+];
+
+function chunkCode(code) {
+
+    const chunks = [];
+
+    const parts = code.split(/function |export function |class /);
+
+    for (const part of parts) {
+
+        if (part.length < 40) continue;
+
+        chunks.push(part.substring(0, 2000));
+    }
+
+    if (chunks.length === 0) {
+        chunks.push(code.substring(0, 2000));
+    }
+
+    return chunks;
+}
+
+export async function indexProject(projectRoot) {
+
+    const collection = await getCollection();
+
+    async function walk(dir) {
+
+        const items = fs.readdirSync(dir, { withFileTypes: true });
+
+        for (const item of items) {
+
+            const full = path.join(dir, item.name);
+
+            if (item.isDirectory()) {
+
+                if (IGNORE_FOLDERS.includes(item.name)) continue;
+
+                await walk(full);
+                continue;
+            }
+
+            if (
+                full.endsWith(".js") ||
+                full.endsWith(".ts") ||
+                full.endsWith(".tsx") ||
+                full.endsWith(".jsx")
+            ) {
+
+                try {
+
+                    const code = fs.readFileSync(full, "utf8");
+
+                    const chunks = chunkCode(code);
+
+                    for (const chunk of chunks) {
+
+                        const embedding = await embed(chunk);
+
+                        await collection.add({
+                            ids: [Buffer.from(full + chunk).toString("base64")],
+                            documents: [chunk],
+                            embeddings: [embedding]
+                        });
+
+                    }
+
+                    console.log("Indexed:", full);
+
+                } catch (err) {
+
+                    console.error("Index error:", full, err);
+
+                }
+
+            }
+        }
+    }
+
+    await walk(projectRoot);
+
+    console.log("Indexing completed");
+}
+

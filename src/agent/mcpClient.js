@@ -1,0 +1,97 @@
+import { spawn } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export class MCPClient {
+
+    constructor() {
+
+        const serverPath = path.resolve(__dirname, "../index.js");
+
+        this.proc = spawn("node", [serverPath], {
+            stdio: ["pipe", "pipe", "inherit"]
+        });
+
+        this.buffer = "";
+        this.pending = new Map();
+
+        this.proc.stdout.on("data", (data) => {
+            this.handleData(data.toString());
+        });
+
+        this.proc.on("exit", () => {
+            console.error("MCP server exited");
+        });
+    }
+
+    handleData(chunk) {
+
+        this.buffer += chunk;
+
+        let boundary;
+
+        while ((boundary = this.buffer.indexOf("\n")) >= 0) {
+
+            const line = this.buffer.slice(0, boundary).trim();
+            this.buffer = this.buffer.slice(boundary + 1);
+
+            if (!line) continue;
+
+            try {
+
+                const msg = JSON.parse(line);
+
+                if (msg.id && this.pending.has(msg.id)) {
+
+                    const { resolve } = this.pending.get(msg.id);
+
+                    this.pending.delete(msg.id);
+
+                    resolve(msg.result);
+
+                }
+
+            } catch {}
+
+        }
+    }
+
+    callTool(name, args = {}) {
+
+        const id = Date.now() + Math.random();
+
+        const req = {
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name, arguments: args }
+        };
+
+        return new Promise((resolve, reject) => {
+
+            const timeout = setTimeout(() => {
+
+                this.pending.delete(id);
+
+                reject(new Error("MCP timeout"));
+
+            }, 20000);
+
+            this.pending.set(id, {
+                resolve: (res) => {
+
+                    clearTimeout(timeout);
+
+                    resolve(res);
+
+                }
+            });
+
+            this.proc.stdin.write(JSON.stringify(req) + "\n");
+
+        });
+    }
+
+}
