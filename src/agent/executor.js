@@ -24,8 +24,20 @@ function normalizeArgs(tool, args, project) {
 
     // Fix apply_changes defaults
     if (tool === "project_apply_changes") {
+
         if (!args.files) args.files = [];
-        if (!args.commitMessage) args.commitMessage = "AI generated change";
+
+        if (args.path && args.content) {
+            args.files = [{
+                path: args.path,
+                content: args.content
+            }];
+            delete args.path;
+            delete args.content;
+        }
+
+        if (!args.commitMessage)
+            args.commitMessage = "AI generated change";
     }
 
     return args;
@@ -50,36 +62,28 @@ function hoistTopLevelArgs(parsed) {
 }
 
 export async function executeStep(step, context, project) {
-    const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
+    const prompt = `You are an AI coding agent.
+
+Return ONLY JSON.
 
 Context:
 ${context}
 
-Step to execute:
+Step:
 ${step}
 
-Available tools:
+Tools:
+project_scan
+project_search
+project_find_symbol
+project_read_files
+project_apply_search_replace
+project_apply_changes
+project_build_and_fix
 
-project_scan        — { "tool": "project_scan", "args": { "project": "string" } }
-project_search      — { "tool": "project_search", "args": { "project": "string", "query": "string" } }
-project_find_symbol — { "tool": "project_find_symbol", "args": { "project": "string", "name": "string" } }
-project_read_files  — { "tool": "project_read_files", "args": { "project": "string", "paths": ["file"] } }
-project_apply_changes — {
-  "tool": "project_apply_changes",
-  "args": {
-    "project": "string",
-    "files": [{ "path": "relative/path", "content": "full file content" }],
-    "commitMessage": "message"
-  }
-}
-project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
-
-Rules:
-- Output ONLY the JSON object, nothing else
-- All args MUST be inside the "args" key
-- project is always: ${project}
-
-JSON:`;
+Format:
+{"tool":"name","args":{}}
+`;
 
     const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
     const extracted = extractJSON(raw);

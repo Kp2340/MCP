@@ -4,32 +4,30 @@ import { listProjects } from "../core/projectRegistry.js";
 const MODEL = "qwen2.5-coder:7b";
 
 export async function createPlan(prompt) {
-  const projects = listProjects().join(", ");
-
-  const planPrompt = `You are a senior software planning agent.
-
-Available projects: ${projects}
+  const planPrompt = `You are an AI coding agent.
 
 Available MCP tools:
-- project_scan        — list files/folders
-- project_search      — ripgrep text search
-- project_find_symbol — find class or function by name
-- project_read_files  — read file contents
-- project_apply_changes — write files and commit
-- project_build_and_fix — build and auto-fix errors
+project_scan
+project_search
+project_find_symbol
+project_read_files
+project_apply_search_replace
+project_apply_changes
+project_build_and_fix
 
 Rules:
-- ALWAYS start with project_scan if the file path is not known
-- ALWAYS read AuthContext, router, and the target file before writing any code
-- NEVER call project_apply_changes without first reading the file you are modifying
-- NEVER include project_apply_changes twice in a plan for the same file
-- Create new pages as NEW files — do not replace existing components
-- After applying changes, run project_build_and_fix ONCE at the end
-- Maximum 6 steps
-- Each step must correspond to exactly one tool call
+- Max 6 steps
+- One tool per step
+- Always scan project if file paths unknown
+- Always read files before editing
+- Use project_apply_changes to create new files.
+- Use search_replace only when editing existing files.
+- Run build only once at end
+
 Task:
 ${prompt}
-`;
+
+Return a numbered step plan.`;
 
   return await askLLM(MODEL, planPrompt, {
     temperature: 0.2,

@@ -16,6 +16,7 @@ import { projectIndex }       from "./tools/projectIndex.js";
 import { runAutoFix }         from "./autoFixLoop/autoFixLoop.js";
 import { getProject, listProjects } from "./core/projectRegistry.js";
 import { buildDependencyGraph } from "./analysis/dependencyGraph.js";
+import { projectSearchReplace } from "./tools/projectSearchReplace.js";
 
 const server = new Server(
     { name: "ai-dev-mcp", version: "9.0.0" },
@@ -147,6 +148,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 type: "object",
                 properties: {}
             }
+        },
+        {
+            name:"project_apply_search_replace",
+            description:"Apply targeted search replace edits",
+            inputSchema:{
+                type:"object",
+                properties:{
+                    project:{type:"string"},
+                    edits:{type:"array"}
+                },
+                required:["project","edits"]
+            }
         }
     ]
 }));
@@ -192,6 +205,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
                     }]
                 };
             }
+
+            case "project_apply_search_replace":
+                return projectSearchReplace(args);
 
             default:
                 throw new Error(`Unknown tool: ${tool}`);

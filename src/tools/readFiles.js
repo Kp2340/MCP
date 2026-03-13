@@ -4,28 +4,63 @@ import { validatePath } from "../core/validator.js";
 import { readFileLimited } from "../utils/fileUtils.js";
 import { MAX_FILE_SIZE } from "../core/constants.js";
 
+const BLOCKED = [
+    ".env",
+    ".xml",
+    ".properties",
+    ".config",
+    ".yaml",
+    ".yml"
+];
+
 export function readFiles({ project, paths }) {
-    const projectRoot = getProject(project).root;
+
+    const root = getProject(project).root;
     const results = [];
 
-    for (const relativePath of paths) {
-        try {
-            const fullPath = validatePath(projectRoot, relativePath);
+    for (const p of paths) {
 
-            if (!fs.existsSync(fullPath)) {
-                results.push({ path: relativePath, error: "File not found" });
+        const ext = p.substring(p.lastIndexOf("."));
+
+        if (BLOCKED.includes(ext)) {
+            results.push({
+                path: p,
+                error: "Access denied"
+            });
+            continue;
+        }
+
+        try {
+
+            const full = validatePath(root, p);
+
+            if (!fs.existsSync(full)) {
+                results.push({ path: p, error: "File not found" });
                 continue;
             }
 
-            const content = readFileLimited(fullPath, MAX_FILE_SIZE);
-            results.push({ path: relativePath, content });
+            const content = readFileLimited(full, MAX_FILE_SIZE);
+
+            results.push({
+                path: p,
+                content
+            });
 
         } catch (err) {
-            results.push({ path: relativePath, error: err.message });
+
+            results.push({
+                path: p,
+                error: err.message
+            });
         }
     }
 
     return {
-        content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(results, null, 2)
+            }
+        ]
     };
 }
