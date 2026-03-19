@@ -40,5 +40,11 @@
     "type": "nextjs",
     "buildCommand": "npm run build",
     "branchPrefix": "JSV"
+  },
+  "mcp": {
+    "root": "C:/Users/kushp/IdeaProjects/mcp",
+    "type": "nodejs",
+    "buildCommand": "",
+    "branchPrefix": "MCP"
   }
 }

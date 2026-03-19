@@ -9,65 +9,36 @@ const MAX_RESULTS = 4;
 let indexing = false;
 
 function compress(doc) {
-
     if (!doc) return "";
-
-    if (doc.length > MAX_SNIPPET) {
-        return doc.substring(0, MAX_SNIPPET) + "\n...";
-    }
-
-    return doc;
+    return doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc;
 }
 
 export async function retrieveContext(prompt, project = null) {
-
     try {
-
         const embedding = await embed(prompt);
 
         let docs;
-
         try {
-
             docs = await queryCodebase(embedding, project);
-
-        } catch (err) {
-
-            if (!project) throw err;
-
-            if (!indexing) {
-
+        } catch {
+            // Collection missing — auto-build index once
+            if (project && !indexing) {
                 indexing = true;
-
-                console.log("\nVector index missing. Building automatically...\n");
-
+                console.log("\n[retriever] Vector index missing. Building automatically...\n");
                 const config = getProject(project);
-
                 await indexProject(config.root, project);
-
-                console.log("\nVector index built successfully\n");
-
+                console.log("\n[retriever] Vector index built.\n");
                 indexing = false;
-
             }
-
             docs = await queryCodebase(embedding, project);
         }
 
-        if (!docs || docs.length === 0) {
-            return "";
-        }
+        if (!docs || docs.length === 0) return "";
 
-        return docs
-            .slice(0, MAX_RESULTS)
-            .map(compress)
-            .join("\n\n");
+        return docs.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {
-
-        console.error("Retriever error:", err);
-
+        console.error("[retriever] Error:", err.message);
         return "";
-
     }
 }

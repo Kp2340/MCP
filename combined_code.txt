@@ -493,6 +493,216 @@ MIT License
 Kp2340
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\ROADMAP.md
+========================================
+# AI Dev MCP — Roadmap & Custom Model Strategy
+
+## Phase 1 — Current (v9.0.0) ✅
+
+All critical bugs fixed and code optimised. System is stable for 1-2 concurrent users
+on a single hosted laptop.
+
+**What was fixed in this version:**
+- `extractJSON()` centralised in `utils/jsonUtils.js` — used by executor AND autoFixLoop
+- `semanticIndexer.js` — correct AST node extraction (`childForFieldName('name')`)
+- `dependencyGraph.js` + `semanticIndexer.js` — both now skip `node_modules` and ignored folders
+- Shell injection in `applyChanges.js` — switched to `spawnSync` with args array
+- `autoFixLoop.js` — now sends file context alongside errors to the LLM
+- `projectBuild.js` — 120s timeout added, no more infinite hangs
+- `ollamaClient.js` — shared by all callers, `temperature: 0.1` enforced everywhere
+- `projectFindSymbol.js` — auto-builds index if missing
+- `mcpClient.js` — 60s timeout (was 20s), rejects pending calls on server exit
+- `projectRegistry.js` — hot reload, no restart needed to add a project
+- New tool: `project_list` — agents can discover available projects
+
+---
+
+## Phase 2 — Team Usability (2–4 weeks)
+
+### 2a. HTTP/SSE transport (priority)
+Add an HTTP server alongside stdio so teammates can connect from their own machines.
+
+```js
+// In src/index.js — add alongside StdioServerTransport:
+import express from "express";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+
+const app = express();
+app.get("/sse", (req, res) => {
+    const transport = new SSEServerTransport("/message", res);
+    server.connect(transport);
+});
+app.post("/message", express.json(), handler);
+app.listen(3001);
+```
+
+Team members point their MCP client at `http://your-laptop-ip:3001/sse`.
+Use **Tailscale** for secure access outside the office — no firewall config needed.
+
+### 2b. Search/replace edits (biggest quality gap vs Cursor)
+Add a `project_apply_search_replace` tool that takes targeted diffs instead of
+full file rewrites. Massively reduces tokens and prevents accidental deletion of
+code outside the target area.
+
+```js
+// Tool args:
+{
+  "project": "string",
+  "edits": [
+    {
+      "path": "src/components/Login.jsx",
+      "search": "exact string to find",
+      "replace": "replacement string"
+    }
+  ],
+  "commitMessage": "message"
+}
+```
+
+### 2c. IntelliJ plugin
+See `INTELLIJ_PLUGIN.md` for the full plan. Short version:
+- Check if JetBrains AI Assistant (2024.2+) supports custom MCP servers in Settings first
+- If not: build a Kotlin tool window plugin that POSTs to your HTTP endpoint
+- Plugin auto-injects current file path + selected text into every prompt
+
+---
+
+## Phase 3 — Custom Model for Company Privacy (1–3 months)
+
+This is the most important long-term step. Running a fine-tuned private model means:
+- Your codebase, architecture decisions, and internal APIs never leave your network
+- The model learns your team's coding conventions and project structure
+- Token efficiency improves because the model already "knows" your domain
+
+### Step 1 — Collect training data from your own projects
+Export conversations where the agent successfully completed tasks. Each
+successful run produces a (prompt → tool calls → result) trajectory that can
+be used as a training example.
+
+```
+src/training/
+├── collector.js      ← logs successful agent runs to JSONL
+├── formatter.js      ← converts logs to fine-tune format
+└── dataset/
+    └── runs.jsonl    ← accumulated training examples
+```
+
+Format each example as a chat turn:
+```jsonl
+{"messages": [
+  {"role": "system", "content": "You are an AI coding agent..."},
+  {"role": "user",   "content": "Step: Read the Login component"},
+  {"role": "assistant", "content": "{\"tool\":\"project_read_files\",\"args\":{...}}"}
+]}
+```
+
+### Step 2 — Fine-tune qwen2.5-coder:7b on your data
+
+Use **Unsloth** (fastest fine-tuning on consumer GPUs — your RTX 3050 Ti can do it):
+
+```bash
+pip install unsloth
+```
+
+```python
+# finetune.py
+from unsloth import FastLanguageModel
+from trl import SFTTrainer
+from datasets import load_dataset
+
+model, tokenizer = FastLanguageModel.from_pretrained(
+    "unsloth/Qwen2.5-Coder-7B-Instruct",
+    max_seq_length=4096,
+    load_in_4bit=True       # Fits in 4GB VRAM with QLoRA
+)
+
+model = FastLanguageModel.get_peft_model(
+    model,
+    r=16,                   # LoRA rank — higher = more capacity, more VRAM
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    lora_alpha=16,
+    lora_dropout=0,
+    bias="none",
+    use_gradient_checkpointing=True
+)
+
+dataset = load_dataset("json", data_files="src/training/dataset/runs.jsonl")
+
+trainer = SFTTrainer(
+    model=model,
+    train_dataset=dataset["train"],
+    dataset_text_field="messages",
+    max_seq_length=4096,
+    num_train_epochs=3,
+)
+trainer.train()
+
+# Export to Ollama-compatible GGUF format
+model.save_pretrained_gguf("my-coder-model", tokenizer, quantization_method="q4_k_m")
+```
+
+### Step 3 — Register with Ollama and swap in
+
+```bash
+# Create Modelfile
+echo 'FROM ./my-coder-model-Q4_K_M.gguf' > Modelfile
+echo 'SYSTEM "You are an expert coding agent..."' >> Modelfile
+
+ollama create company-coder -f Modelfile
+```
+
+Then in `src/agent/ollamaClient.js` and `planner.js`:
+```js
+const MODEL = "company-coder";   // was "qwen2.5-coder:7b"
+```
+
+### Step 4 — What to store in the model vs ChromaDB
+
+| Data type | Where to store | Reason |
+|---|---|---|
+| Coding style / conventions | Fine-tune (baked into weights) | Static, changes rarely |
+| Internal API patterns | Fine-tune | Core domain knowledge |
+| Current file contents | ChromaDB (RAG) | Changes frequently |
+| Recent code history | ChromaDB | Dynamic |
+| Architecture decisions | Both | Fine-tune for patterns, RAG for specifics |
+| Secrets / credentials | Neither — use env vars | Security |
+
+### Hardware note for fine-tuning on your RTX 3050 Ti
+- QLoRA (4-bit) makes fine-tuning a 7B model possible on 4GB VRAM
+- Expect ~2–4 hours per training run on your hardware
+- You need ~50–200 successful agent run examples to see meaningful improvement
+- Run fine-tuning overnight — the laptop stays on anyway
+
+---
+
+## Phase 4 — Multi-user & Scale (3+ months)
+
+Once the custom model is working:
+
+- **Request queue**: Add a simple queue so 2+ team members can submit tasks
+  without racing on the GPU. One job at a time, others wait with status updates.
+- **Per-project model specialisation**: Fine-tune separate LoRA adapters per
+  project (zeveal, decorom, etc.) and swap them at runtime — each adapter is
+  only ~50MB.
+- **Long-term memory**: Store summaries of completed tasks in ChromaDB so the
+  agent remembers "we use React Query for data fetching" without being told every time.
+- **Reviewer agent**: Second LLM pass that checks the first agent's code changes
+  before committing — catches obvious mistakes before the build runs.
+
+---
+
+## Summary: What makes this your competitive moat
+
+| Feature | Open-source tools | Your custom system |
+|---|---|---|
+| Privacy | Cloud API required | 100% local |
+| Cost | $19–39/dev/month | Free after hardware |
+| Domain knowledge | Generic | Trained on your own code |
+| Customisation | Limited | Full control |
+| Data ownership | Vendor's servers | Your laptop |
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\index.js
 ========================================
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -638,6 +848,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     const tool = req.params.name;
     const args = req.params.arguments;
+    console.log("\n========== TOOL CALL ==========");
+    console.log("Tool:", tool);
+    console.log("Args:", args);
+    console.log("================================");
 
     if (tool === "project_scan") return scanProject(args);
     if (tool === "project_read_files") return readFiles(args);
@@ -691,87 +905,88 @@ import { MCPClient } from "./mcpClient.js";
 import { createPlan } from "./planner.js";
 import { executeStep } from "./executor.js";
 import { retrieveContext } from "./retriever.js";
+import { extractJSON } from "../utils/jsonUtils.js";
+import { TrainingCollector } from "../training/collector.js";
 
 process.env.NODE_NO_WARNINGS = "1";
 
 const mcp = new MCPClient();
+const collector = new TrainingCollector();
 
-function cleanJSON(text) {
-    if (!text) return "";
-
-    return text
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
-}
+console.log(`[training] ${collector.count()} examples collected so far`);
 
 async function runAgent(prompt) {
+    const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
+    if (!projectMatch) {
+        throw new Error("Prompt must include: project: <project-name>");
+    }
+    const project = projectMatch[1];
 
+    console.log("Project:", project);
     console.log("\nCreating plan...\n");
 
-    const context = await retrieveContext(prompt, "decorom-frontend");
+    // Retrieve context ONCE for the full plan — not again per step
+    const planContext = await retrieveContext(prompt, project);
 
-    const enrichedPrompt = `
-User request:
-${prompt}
-
-Context:
-${context}
-`;
-
+    const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
     const plan = await createPlan(enrichedPrompt);
 
     console.log("\nPlan:\n");
     console.log(plan);
 
+    // Parse numbered steps robustly — handles "1." "1)" "Step 1:" etc.
     const steps = plan
         .split("\n")
-        .map(s => s.replace(/^\d+\.\s*/, "").trim())
-        .filter(Boolean);
+        .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
+        .filter(s => s.length > 4);
 
-    let executionContext = "";
-
+    let executionContext = planContext;  // Seed context with plan context
     const MAX_STEPS = 20;
+    let successfulSteps = 0;
+
+    collector.startRun(prompt);
 
     for (let i = 0; i < steps.length && i < MAX_STEPS; i++) {
-
-        const step = steps[i].trim();
-
+        const step = steps[i];
         if (!step) continue;
 
-        console.log("\nExecuting:", step);
+        console.log(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
 
-        const vectorContext = await retrieveContext(step, "decorom-frontend");
+        // Retrieve fresh vector context for each step (delta context)
+        const stepContext = await retrieveContext(step, project);
+        const fullContext = executionContext + (stepContext ? "\n\n" + stepContext : "");
 
-        const action = await executeStep(
-            step,
-            executionContext + "\n" + vectorContext
-        );
+        const action = await executeStep(step, fullContext, project);
 
         try {
-
-            const cleaned = cleanJSON(action);
-
-            if (!cleaned.startsWith("{")) {
-                console.log(cleaned);
+            const extracted = extractJSON(action);
+            if (!extracted.startsWith("{")) {
+                console.log(extracted);
                 continue;
             }
 
-            const parsed = JSON.parse(cleaned);
+            const parsed = JSON.parse(extracted);
 
             if (parsed.tool) {
+                console.log(`\n  → Calling tool: ${parsed.tool}`);
+                console.log(`    Args: ${JSON.stringify(parsed.args)}`);
 
-                console.log("\nCalling tool:", parsed.tool);
+                const result = await mcp.callTool(parsed.tool, parsed.args || {});
 
-                const result = await mcp.callTool(
-                    parsed.tool,
-                    parsed.args || {}
-                );
+                // Extract text content from MCP result for context
+                const resultText = result?.content
+                    ?.map(c => c.text || "")
+                    .join("\n")
+                    .substring(0, 3000) || "";
 
-                console.log("\nTool result:\n", result);
+                console.log(`\n  ← Result (${resultText.length} chars)`);
+                if (resultText.length < 500) console.log(resultText);
 
-                executionContext += "\n" + JSON.stringify(result);
+                executionContext += `\n\n[Step ${i + 1} result]:\n${resultText}`;
 
+                // Log successful tool call for training data collection
+                collector.logStep(step, { tool: parsed.tool, args: parsed.args }, resultText);
+                successfulSteps++;
             }
 
             if (parsed.done) {
@@ -780,13 +995,13 @@ ${context}
             }
 
         } catch (err) {
-
-            console.log("\nInvalid JSON from model:");
-            console.log(action);
-
+            console.warn(`\n[agent] Step ${i + 1} error: ${err.message}`);
+            console.warn("Raw output:", action);
         }
-
     }
+
+    // Save training data only if the run had meaningful successful steps
+    collector.endRun(successfulSteps >= 2);
 
     console.log("\nAgent finished\n");
 }
@@ -797,64 +1012,115 @@ const rl = readline.createInterface({
 });
 
 rl.question("Prompt: ", async (prompt) => {
-
     try {
         await runAgent(prompt);
     } catch (err) {
-        console.error("Agent error:", err);
+        console.error("Agent error:", err.message);
     }
-
     process.exit();
-
 });
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executor.js
 ========================================
 import { askLLM } from "./ollamaClient.js";
+import { extractJSON } from "../utils/jsonUtils.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
-export async function executeStep(step, context) {
+/**
+ * Normalize args after parsing:
+ * - Always sets project
+ * - Hoists top-level keys the model put outside "args" back in
+ * - Fixes common field name mistakes per tool
+ */
+function normalizeArgs(tool, args, project) {
+    if (!args) args = {};
 
-    const prompt = `
-You are an AI coding executor.
+    // Enforce correct project
+    args.project = project;
 
-Step:
-${step}
+    // Fix read_files: model sometimes uses "file" or passes a string
+    if (tool === "project_read_files") {
+        if (args.file) { args.paths = [args.file]; delete args.file; }
+        if (typeof args.paths === "string") args.paths = [args.paths];
+        if (!args.paths) args.paths = [];
+    }
+
+    // Fix apply_changes defaults
+    if (tool === "project_apply_changes") {
+        if (!args.files) args.files = [];
+        if (!args.commitMessage) args.commitMessage = "AI generated change";
+    }
+
+    return args;
+}
+
+/**
+ * The model sometimes puts args at top level instead of inside "args".
+ * E.g.: { "tool": "project_find_symbol", "name": "Foo", "args": {} }
+ * Hoist unknown top-level keys into args.
+ */
+function hoistTopLevelArgs(parsed) {
+    const known = new Set(["tool", "args", "done"]);
+    const extra = Object.keys(parsed).filter(k => !known.has(k));
+    if (extra.length > 0) {
+        if (!parsed.args) parsed.args = {};
+        for (const key of extra) {
+            if (parsed.args[key] === undefined) parsed.args[key] = parsed[key];
+            delete parsed[key];
+        }
+    }
+    return parsed;
+}
+
+export async function executeStep(step, context, project) {
+    const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
 
 Context:
 ${context}
 
+Step to execute:
+${step}
+
 Available tools:
-project_scan
-project_search
-project_find_symbol
-project_read_files
-project_apply_changes
-project_build_and_fix
+
+project_scan        — { "tool": "project_scan", "args": { "project": "string" } }
+project_search      — { "tool": "project_search", "args": { "project": "string", "query": "string" } }
+project_find_symbol — { "tool": "project_find_symbol", "args": { "project": "string", "name": "string" } }
+project_read_files  — { "tool": "project_read_files", "args": { "project": "string", "paths": ["file"] } }
+project_apply_changes — {
+  "tool": "project_apply_changes",
+  "args": {
+    "project": "string",
+    "files": [{ "path": "relative/path", "content": "full file content" }],
+    "commitMessage": "message"
+  }
+}
+project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
 
 Rules:
-- Always read files before modifying them
-- Use project_search to locate files
-- Use project_read_files before editing
-- After editing run project_build_and_fix
+- Output ONLY the JSON object, nothing else
+- All args MUST be inside the "args" key
+- project is always: ${project}
 
-Respond ONLY JSON.
+JSON:`;
 
-{
- "tool": "...",
- "args": {}
-}
+    const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
+    const extracted = extractJSON(raw);
 
-OR
-
-{
- "done": true
-}
-`;
-
-    return await askLLM(MODEL, prompt);
+    try {
+        let parsed = JSON.parse(extracted);
+        if (parsed.tool) {
+            parsed = hoistTopLevelArgs(parsed);
+            parsed.args = normalizeArgs(parsed.tool, parsed.args, project);
+        }
+        return JSON.stringify(parsed);
+    } catch {
+        console.warn("\n[executor] Could not parse model output:");
+        console.warn(raw);
+        return raw;
+    }
 }
 
 ========================================
@@ -869,7 +1135,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export class MCPClient {
 
     constructor() {
-
         const serverPath = path.resolve(__dirname, "../index.js");
 
         this.proc = spawn("node", [serverPath], {
@@ -883,46 +1148,45 @@ export class MCPClient {
             this.handleData(data.toString());
         });
 
-        this.proc.on("exit", () => {
-            console.error("MCP server exited");
+        this.proc.on("exit", (code) => {
+            console.error(`[mcp] Server exited with code ${code}`);
+            // Reject all pending calls
+            for (const [id, { reject }] of this.pending) {
+                reject(new Error("MCP server exited"));
+                this.pending.delete(id);
+            }
         });
     }
 
     handleData(chunk) {
-
         this.buffer += chunk;
 
         let boundary;
-
         while ((boundary = this.buffer.indexOf("\n")) >= 0) {
-
             const line = this.buffer.slice(0, boundary).trim();
             this.buffer = this.buffer.slice(boundary + 1);
 
             if (!line) continue;
 
             try {
-
                 const msg = JSON.parse(line);
-
                 if (msg.id && this.pending.has(msg.id)) {
-
-                    const { resolve } = this.pending.get(msg.id);
-
+                    const { resolve, reject } = this.pending.get(msg.id);
                     this.pending.delete(msg.id);
-
-                    resolve(msg.result);
-
+                    if (msg.error) {
+                        reject(new Error(msg.error.message || "MCP tool error"));
+                    } else {
+                        resolve(msg.result);
+                    }
                 }
-
-            } catch {}
-
+            } catch {
+                // Ignore non-JSON lines (e.g. debug logs)
+            }
         }
     }
 
     callTool(name, args = {}) {
-
-        const id = Date.now() + Math.random();
+        const id = `${Date.now()}-${Math.random()}`;
 
         const req = {
             jsonrpc: "2.0",
@@ -932,30 +1196,19 @@ export class MCPClient {
         };
 
         return new Promise((resolve, reject) => {
-
             const timeout = setTimeout(() => {
-
                 this.pending.delete(id);
-
-                reject(new Error("MCP timeout"));
-
-            }, 20000);
+                reject(new Error(`MCP timeout calling ${name}`));
+            }, 60000);  // 60s timeout (was 20s — builds can be slow)
 
             this.pending.set(id, {
-                resolve: (res) => {
-
-                    clearTimeout(timeout);
-
-                    resolve(res);
-
-                }
+                resolve: (res) => { clearTimeout(timeout); resolve(res); },
+                reject:  (err) => { clearTimeout(timeout); reject(err); }
             });
 
             this.proc.stdin.write(JSON.stringify(req) + "\n");
-
         });
     }
-
 }
 
 ========================================
@@ -965,66 +1218,82 @@ import fetch from "node-fetch";
 
 const OLLAMA_URL = "http://localhost:11434/api/generate";
 
-export async function askLLM(model, prompt) {
+/**
+ * Call the local Ollama LLM.
+ *
+ * @param {string} model   - model name, e.g. "qwen2.5-coder:7b"
+ * @param {string} prompt  - full prompt string
+ * @param {object} opts    - optional overrides: temperature, num_predict
+ */
+export async function askLLM(model, prompt, opts = {}) {
+    const body = {
+        model,
+        prompt,
+        stream: false,
+        options: {
+            temperature: opts.temperature ?? 0.1,   // Low temp = more deterministic JSON
+            num_predict: opts.num_predict ?? 2048,
+            top_p: 0.9
+        }
+    };
 
-    const response = await fetch(OLLAMA_URL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            model,
-            prompt,
-            stream: false,
-            options: {
-                temperature: 0.1,
-                num_predict: 400,
-                top_p: 0.9
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const res = await fetch(OLLAMA_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            });
+
+            if (!res.ok) {
+                throw new Error(`Ollama HTTP ${res.status}`);
             }
-        })
-    });
 
-    if (!response.ok) {
-        throw new Error("Ollama request failed");
+            const data = await res.json();
+            return data.response?.trim() ?? "";
+
+        } catch (err) {
+            if (attempt === 2) throw new Error(`LLM failed after 3 attempts: ${err.message}`);
+            console.warn(`LLM retry ${attempt + 1}/3...`);
+            await new Promise(r => setTimeout(r, 2000));
+        }
     }
-
-    const data = await response.json();
-
-    return data.response.trim();
 }
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\planner.js
 ========================================
 import { askLLM } from "./ollamaClient.js";
+import { listProjects } from "../core/projectRegistry.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
 export async function createPlan(prompt) {
+    const projects = listProjects().join(", ");
 
-    const planPrompt = `
-You are a senior software planning agent.
+    const planPrompt = `You are a senior software planning agent.
+
+Available projects: ${projects}
 
 Available MCP tools:
-
-project_scan
-project_search
-project_find_symbol
-project_read_files
-project_apply_changes
-project_build_and_fix
+- project_scan        — list files/folders
+- project_search      — ripgrep text search
+- project_find_symbol — find class or function by name
+- project_read_files  — read file contents
+- project_apply_changes — write files and commit
+- project_build_and_fix — build and auto-fix errors
 
 Rules:
 - Always read relevant files before modifying them
+- Use project_find_symbol to locate components before reading them
 - After applying code changes ALWAYS run project_build_and_fix
-- Return only numbered steps
-- No explanations
+- Return ONLY numbered steps, one per line, no explanation
 
 Task:
 ${prompt}
 `;
 
-    return await askLLM(MODEL, planPrompt);
+    return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
 }
 
 ========================================
@@ -1032,60 +1301,46 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\retriever.js
 ========================================
 import { queryCodebase } from "../vector/queryCodebase.js";
 import { embed } from "../vector/embedder.js";
-import { projectIndex } from "../tools/projectIndex.js";
+import { indexProject } from "../vector/runIndexCore.js";
+import { getProject } from "../core/projectRegistry.js";
 
 const MAX_SNIPPET = 600;
 const MAX_RESULTS = 4;
 
+let indexing = false;
+
 function compress(doc) {
-
     if (!doc) return "";
-
-    if (doc.length > MAX_SNIPPET) {
-        return doc.substring(0, MAX_SNIPPET) + "\n...";
-    }
-
-    return doc;
+    return doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc;
 }
 
 export async function retrieveContext(prompt, project = null) {
-
     try {
-
         const embedding = await embed(prompt);
 
         let docs;
-
         try {
-
-            docs = await queryCodebase(embedding);
-
-        } catch (err) {
-
-            console.log("\nVector index missing. Building index automatically...\n");
-
-            if (project) {
-                await projectIndex({ project });
+            docs = await queryCodebase(embedding, project);
+        } catch {
+            // Collection missing — auto-build index once
+            if (project && !indexing) {
+                indexing = true;
+                console.log("\n[retriever] Vector index missing. Building automatically...\n");
+                const config = getProject(project);
+                await indexProject(config.root, project);
+                console.log("\n[retriever] Vector index built.\n");
+                indexing = false;
             }
-
-            docs = await queryCodebase(embedding);
+            docs = await queryCodebase(embedding, project);
         }
 
-        if (!docs || docs.length === 0) {
-            return "";
-        }
+        if (!docs || docs.length === 0) return "";
 
-        return docs
-            .slice(0, MAX_RESULTS)
-            .map(compress)
-            .join("\n\n");
+        return docs.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {
-
-        console.error("Retriever error:", err);
-
+        console.error("[retriever] Error:", err.message);
         return "";
-
     }
 }
 
@@ -1094,48 +1349,50 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\analysis\dependencyGraph.js
 ========================================
 import fs from "fs";
 import path from "path";
+import { IGNORE_FOLDERS } from "../core/constants.js";
 
 export function buildDependencyGraph(root) {
-
     const graph = {};
 
     function walk(dir) {
+        let items;
+        try {
+            items = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
 
-        const files = fs.readdirSync(dir);
-
-        for (const f of files) {
-
-            const full = path.join(dir, f);
-            const stat = fs.statSync(full);
-
-            if (stat.isDirectory()) {
-                walk(full);
+        for (const item of items) {
+            // Skip ignored folders — this was missing before and caused node_modules crash
+            if (item.isDirectory()) {
+                if (IGNORE_FOLDERS.includes(item.name)) continue;
+                walk(path.join(dir, item.name));
                 continue;
             }
 
-            if (
-                full.endsWith(".js") ||
-                full.endsWith(".ts") ||
-                full.endsWith(".java")
-            ) {
+            const full = path.join(dir, item.name);
+            const ext = path.extname(item.name);
 
+            if (![".js", ".ts", ".jsx", ".tsx", ".java"].includes(ext)) continue;
+
+            try {
                 const content = fs.readFileSync(full, "utf8");
+                const relative = path.relative(root, full);
 
-                const imports =
-                    content.match(/import\s+.*?\s+from\s+['"](.*?)['"]/g) || [];
+                // Match ES imports AND require() calls
+                const importMatches = [
+                    ...content.matchAll(/import\s+.*?\s+from\s+['"]([^'"]+)['"]/g),
+                    ...content.matchAll(/require\s*\(\s*['"]([^'"]+)['"]\s*\)/g)
+                ];
 
-                graph[full] = imports.map(i =>
-                    i.match(/['"](.*?)['"]/)[1]
-                );
-
+                graph[relative] = importMatches.map(m => m[1]);
+            } catch {
+                // Unreadable file, skip
             }
-
         }
-
     }
 
     walk(root);
-
     return graph;
 }
 
@@ -1147,63 +1404,118 @@ import { parseErrors } from "../build/parseBuildErrors.js";
 import { askLLM } from "../agent/ollamaClient.js";
 import { getProject } from "../core/projectRegistry.js";
 import { applyChanges } from "../tools/applyChanges.js";
+import { safeParse } from "../utils/jsonUtils.js";
+import fs from "fs";
+import path from "path";
+
+const MODEL = "qwen2.5-coder:7b";
+const MAX_ATTEMPTS = 5;
+
+/**
+ * Parse file paths from error messages so we can send file context to the LLM.
+ * Handles patterns like: "src/components/Foo.jsx:42:5"
+ */
+function extractFilesFromErrors(errors, projectRoot) {
+    const files = new Set();
+    const pathPattern = /([a-zA-Z0-9_./-]+\.(js|jsx|ts|tsx|java|kt|go))(?::\d+)?/g;
+
+    for (const err of errors) {
+        let match;
+        while ((match = pathPattern.exec(err)) !== null) {
+            const candidate = path.resolve(projectRoot, match[1]);
+            if (fs.existsSync(candidate)) {
+                files.add(match[1]);
+            }
+        }
+    }
+
+    return [...files].slice(0, 4);  // Max 4 files to keep prompt size reasonable
+}
+
+function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
+    const results = [];
+    for (const rel of filePaths) {
+        try {
+            const full = path.resolve(projectRoot, rel);
+            const content = fs.readFileSync(full, "utf8").substring(0, maxChars);
+            results.push(`--- ${rel} ---\n${content}`);
+        } catch {
+            // File unreadable, skip
+        }
+    }
+    return results.join("\n\n");
+}
 
 export async function runAutoFix(projectName) {
-
     const project = getProject(projectName);
 
-    const MAX_ATTEMPTS = 5;
-
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-
-        console.log("Running build attempt:", attempt + 1);
+        console.log(`[autofix] Build attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
 
         const result = await buildProject({ project: projectName });
 
         if (result.success) {
-            console.log("Build successful");
-            return;
+            console.log("[autofix] Build successful");
+            return { success: true, attempts: attempt + 1 };
         }
 
-        const errors = parseErrors(result.stderr);
+        const errors = parseErrors(result.stderr || result.stdout || "");
 
-        const prompt = `
-Fix the following build errors.
+        if (errors.length === 0) {
+            console.log("[autofix] Build failed but no parseable errors — stopping");
+            break;
+        }
 
-Errors:
-${errors.join("\n")}
+        console.log(`[autofix] Found ${errors.length} error(s). Asking LLM to fix...`);
 
-Return JSON:
+        // Read source files mentioned in errors for context
+        const errorFiles = extractFilesFromErrors(errors, project.root);
+        const fileContext = readFilesSafe(errorFiles, project.root);
 
+        const prompt = `Fix the following build errors. Output ONLY a JSON object, no explanation.
+
+Build errors:
+${errors.slice(0, 20).join("\n")}
+
+Relevant source files:
+${fileContext || "(no source files found)"}
+
+Return this exact JSON format:
 {
- "files":[
-   {
-     "path":"relative/path/file.js",
-     "content":"corrected code"
-   }
- ]
+  "files": [
+    {
+      "path": "relative/path/to/file.js",
+      "content": "complete corrected file content here"
+    }
+  ]
 }
-`;
 
-        const response = await askLLM("qwen2.5-coder:7b", prompt);
+JSON:`;
+
+        const response = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 4096 });
+        const { ok, value } = safeParse(response);
+
+        if (!ok || !Array.isArray(value?.files)) {
+            console.warn("[autofix] LLM returned invalid patch — retrying");
+            continue;
+        }
+
+        console.log(`[autofix] Applying ${value.files.length} file fix(es)...`);
 
         try {
-
-            const patch = JSON.parse(response);
-
             await applyChanges({
                 project: projectName,
-                files: patch.files,
-                commitMessage: "Auto fix",
+                files: value.files,
+                commitMessage: `Auto-fix attempt ${attempt + 1}`,
                 increment: false
             });
-
-        } catch {
-            console.log("Invalid patch returned");
+        } catch (err) {
+            console.warn("[autofix] Could not apply patch:", err.message);
         }
     }
 
-    console.log("Auto fix attempts exceeded");
+    console.log("[autofix] Max attempts reached");
+    return { success: false, attempts: MAX_ATTEMPTS };
 }
 
 ========================================
@@ -1263,10 +1575,22 @@ export const IGNORE_FOLDERS = [
     ".gradle",
     "build",
     "target",
-    "dist"
+    "dist",
+    ".next",
+    "out",
+    ".cache",
+    "coverage",
+    "__pycache__",
+    ".idea",
+    ".vscode"
+];
+
+export const INDEXABLE_EXTENSIONS = [
+    ".js", ".jsx", ".ts", ".tsx", ".java", ".py", ".kt", ".go"
 ];
 
 export const MAX_FILE_SIZE = 12000;
+export const BUILD_TIMEOUT_MS = 120000;
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\projectRegistry.js
@@ -1276,18 +1600,25 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const projectsPath = path.join(__dirname, "../config/projects.json");
 
-const projects = JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
+function loadProjects() {
+    return JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
+}
 
 export function getProject(name) {
-
+    // Hot-reload: re-read on every call so adding a project doesn't need restart
+    const projects = loadProjects();
     if (!projects[name]) {
-        throw new Error("Project not found: " + name);
+        throw new Error(
+            `Project not found: "${name}". Available: ${Object.keys(projects).join(", ")}`
+        );
     }
-
     return projects[name];
+}
+
+export function listProjects() {
+    return Object.keys(loadProjects());
 }
 
 ========================================
@@ -1296,30 +1627,50 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\validator.js
 import path from "path";
 
 export function validatePath(projectRoot, relativePath) {
-
-    if (relativePath.includes("..") || path.isAbsolute(relativePath)) {
-        throw new Error("Invalid file path");
+    // Block absolute paths, traversal, and null bytes
+    if (
+        path.isAbsolute(relativePath) ||
+        relativePath.includes("..") ||
+        relativePath.includes("\0")
+    ) {
+        throw new Error(`Invalid file path: ${relativePath}`);
     }
 
     const resolved = path.resolve(projectRoot, relativePath);
+    const resolvedRoot = path.resolve(projectRoot);
 
-    if (!resolved.startsWith(path.resolve(projectRoot))) {
-        throw new Error("Path escapes project root");
+    if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
+        throw new Error(`Path escapes project root: ${relativePath}`);
     }
 
     return resolved;
 }
 
 export function validateChangeRequest(files, projectRoot) {
+    if (!Array.isArray(files) || files.length === 0) {
+        throw new Error("files must be a non-empty array");
+    }
 
     for (const file of files) {
-
-        if (!file.path || !file.content) {
-            throw new Error("Invalid file structure");
+        if (!file.path || typeof file.path !== "string") {
+            throw new Error("Each file must have a path string");
         }
-
+        if (typeof file.content !== "string") {
+            throw new Error(`File ${file.path} must have string content`);
+        }
         validatePath(projectRoot, file.path);
     }
+}
+
+/**
+ * Safe commit message — strips shell-special characters.
+ * Use this before passing a message to spawnSync.
+ */
+export function sanitizeCommitMessage(msg) {
+    return String(msg)
+        .replace(/[`$\\<>|;&]/g, "")
+        .substring(0, 200)
+        .trim() || "AI generated change";
 }
 
 ========================================
@@ -1328,28 +1679,15 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\git\branch.js
 import { execSync } from "child_process";
 
 function getLatestBranchNumber(projectRoot, prefix) {
-
-    const output = execSync("git branch", {
-        cwd: projectRoot
-    }).toString();
-
-    const branches = output.split("\n");
-
+    const output = execSync("git branch", { cwd: projectRoot }).toString();
+    const regex = new RegExp(`${prefix}-(\\d+)`);
     let max = 0;
 
-    const regex = new RegExp(`${prefix}-(\\d+)`);
-
-    for (const branch of branches) {
-
+    for (const branch of output.split("\n")) {
         const match = branch.match(regex);
-
         if (match) {
-
             const num = parseInt(match[1]);
-
-            if (num > max) {
-                max = num;
-            }
+            if (num > max) max = num;
         }
     }
 
@@ -1357,21 +1695,10 @@ function getLatestBranchNumber(projectRoot, prefix) {
 }
 
 export function createNextBranch(projectRoot, prefix) {
-
-    const latest = getLatestBranchNumber(projectRoot, prefix);
-
-    const next = latest + 1;
-
+    const next = getLatestBranchNumber(projectRoot, prefix) + 1;
     const branchName = `${prefix}-${next}`;
-
-    execSync(`git checkout -b ${branchName}`, {
-        cwd: projectRoot
-    });
-
-    return {
-        branchName,
-        number: next
-    };
+    execSync(`git checkout -b ${branchName}`, { cwd: projectRoot });
+    return { branchName, number: next };
 }
 
 ========================================
@@ -1396,30 +1723,27 @@ import JavaScript from "tree-sitter-javascript";
 import TypeScript from "tree-sitter-typescript";
 import Java from "tree-sitter-java";
 
+// Cache parser instances — creating a new Parser per file is expensive
+const parsers = {};
+
 export function getParser(ext) {
+    if (parsers[ext]) return parsers[ext];
 
     const parser = new Parser();
 
     if (ext === ".js" || ext === ".jsx") {
         parser.setLanguage(JavaScript);
-    }
-
-    else if (ext === ".ts") {
+    } else if (ext === ".ts") {
         parser.setLanguage(TypeScript.typescript);
-    }
-
-    else if (ext === ".tsx") {
+    } else if (ext === ".tsx") {
         parser.setLanguage(TypeScript.tsx);
-    }
-
-    else if (ext === ".java") {
+    } else if (ext === ".java") {
         parser.setLanguage(Java);
-    }
-
-    else {
+    } else {
         return null;
     }
 
+    parsers[ext] = parser;
     return parser;
 }
 
@@ -1429,68 +1753,70 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\indexer\semanticIndexer.js
 import fs from "fs";
 import path from "path";
 import { getParser } from "./languageLoader.js";
+import { IGNORE_FOLDERS } from "../core/constants.js";
 
 export function buildSemanticIndex(projectRoot) {
-
-    const index = {
-        classes: [],
-        functions: []
-    };
-
-    function walk(dir) {
-
-        const files = fs.readdirSync(dir);
-
-        for (const file of files) {
-
-            const full = path.join(dir, file);
-
-            const stat = fs.statSync(full);
-
-            if (stat.isDirectory()) {
-                walk(full);
-                continue;
-            }
-
-            const ext = path.extname(file);
-
-            const parser = getParser(ext);
-
-            if (!parser) continue;
-
-            const source = fs.readFileSync(full, "utf8");
-
-            const tree = parser.parse(source);
-
-            scanNode(tree.rootNode, full);
-        }
-    }
+    const index = { classes: [], functions: [] };
 
     function scanNode(node, file) {
-
-        if (node.type === "class_declaration") {
-
-            index.classes.push({
-                name: node.firstChild.text,
-                file
-            });
+        // FIX: use childForFieldName('name') — not firstChild which is the keyword
+        if (node.type === "class_declaration" || node.type === "class_definition") {
+            const nameNode = node.childForFieldName("name");
+            if (nameNode) {
+                index.classes.push({ name: nameNode.text, file });
+            }
         }
 
         if (
             node.type === "function_declaration" ||
-            node.type === "method_definition"
+            node.type === "method_definition" ||
+            node.type === "arrow_function" ||
+            node.type === "function_expression"
         ) {
-            index.functions.push({
-                name: node.firstChild.text,
-                file
-            });
+            const nameNode = node.childForFieldName("name");
+            if (nameNode) {
+                index.functions.push({ name: nameNode.text, file });
+            }
         }
 
-        node.children.forEach(child => scanNode(child, file));
+        for (const child of node.children) {
+            scanNode(child, file);
+        }
+    }
+
+    function walk(dir) {
+        let items;
+        try {
+            items = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
+
+        for (const item of items) {
+            // FIX: skip ignored folders — was missing before (indexed node_modules)
+            if (item.isDirectory()) {
+                if (IGNORE_FOLDERS.includes(item.name)) continue;
+                walk(path.join(dir, item.name));
+                continue;
+            }
+
+            const ext = path.extname(item.name);
+            const parser = getParser(ext);
+            if (!parser) continue;
+
+            const full = path.join(dir, item.name);
+            try {
+                const source = fs.readFileSync(full, "utf8");
+                const tree = parser.parse(source);
+                const relPath = path.relative(projectRoot, full);
+                scanNode(tree.rootNode, relPath);
+            } catch {
+                // Parse error on this file — skip
+            }
+        }
     }
 
     walk(projectRoot);
-
     return index;
 }
 
@@ -1905,31 +2231,149 @@ export function scanProject({ project, extensions = [], maxDepth = 5 }) {
 }
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\training\collector.js
+========================================
+/**
+ * Training data collector.
+ *
+ * Wraps agent runs and logs every successful (step -> tool call -> result)
+ * triple to a JSONL file. These examples are used later to fine-tune
+ * a private model on your team's coding patterns.
+ *
+ * To enable: set env var  COLLECT_TRAINING_DATA=1  before running the agent.
+ */
+
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATASET_DIR  = path.join(__dirname, "dataset");
+const DATASET_FILE = path.join(DATASET_DIR, "runs.jsonl");
+const ENABLED      = process.env.COLLECT_TRAINING_DATA === "1";
+
+const SYSTEM_PROMPT =
+    "You are an AI coding agent. Given a task step and code context, " +
+    "output ONLY a JSON tool call. No explanation, no markdown.";
+
+if (ENABLED) {
+    fs.mkdirSync(DATASET_DIR, { recursive: true });
+    console.log("[collector] Training data collection ENABLED");
+    console.log("[collector] Writing to:", DATASET_FILE);
+}
+
+/**
+ * Record a successful agent step as a training example.
+ * Only records steps where the model produced valid JSON.
+ */
+export function recordSuccess(step, context, toolCallJSON, project) {
+    if (!ENABLED) return;
+
+    try { JSON.parse(toolCallJSON); } catch { return; }
+
+    const example = {
+        messages: [
+            { role: "system",    content: SYSTEM_PROMPT },
+            { role: "user",      content: `Project: ${project}\n\nContext:\n${context.substring(0, 1500)}\n\nStep:\n${step}` },
+            { role: "assistant", content: toolCallJSON }
+        ]
+    };
+
+    try {
+        fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
+    } catch (err) {
+        console.warn("[collector] Write failed:", err.message);
+    }
+}
+
+export function printStats() {
+    if (!fs.existsSync(DATASET_FILE)) {
+        console.log("[collector] No training data collected yet.");
+        return;
+    }
+    const lines = fs.readFileSync(DATASET_FILE, "utf8").split("\n").filter(Boolean);
+    console.log(`[collector] Examples collected: ${lines.length}`);
+    console.log(`[collector] Dataset: ${DATASET_FILE}`);
+}
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\utils\fileUtils.js
 ========================================
 import fs from "fs";
 import path from "path";
 
 export function resolveSafePath(root, relative) {
-
     const resolved = path.resolve(root, relative);
-
     if (!resolved.startsWith(path.resolve(root))) {
         throw new Error("Unsafe path detected");
     }
-
     return resolved;
 }
 
 export function readFileLimited(filePath, maxSize) {
-
     const content = fs.readFileSync(filePath, "utf8");
-
     if (content.length > maxSize) {
         return content.substring(0, maxSize) + "\n\n--- FILE TRUNCATED ---";
     }
-
     return content;
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\utils\jsonUtils.js
+========================================
+/**
+ * Extracts the first complete JSON object from a string that may contain
+ * surrounding prose, markdown fences, or explanation text from the LLM.
+ *
+ * This is centralised here so executor.js, autoFixLoop.js, and any future
+ * LLM callers all share the same robust parser.
+ */
+export function extractJSON(text) {
+    if (!text) return "";
+
+    // Strip markdown fences
+    text = text
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
+
+    // Find the first '{' and balance-match to its closing '}'
+    const start = text.indexOf("{");
+    if (start === -1) return text;
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < text.length; i++) {
+        const ch = text[i];
+
+        if (escape) { escape = false; continue; }
+        if (ch === "\\" && inString) { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+
+        if (ch === "{") depth++;
+        if (ch === "}") {
+            depth--;
+            if (depth === 0) return text.slice(start, i + 1);
+        }
+    }
+
+    return text.trim();
+}
+
+/**
+ * Safely parse JSON from LLM output.
+ * Returns { ok: true, value } or { ok: false, raw }.
+ */
+export function safeParse(text) {
+    const extracted = extractJSON(text);
+    try {
+        return { ok: true, value: JSON.parse(extracted) };
+    } catch {
+        return { ok: false, raw: text };
+    }
 }
 
 ========================================
@@ -1974,32 +2418,32 @@ const client = new ChromaClient({
     port: 8000
 });
 
-let cachedCollection = null;
+const cache = {};
 
-export async function getCollection() {
+export async function getCollection(project) {
 
-    if (cachedCollection) return cachedCollection;
+    if (cache[project]) return cache[project];
+
+    const name = "codebase_" + project;
 
     const collections = await client.listCollections();
 
-    const exists = collections.find(c => c.name === "codebase");
+    const exists = collections.find(c => c.name === name);
 
     if (exists) {
 
-        cachedCollection = await client.getCollection({
-            name: "codebase"
-        });
+        cache[project] = await client.getCollection({ name });
 
     } else {
 
-        cachedCollection = await client.createCollection({
-            name: "codebase",
+        cache[project] = await client.createCollection({
+            name,
             embeddingFunction: null
         });
 
     }
 
-    return cachedCollection;
+    return cache[project];
 }
 
 ========================================
@@ -2012,22 +2456,24 @@ const client = new ChromaClient({
     port: 8000
 });
 
-let collectionCache = null;
+const cache = {};
 
-async function getCollection() {
+async function getCollection(project) {
 
-    if (collectionCache) return collectionCache;
+    if (cache[project]) return cache[project];
 
-    collectionCache = await client.getCollection({
-        name: "codebase"
+    const name = "codebase_" + project;
+
+    cache[project] = await client.getCollection({
+        name
     });
 
-    return collectionCache;
+    return cache[project];
 }
 
-export async function queryCodebase(queryEmbedding) {
+export async function queryCodebase(queryEmbedding, project) {
 
-    const collection = await getCollection();
+    const collection = await getCollection(project);
 
     const results = await collection.query({
         queryEmbeddings: [queryEmbedding],
@@ -2055,7 +2501,7 @@ async function main() {
 
     console.log("Building vector index for:", projectName);
 
-    await indexProject(config.root);
+    await indexProject(config.root, projectName);
 
     console.log("Vector index completed");
 
@@ -2105,9 +2551,9 @@ function chunkCode(code) {
     return chunks;
 }
 
-export async function indexProject(projectRoot) {
+export async function indexProject(projectRoot, projectName) {
 
-    const collection = await getCollection();
+    const collection = await getCollection(projectName);
 
     async function walk(dir) {
 

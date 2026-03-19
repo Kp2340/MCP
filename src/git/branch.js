@@ -1,28 +1,15 @@
 import { execSync } from "child_process";
 
 function getLatestBranchNumber(projectRoot, prefix) {
-
-    const output = execSync("git branch", {
-        cwd: projectRoot
-    }).toString();
-
-    const branches = output.split("\n");
-
+    const output = execSync("git branch", { cwd: projectRoot }).toString();
+    const regex = new RegExp(`${prefix}-(\\d+)`);
     let max = 0;
 
-    const regex = new RegExp(`${prefix}-(\\d+)`);
-
-    for (const branch of branches) {
-
+    for (const branch of output.split("\n")) {
         const match = branch.match(regex);
-
         if (match) {
-
             const num = parseInt(match[1]);
-
-            if (num > max) {
-                max = num;
-            }
+            if (num > max) max = num;
         }
     }
 
@@ -30,19 +17,8 @@ function getLatestBranchNumber(projectRoot, prefix) {
 }
 
 export function createNextBranch(projectRoot, prefix) {
-
-    const latest = getLatestBranchNumber(projectRoot, prefix);
-
-    const next = latest + 1;
-
+    const next = getLatestBranchNumber(projectRoot, prefix) + 1;
     const branchName = `${prefix}-${next}`;
-
-    execSync(`git checkout -b ${branchName}`, {
-        cwd: projectRoot
-    });
-
-    return {
-        branchName,
-        number: next
-    };
+    execSync(`git checkout -b ${branchName}`, { cwd: projectRoot });
+    return { branchName, number: next };
 }

@@ -1,179 +1,99 @@
-import fetch from "node-fetch";
+import { askLLM } from "./ollamaClient.js";
+import { extractJSON } from "../utils/jsonUtils.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
-function sleep(ms) {
-    return new Promise(r => setTimeout(r, ms));
-}
-
-function cleanJSON(text) {
-
-    if (!text) return "";
-
-    return text
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
-}
-
+/**
+ * Normalize args after parsing:
+ * - Always sets project
+ * - Hoists top-level keys the model put outside "args" back in
+ * - Fixes common field name mistakes per tool
+ */
 function normalizeArgs(tool, args, project) {
-
     if (!args) args = {};
 
-    /*
-    Always enforce project
-    */
+    // Enforce correct project
     args.project = project;
 
-    /*
-    Fix read_files
-    */
+    // Fix read_files: model sometimes uses "file" or passes a string
     if (tool === "project_read_files") {
-
-        if (args.file) {
-            args.paths = [args.file];
-            delete args.file;
-        }
-
-        if (typeof args.paths === "string") {
-            args.paths = [args.paths];
-        }
-
-        if (!args.paths) {
-            args.paths = [];
-        }
+        if (args.file) { args.paths = [args.file]; delete args.file; }
+        if (typeof args.paths === "string") args.paths = [args.paths];
+        if (!args.paths) args.paths = [];
     }
 
-    /*
-    Fix apply_changes
-    */
+    // Fix apply_changes defaults
     if (tool === "project_apply_changes") {
-
         if (!args.files) args.files = [];
-
-        if (!args.commitMessage) {
-            args.commitMessage = "AI generated change";
-        }
+        if (!args.commitMessage) args.commitMessage = "AI generated change";
     }
 
     return args;
 }
 
-async function callLLM(prompt) {
-
-    for (let i = 0; i < 3; i++) {
-
-        try {
-
-            const res = await fetch("http://localhost:11434/api/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    model: MODEL,
-                    prompt,
-                    stream: false
-                })
-            });
-
-            const json = await res.json();
-
-            return json.response;
-
-        } catch (err) {
-
-            console.log("LLM retry...");
-            await sleep(2000);
-
+/**
+ * The model sometimes puts args at top level instead of inside "args".
+ * E.g.: { "tool": "project_find_symbol", "name": "Foo", "args": {} }
+ * Hoist unknown top-level keys into args.
+ */
+function hoistTopLevelArgs(parsed) {
+    const known = new Set(["tool", "args", "done"]);
+    const extra = Object.keys(parsed).filter(k => !known.has(k));
+    if (extra.length > 0) {
+        if (!parsed.args) parsed.args = {};
+        for (const key of extra) {
+            if (parsed.args[key] === undefined) parsed.args[key] = parsed[key];
+            delete parsed[key];
         }
     }
-
-    throw new Error("LLM connection failed");
+    return parsed;
 }
 
 export async function executeStep(step, context, project) {
-
-    const prompt = `
-You are an AI coding agent.
+    const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
 
 Context:
 ${context}
 
-Step:
+Step to execute:
 ${step}
-
-You can call tools.
-
-Return ONLY JSON.
-
-Example format:
-
-{
-  "tool": "project_read_files",
-  "args": {
-    "project": "${project}",
-    "paths": ["src/file.js"]
-  }
-}
 
 Available tools:
 
-project_read_files
-{
- "project": "string",
- "paths": ["file1","file2"]
+project_scan        — { "tool": "project_scan", "args": { "project": "string" } }
+project_search      — { "tool": "project_search", "args": { "project": "string", "query": "string" } }
+project_find_symbol — { "tool": "project_find_symbol", "args": { "project": "string", "name": "string" } }
+project_read_files  — { "tool": "project_read_files", "args": { "project": "string", "paths": ["file"] } }
+project_apply_changes — {
+  "tool": "project_apply_changes",
+  "args": {
+    "project": "string",
+    "files": [{ "path": "relative/path", "content": "full file content" }],
+    "commitMessage": "message"
+  }
 }
-
-project_search
-{
- "project": "string",
- "query": "string"
-}
-
-project_find_symbol
-{
- "project": "string",
- "name": "symbol"
-}
-
-project_apply_changes
-{
- "project": "string",
- "files": [
-  { "path": "file", "content": "code" }
- ],
- "commitMessage": "message"
-}
-
-project_build_and_fix
-{
- "project": "string"
-}
+project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
 
 Rules:
-- JSON only
-- No markdown
-- Do not invent project names
-`;
+- Output ONLY the JSON object, nothing else
+- All args MUST be inside the "args" key
+- project is always: ${project}
 
-    const raw = await callLLM(prompt);
+JSON:`;
 
-    const cleaned = cleanJSON(raw);
+    const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
+    const extracted = extractJSON(raw);
 
     try {
-
-        const parsed = JSON.parse(cleaned);
-
+        let parsed = JSON.parse(extracted);
         if (parsed.tool) {
+            parsed = hoistTopLevelArgs(parsed);
             parsed.args = normalizeArgs(parsed.tool, parsed.args, project);
         }
-
         return JSON.stringify(parsed);
-
-    } catch (err) {
-
-        console.log("\nInvalid JSON from model:");
-        console.log(raw);
-
+    } catch {
+        console.warn("\n[executor] Could not parse model output:");
+        console.warn(raw);
         return raw;
     }
 }
