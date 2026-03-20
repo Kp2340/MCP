@@ -18,14 +18,68 @@ export const INDEXABLE_EXTENSIONS = [
     ".js", ".jsx", ".ts", ".tsx", ".java", ".py", ".kt", ".go"
 ];
 
-export const MAX_FILE_SIZE = 12000;
-export const BUILD_TIMEOUT_MS = 120000;
+export const MAX_FILE_SIZE     = 12000;
+export const BUILD_TIMEOUT_MS  = 120000;
 
-// Memory layer
+// ── Memory layer ──────────────────────────────────────────────────────────────
 export const MEMORY_COLLECTION_PREFIX = "memory_";
-export const MEMORY_MAX_RESULTS = 3;
-export const MEMORY_MAX_SNIPPET = 400;
+export const MEMORY_MAX_RESULTS       = 3;
+export const MEMORY_MAX_SNIPPET       = 400;
 
-// Context compression: summarise execution context every N steps
+// ── Context compression ───────────────────────────────────────────────────────
 export const COMPRESS_EVERY_N_STEPS = 3;
-export const COMPRESS_MAX_CHARS = 6000;  // trigger compression above this
+export const COMPRESS_MAX_CHARS     = 6000;
+
+// ── Cost-aware agent ──────────────────────────────────────────────────────────
+// Hard limits per agent run to prevent runaway LLM loops.
+export const MAX_LLM_CALLS_PER_RUN       = 30;    // total LLM invocations allowed
+export const MAX_TOKENS_ESTIMATE_PER_CALL = 2048;  // assumed output tokens per call
+export const MAX_TOTAL_TOKENS_PER_RUN    = 60000;  // triggers a warning (not a hard stop)
+export const MAX_REPLANS                 = 3;      // max mid-run replan attempts
+
+// ── Tool-chain templates ──────────────────────────────────────────────────────
+// Programmatic plans for common task shapes — zero LLM cost when matched.
+// Each entry: { keywords: string[], steps: string[] }
+// The heuristic planner tries these before calling the LLM.
+export const TOOL_CHAIN_TEMPLATES = [
+    {
+        name:     "fix_error",
+        keywords: ["fix", "error", "bug", "crash", "exception", "broken", "failing"],
+        steps: [
+            "Run static analysis to identify issues",
+            "Read the files mentioned in the errors",
+            "Apply targeted fixes using project_str_replace",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:     "add_api",
+        keywords: ["add api", "new endpoint", "add route", "create endpoint", "add service method"],
+        steps: [
+            "Find the relevant controller or service symbol",
+            "Read the controller and service files",
+            "Add the new method using project_str_replace",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:     "add_ui_component",
+        keywords: ["add component", "create page", "add form", "create ui", "add screen"],
+        steps: [
+            "Scan project structure to find components folder",
+            "Find similar existing component for reference",
+            "Read the reference component",
+            "Create the new component file using project_apply_changes",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:     "read_only",
+        keywords: ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze"],
+        steps: [
+            "Find the relevant symbol in the project",
+            "Read the relevant files"
+        ]
+    }
+];

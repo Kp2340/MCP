@@ -4,10 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-2.2">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/combined_code.txt" beforeDir="false" afterPath="$PROJECT_DIR$/combined_code.txt" afterDir="false" />
-    </list>
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-2.2" />
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -157,7 +154,7 @@
       <workItem from="1773416903744" duration="5387000" />
       <workItem from="1773637927965" duration="83000" />
       <workItem from="1773920188449" duration="1927000" />
-      <workItem from="1774025528375" duration="2801000" />
+      <workItem from="1774025528375" duration="3396000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />

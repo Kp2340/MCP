@@ -1,13 +1,12 @@
 import { askLLM } from "./ollamaClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
+import { MAX_LLM_CALLS_PER_RUN } from "../core/constants.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
-// ─── Rule-based tool router ──────────────────────────────────────────────────
+// ─── Rule-based tool router ────────────────────────────────────────────────────
 // Fires BEFORE the LLM. If a step matches a confident rule the LLM call is
-// skipped entirely — saves tokens and latency.
-//
-// Returns a pre-built JSON string, or null if no rule matched.
+// skipped entirely — zero tokens, zero latency.
 function routeByRule(step, project) {
     const s = step.toLowerCase();
 
@@ -15,26 +14,32 @@ function routeByRule(step, project) {
     if (/\b(scan|list files|folder structure|project structure)\b/.test(s))
         return JSON.stringify({ tool: "project_scan", args: { project } });
 
-    // Symbol lookup
-    const symbolMatch = s.match(/\b(find|locate|look up)\b.+\b(class|function|component|service|controller|symbol)\b[:\s]+([\w]+)/i)
-                     || s.match(/\bfind symbol[:\s]+([\w]+)/i);
+    // Symbol lookup — handles "find symbol Foo", "locate class Bar", "find component Login"
+    const symbolMatch =
+        s.match(/\b(?:find|locate|look up)\b.+\b(?:class|function|component|service|controller|symbol)\b[:\s]+([\w]+)/i) ||
+        s.match(/\bfind symbol[:\s]+([\w]+)/i) ||
+        s.match(/\b(?:find|locate)\b\s+([A-Z][\w]+)/);  // capitalised name heuristic
     if (symbolMatch) {
         const name = symbolMatch[symbolMatch.length - 1];
         return JSON.stringify({ tool: "project_find_symbol", args: { project, name } });
     }
 
-    // Build
-    if (/\b(build and fix|build_and_fix|auto.?fix)\b/.test(s))
+    // Build + fix
+    if (/\b(build and fix|build_and_fix|auto.?fix|run build and fix)\b/.test(s))
         return JSON.stringify({ tool: "project_build_and_fix", args: { project } });
 
+    // Plain build
     if (/\b(run build|npm run build|gradlew build|mvn|compile)\b/.test(s))
         return JSON.stringify({ tool: "project_build", args: { project } });
 
     // Static analysis
-    if (/\b(analyze|analyse|static.?analy|lint|check imports)\b/.test(s))
+    if (/\b(analyze|analyse|static.?analy|lint|check imports|run static analysis|identify issues)\b/.test(s))
         return JSON.stringify({ tool: "project_analyze", args: { project } });
 
-    // No confident match — fall through to LLM
+    // List projects
+    if (/\b(list projects|available projects|what projects)\b/.test(s))
+        return JSON.stringify({ tool: "project_list", args: {} });
+
     return null;
 }
 
@@ -48,21 +53,18 @@ function normalizeArgs(tool, args, project) {
         if (typeof args.paths === "string") args.paths = [args.paths];
         if (!args.paths) args.paths = [];
     }
-
     if (tool === "project_apply_changes") {
         if (!args.files)         args.files         = [];
         if (!args.commitMessage) args.commitMessage = "AI generated change";
     }
-
     if (tool === "project_str_replace") {
         if (!args.edits)         args.edits         = [];
         if (!args.commitMessage) args.commitMessage = "AI str-replace edit";
     }
-
     return args;
 }
 
-// Hoist top-level keys the model put outside "args" back in
+// Hoist top-level keys the model accidentally put outside "args"
 function hoistTopLevelArgs(parsed) {
     const known = new Set(["tool", "args", "done"]);
     const extra = Object.keys(parsed).filter(k => !known.has(k));
@@ -77,30 +79,51 @@ function hoistTopLevelArgs(parsed) {
 }
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
-export async function executeStep(step, context, project) {
+/**
+ * Execute a single plan step.
+ *
+ * @param {string} step          - natural-language step description
+ * @param {string} context       - execution context (compressed history + RAG)
+ * @param {string} project
+ * @param {string} [memoryCtx]   - relevant memory entries to inject (optional)
+ * @param {object} [costState]   - { llmCalls: number } mutated in place
+ */
+export async function executeStep(step, context, project, memoryCtx = "", costState = null) {
 
-    // 1. Try rule-based routing first (zero LLM cost)
+    // 1. Rule-based routing (zero LLM cost)
     const ruled = routeByRule(step, project);
     if (ruled) {
         console.error("[executor] Rule-matched (no LLM call)");
         return ruled;
     }
 
-    // 2. Fall back to LLM for ambiguous steps
+    // 2. Cost guard — if budget is exhausted, emit a safe no-op
+    if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
+        console.error("[executor] LLM budget exhausted — skipping LLM call for this step");
+        return JSON.stringify({ done: true });
+    }
+
+    // 3. Build memory injection block
+    const memoryBlock = memoryCtx
+        ? `\nRelevant project memory:\n${memoryCtx}\n`
+        : "";
+
+    // 4. LLM call for ambiguous steps
+    if (costState) costState.llmCalls++;
+
     const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
 
 Context:
-${context}
-
+${context}${memoryBlock}
 Step to execute:
 ${step}
 
 Available tools:
 
-project_scan        — { "tool": "project_scan", "args": { "project": "string" } }
-project_search      — { "tool": "project_search", "args": { "project": "string", "query": "string" } }
+project_scan        — { "tool": "project_scan",        "args": { "project": "string" } }
+project_search      — { "tool": "project_search",      "args": { "project": "string", "query": "string" } }
 project_find_symbol — { "tool": "project_find_symbol", "args": { "project": "string", "name": "string" } }
-project_read_files  — { "tool": "project_read_files", "args": { "project": "string", "paths": ["file"] } }
+project_read_files  — { "tool": "project_read_files",  "args": { "project": "string", "paths": ["file"] } }
 project_str_replace — {
   "tool": "project_str_replace",
   "args": {

@@ -950,7 +950,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\agent.js
 ========================================
 import readline from "readline";
 import { MCPClient } from "./mcpClient.js";
-import { createPlan } from "./planner.js";
+import { createPlan, updatePlan } from "./planner.js";
 import { executeStep } from "./executor.js";
 import { retrieveContext } from "./retriever.js";
 import { extractJSON } from "../utils/jsonUtils.js";
@@ -961,20 +961,19 @@ import { COMPRESS_EVERY_N_STEPS, COMPRESS_MAX_CHARS } from "../core/constants.js
 
 process.env.NODE_NO_WARNINGS = "1";
 
-const MODEL = "qwen2.5-coder:7b";
-const mcp = new MCPClient();
+const MODEL        = "qwen2.5-coder:7b";
+const MAX_STEPS    = 25;
+const MAX_RETRIES  = 2;   // retries per step before declaring failure
+
+const mcp       = new MCPClient();
 const collector = new TrainingCollector();
 
 console.error(`[training] ${collector.count()} examples collected so far`);
 
 // ─── Context compression ─────────────────────────────────────────────────────
-// Summarises executionContext when it grows beyond COMPRESS_MAX_CHARS.
-// Keeps the context window small without losing important information.
-async function compressContext(context, project) {
+async function compressContext(context) {
     if (context.length < COMPRESS_MAX_CHARS) return context;
-
     console.error("[agent] Compressing context...");
-
     const summary = await askLLM(MODEL,
         `Summarise the following code agent execution log in 3-5 bullet points.
 Focus on: what files were read, what changes were made, what errors were found.
@@ -983,135 +982,199 @@ Be concise. Output only the bullet points.
 ${context.substring(0, COMPRESS_MAX_CHARS)}`,
         { temperature: 0.1, num_predict: 400 }
     );
-
     console.error("[agent] Context compressed.");
     return `[Compressed context summary]:\n${summary}`;
 }
 
-// ─── Run summary → memory ────────────────────────────────────────────────────
-// After a successful run, extract a one-line architecture insight and store it
-// in long-term memory so future runs benefit from it.
+// ─── Memory extraction ───────────────────────────────────────────────────────
 async function extractAndStoreMemory(project, prompt, context) {
     try {
-        const insight = await askLLM(MODEL,
-            `Based on this coding agent run, write ONE concise sentence (max 120 chars)
-describing an architecture pattern, coding convention, or key decision observed.
-Only output the sentence, nothing else.
+        // Ask LLM to extract structured insight
+        const raw = await askLLM(MODEL,
+            `Based on this coding agent run, output ONLY a JSON object describing one architecture pattern observed.
+Fields: type ("architecture"|"fix"|"pattern"|"convention"), pattern (string, max 120 chars), files (array of relevant filenames, max 3), confidence (0.0-1.0)
+Output ONLY the JSON, nothing else.
 
 Task: ${prompt.substring(0, 200)}
-Context summary: ${context.substring(0, 800)}`,
-            { temperature: 0.2, num_predict: 80 }
+Context: ${context.substring(0, 800)}`,
+            { temperature: 0.1, num_predict: 120 }
         );
 
-        const clean = insight.trim().replace(/^["']/,"").replace(/["']$/,"");
-        if (clean.length > 20) {
-            await storeMemory(project, clean, "pattern");
+        let structured;
+        try {
+            const { extractJSON } = await import("../utils/jsonUtils.js");
+            structured = JSON.parse(extractJSON(raw));
+        } catch {
+            structured = null;
+        }
+
+        if (structured?.pattern && structured.pattern.length > 20) {
+            await storeMemory(project, structured, structured.type || "pattern");
         }
     } catch (err) {
         console.error("[agent] Memory extraction failed:", err.message);
     }
 }
 
-// ─── Main agent loop ─────────────────────────────────────────────────────────
+// ─── Step executor with retry ────────────────────────────────────────────────
+async function executeWithRetry(step, context, project) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+            console.error(`[agent] Retry ${attempt}/${MAX_RETRIES - 1} for step: ${step}`);
+        }
+
+        const action = await executeStep(step, context, project);
+
+        try {
+            const extracted = extractJSON(action);
+            if (!extracted.startsWith("{")) {
+                lastError = `Non-JSON output: ${extracted.substring(0, 100)}`;
+                continue;
+            }
+            const parsed = JSON.parse(extracted);
+            return { ok: true, parsed, raw: action };
+        } catch (err) {
+            lastError = err.message;
+        }
+    }
+
+    return { ok: false, error: lastError };
+}
+
+// ─── Main agent loop (adaptive) ──────────────────────────────────────────────
 async function runAgent(prompt) {
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
-    if (!projectMatch) {
-        throw new Error("Prompt must include: project: <project-name>");
-    }
+    if (!projectMatch) throw new Error("Prompt must include: project: <project-name>");
     const project = projectMatch[1];
 
     console.error("Project:", project);
     console.error("\nCreating plan...\n");
 
-    // Retrieve RAG context + pass project to planner so it can query memory
-    const planContext = await retrieveContext(prompt, project);
+    const planContext    = await retrieveContext(prompt, project);
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
-    const plan = await createPlan(enrichedPrompt, project);
+    const initialPlan    = await createPlan(enrichedPrompt, project);
 
-    console.error("\nPlan:\n");
-    console.error(plan);
+    console.error("\nInitial Plan:\n");
+    console.error(initialPlan);
 
-    const steps = plan
+    // Mutable remaining steps — adaptive replanning modifies this array
+    let remainingSteps = initialPlan
         .split("\n")
         .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
         .filter(s => s.length > 4);
 
     let executionContext = planContext;
-    const MAX_STEPS = 20;
-    let successfulSteps = 0;
+    let successfulSteps  = 0;
+    let totalStepsDone   = 0;
+    let replanCount      = 0;
+    const MAX_REPLANS    = 3;
 
     collector.startRun(prompt);
 
-    for (let i = 0; i < steps.length && i < MAX_STEPS; i++) {
-        const step = steps[i];
-        if (!step) continue;
+    while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
 
-        console.error(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
-
-        // Compress context every N steps to keep token usage bounded
-        if (i > 0 && i % COMPRESS_EVERY_N_STEPS === 0) {
-            executionContext = await compressContext(executionContext, project);
+        // Compress context every N steps
+        if (totalStepsDone > 0 && totalStepsDone % COMPRESS_EVERY_N_STEPS === 0) {
+            executionContext = await compressContext(executionContext);
         }
+
+        const step = remainingSteps.shift();   // take next step
+        totalStepsDone++;
+
+        console.error(`\n[${totalStepsDone}] Executing: ${step}`);
 
         const stepContext = await retrieveContext(step, project);
         const fullContext = executionContext + (stepContext ? "\n\n" + stepContext : "");
 
-        const action = await executeStep(step, fullContext, project);
+        const { ok, parsed, error } = await executeWithRetry(step, fullContext, project);
 
-        try {
-            const extracted = extractJSON(action);
-            if (!extracted.startsWith("{")) {
-                console.error(extracted);
-                continue;
+        // ── Step parse failed after all retries ──────────────────────────────
+        if (!ok) {
+            console.warn(`[agent] Step failed to parse after ${MAX_RETRIES} retries: ${error}`);
+
+            if (replanCount < MAX_REPLANS) {
+                replanCount++;
+                console.error(`[agent] Replanning (attempt ${replanCount}/${MAX_REPLANS})...`);
+                const revised = await updatePlan(
+                    remainingSteps, step, `Parse failure: ${error}`,
+                    executionContext, project
+                );
+                remainingSteps = revised;
+                console.error(`[agent] Revised plan has ${remainingSteps.length} remaining steps.`);
             }
+            continue;
+        }
 
-            const parsed = JSON.parse(extracted);
+        // ── Step produced a tool call ─────────────────────────────────────────
+        if (parsed.tool) {
+            console.error(`\n  → Calling tool: ${parsed.tool}`);
+            console.error(`    Args: ${JSON.stringify(parsed.args).substring(0, 200)}`);
 
-            if (parsed.tool) {
-                console.error(`\n  → Calling tool: ${parsed.tool}`);
-                console.error(`    Args: ${JSON.stringify(parsed.args)}`);
+            let resultText = "";
+            let toolFailed = false;
 
+            try {
                 const result = await mcp.callTool(parsed.tool, parsed.args || {});
-
-                const resultText = result?.content
-                    ?.map(c => c.text || "")
-                    .join("\n")
+                resultText = result?.content
+                    ?.map(c => c.text || "").join("\n")
                     .substring(0, 3000) || "";
 
                 console.error(`\n  ← Result (${resultText.length} chars)`);
                 if (resultText.length < 500) console.error(resultText);
 
-                executionContext += `\n\n[Step ${i + 1} result]:\n${resultText}`;
+                // Detect tool-level failure signals in result text
+                const lowerResult = resultText.toLowerCase();
+                if (
+                    lowerResult.includes("error:") ||
+                    lowerResult.includes("build failed") ||
+                    lowerResult.includes("exception") ||
+                    lowerResult.includes("not found")
+                ) {
+                    toolFailed = true;
+                }
 
-                collector.logStep(step, { tool: parsed.tool, args: parsed.args }, resultText);
-                successfulSteps++;
+            } catch (toolErr) {
+                console.warn(`[agent] Tool error: ${toolErr.message}`);
+                resultText = `Tool error: ${toolErr.message}`;
+                toolFailed = true;
             }
 
-            if (parsed.done) {
-                console.error("\nTask completed\n");
-                break;
+            executionContext += `\n\n[Step ${totalStepsDone} — ${parsed.tool}]:\n${resultText}`;
+
+            if (toolFailed && replanCount < MAX_REPLANS) {
+                // ── Adaptive replan on tool failure ──────────────────────────
+                replanCount++;
+                console.error(`[agent] Tool failure detected. Replanning (${replanCount}/${MAX_REPLANS})...`);
+                const revised = await updatePlan(
+                    remainingSteps, step, resultText,
+                    executionContext, project
+                );
+                remainingSteps = revised;
+                console.error(`[agent] Revised plan has ${remainingSteps.length} remaining steps.`);
             }
 
-        } catch (err) {
-            console.warn(`\n[agent] Step ${i + 1} error: ${err.message}`);
-            console.warn("Raw output:", action);
+            collector.logStep(step, { tool: parsed.tool, args: parsed.args }, resultText);
+            successfulSteps++;
+        }
+
+        if (parsed.done) {
+            console.error("\nTask completed\n");
+            break;
         }
     }
 
     collector.endRun(successfulSteps >= 2);
 
-    // Store an architecture insight to long-term memory after successful runs
     if (successfulSteps >= 2) {
         await extractAndStoreMemory(project, prompt, executionContext);
     }
 
-    console.error("\nAgent finished\n");
+    console.error(`\nAgent finished — ${successfulSteps} successful steps, ${replanCount} replans\n`);
 }
 
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 rl.question("Prompt: ", async (prompt) => {
     try {
@@ -1420,23 +1483,24 @@ import { queryMemory } from "../vector/memory.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
-export async function createPlan(prompt, project = null) {
+// ─── Shared prompt builder ───────────────────────────────────────────────────
+async function buildPlannerContext(project) {
     const projects = listProjects().join(", ");
-
-    // Inject long-term memory so the planner already knows architecture patterns
     let memoryContext = "";
     if (project) {
-        const memory = await queryMemory(project, prompt);
-        if (memory) {
-            memoryContext = `\nKnown architecture patterns for this project:\n- ${memory}\n`;
+        const memory = await queryMemory(project, "", { returnStructured: true });
+        if (memory && memory.length > 0) {
+            const lines = memory
+                .map(m => `  [${m.type || "pattern"}] ${m.pattern || m.text}` +
+                    (m.files?.length ? ` (files: ${m.files.slice(0, 3).join(", ")})` : ""))
+                .join("\n");
+            memoryContext = `\nKnown architecture patterns for this project:\n${lines}\n`;
         }
     }
+    return { projects, memoryContext };
+}
 
-    const planPrompt = `You are a senior software planning agent.
-
-Available projects: ${projects}
-${memoryContext}
-Available MCP tools:
+const TOOL_REFERENCE = `Available MCP tools:
 - project_scan          — list files/folders
 - project_search        — ripgrep text search
 - project_find_symbol   — find class or function by name
@@ -1452,7 +1516,19 @@ Rules:
 - Prefer project_str_replace over project_apply_changes for small edits
 - Run project_analyze before project_build_and_fix to catch issues early
 - After applying code changes ALWAYS run project_build_and_fix
-- Return ONLY numbered steps, one per line, no explanation
+- Return ONLY numbered steps, one per line, no explanation`;
+
+/**
+ * Initial plan creation — called once at the start of a run.
+ */
+export async function createPlan(prompt, project = null) {
+    const { projects, memoryContext } = await buildPlannerContext(project);
+
+    const planPrompt = `You are a senior software planning agent.
+
+Available projects: ${projects}
+${memoryContext}
+${TOOL_REFERENCE}
 
 Task:
 ${prompt}
@@ -1461,32 +1537,174 @@ ${prompt}
     return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
 }
 
+/**
+ * Adaptive replanning — called mid-run when a step fails or produces an
+ * unexpected result. Returns a new list of remaining steps.
+ *
+ * @param {string[]} remainingSteps - steps not yet executed
+ * @param {string}   failedStep     - the step that failed or needs revision
+ * @param {string}   failureReason  - error message or unexpected result text
+ * @param {string}   context        - current execution context summary
+ * @param {string}   project
+ * @returns {string[]} revised remaining steps
+ */
+export async function updatePlan(remainingSteps, failedStep, failureReason, context, project = null) {
+    const { projects, memoryContext } = await buildPlannerContext(project);
+
+    const replanPrompt = `You are a senior software planning agent doing mid-run correction.
+
+Available projects: ${projects}
+${memoryContext}
+${TOOL_REFERENCE}
+
+Execution context so far:
+${context.substring(0, 1500)}
+
+Failed step:
+${failedStep}
+
+Failure reason:
+${failureReason.substring(0, 600)}
+
+Remaining steps that were planned:
+${remainingSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+Revise the remaining plan to recover from the failure.
+Return ONLY numbered steps, one per line, no explanation.
+Do NOT repeat already-completed steps.
+`;
+
+    const revised = await askLLM(MODEL, replanPrompt, { temperature: 0.2, num_predict: 600 });
+
+    return revised
+        .split("\n")
+        .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
+        .filter(s => s.length > 4);
+}
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\retriever.js
 ========================================
+/**
+ * Intent-aware smart retriever.
+ *
+ * Upgrades from the naive "embed → top-4 → truncate" approach to:
+ *   1. Intent classification   — what kind of code is the prompt about?
+ *   2. Intent-boosted scoring  — re-weight results by file-type relevance
+ *   3. Deduplication           — drop near-identical chunks (Jaccard ≥ 0.8)
+ *   4. Reranking               — sort by combined semantic + intent score
+ */
+
 import { queryCodebase } from "../vector/queryCodebase.js";
-import { embed } from "../vector/embedder.js";
-import { indexProject } from "../vector/runIndexCore.js";
-import { getProject } from "../core/projectRegistry.js";
+import { embed }         from "../vector/embedder.js";
+import { indexProject }  from "../vector/runIndexCore.js";
+import { getProject }    from "../core/projectRegistry.js";
 
 const MAX_SNIPPET = 600;
-const MAX_RESULTS = 4;
+const MAX_RESULTS = 5;       // fetch more then rerank down to this
+const FETCH_N     = 10;      // fetch extra candidates for reranking
 
 let indexing = false;
 
+// ─── Intent classifier ───────────────────────────────────────────────────────
+// Maps prompt keywords to an intent label and a set of high-signal file
+// patterns that should score higher for that intent.
+const INTENT_RULES = [
+    {
+        label:    "ui",
+        keywords: ["component", "page", "ui", "button", "form", "modal", "style", "css", "layout", "render", "jsx", "tsx", "react", "frontend"],
+        boost:    [".jsx", ".tsx", "component", "page", "layout", "style", "css"]
+    },
+    {
+        label:    "api",
+        keywords: ["api", "endpoint", "rest", "route", "controller", "service", "repository", "fetch", "axios", "http"],
+        boost:    ["controller", "service", "repository", "api", "route", ".java", "LocalService"]
+    },
+    {
+        label:    "auth",
+        keywords: ["login", "auth", "token", "jwt", "password", "session", "oauth", "permission", "role"],
+        boost:    ["auth", "login", "token", "security", "permission", "role"]
+    },
+    {
+        label:    "config",
+        keywords: ["config", "env", "setting", "constant", "property", "yaml", "json", ".env"],
+        boost:    ["config", "constant", ".json", ".yaml", ".env", "properties"]
+    },
+    {
+        label:    "fix",
+        keywords: ["fix", "bug", "error", "crash", "exception", "broken", "fail", "issue"],
+        boost:    []   // no file-type preference — all files equally relevant
+    }
+];
+
+function classifyIntent(prompt) {
+    const lower = prompt.toLowerCase();
+    let bestLabel = "general";
+    let bestScore = 0;
+
+    for (const rule of INTENT_RULES) {
+        const hits = rule.keywords.filter(kw => lower.includes(kw)).length;
+        if (hits > bestScore) {
+            bestScore = hits;
+            bestLabel = rule.label;
+        }
+    }
+
+    return { label: bestLabel, rule: INTENT_RULES.find(r => r.label === bestLabel) || null };
+}
+
+// ─── Intent boost scorer ─────────────────────────────────────────────────────
+// Returns an additional score (0.0–0.3) for a doc based on whether its text
+// contains file-type signals matching the intent.
+function intentBoost(doc, rule) {
+    if (!rule || rule.boost.length === 0) return 0;
+    const lower   = doc.toLowerCase();
+    const matches = rule.boost.filter(sig => lower.includes(sig)).length;
+    return Math.min(0.3, matches * 0.1);
+}
+
+// ─── Deduplicator (Jaccard on token sets) ────────────────────────────────────
+function tokenSet(text) {
+    return new Set(text.toLowerCase().split(/\W+/).filter(t => t.length > 3));
+}
+
+function jaccardSimilarity(a, b) {
+    const setA = tokenSet(a);
+    const setB = tokenSet(b);
+    const intersection = [...setA].filter(t => setB.has(t)).length;
+    const union = new Set([...setA, ...setB]).size;
+    return union === 0 ? 0 : intersection / union;
+}
+
+function deduplicate(docs, threshold = 0.8) {
+    const kept = [];
+    for (const doc of docs) {
+        const isDuplicate = kept.some(k => jaccardSimilarity(k, doc) >= threshold);
+        if (!isDuplicate) kept.push(doc);
+    }
+    return kept;
+}
+
+// ─── Snippet compressor ───────────────────────────────────────────────────────
 function compress(doc) {
     if (!doc) return "";
     return doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc;
 }
 
+// ─── Main retrieval entry point ───────────────────────────────────────────────
 export async function retrieveContext(prompt, project = null) {
     try {
         const embedding = await embed(prompt);
+        const intent    = classifyIntent(prompt);
+
+        if (intent.label !== "general") {
+            console.error(`[retriever] Intent: ${intent.label}`);
+        }
 
         let docs;
         try {
-            docs = await queryCodebase(embedding, project);
+            docs = await queryCodebase(embedding, project, FETCH_N);
         } catch {
             // Collection missing — auto-build index once
             if (project && !indexing) {
@@ -1497,18 +1715,32 @@ export async function retrieveContext(prompt, project = null) {
                 console.error("\n[retriever] Vector index built.\n");
                 indexing = false;
             }
-            docs = await queryCodebase(embedding, project);
+            docs = await queryCodebase(embedding, project, FETCH_N);
         }
 
         if (!docs || docs.length === 0) return "";
 
-        return docs.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
+        // 1. Score = base rank score (inverted position) + intent boost
+        const scored = docs.map((doc, i) => ({
+            doc,
+            score: (1 - i / docs.length) + intentBoost(doc, intent.rule)
+        }));
+
+        // 2. Sort by combined score descending
+        scored.sort((a, b) => b.score - a.score);
+
+        // 3. Deduplicate near-identical chunks
+        const unique = deduplicate(scored.map(s => s.doc));
+
+        // 4. Take top MAX_RESULTS and compress
+        return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {
         console.error("[retriever] Error:", err.message);
         return "";
     }
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\analysis\dependencyGraph.js
@@ -2931,17 +3163,20 @@ export async function getCollection(project) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\memory.js
 ========================================
 /**
- * Long-term memory layer — stores and retrieves project-level knowledge
- * in a dedicated ChromaDB collection separate from the codebase index.
+ * Structured long-term memory layer.
  *
- * Examples of what gets stored:
- *   "React project uses React Query for all API calls"
- *   "Spring Boot service follows Controller → Service → Repository pattern"
- *   "Liferay modules use service.xml to define persistence layer"
+ * Each memory entry is stored as a JSON object with typed fields:
+ *   {
+ *     type:       "architecture" | "fix" | "pattern" | "convention" | "general",
+ *     pattern:    string  — the main knowledge statement (max 200 chars)
+ *     files:      string[] — relevant filenames (max 5)
+ *     confidence: number  — 0.0–1.0
+ *     tag:        string  — caller-supplied tag
+ *     ts:         number  — Unix timestamp ms
+ *   }
  *
- * On every agent run the planner queries memory first and injects the
- * results into the plan prompt, so the agent already "knows" your
- * architecture without being told every time.
+ * Plain-text entries from older versions are read back transparently
+ * via the `text` field fallback.
  */
 
 import { ChromaClient } from "chromadb";
@@ -2953,76 +3188,136 @@ import {
 } from "../core/constants.js";
 
 const client = new ChromaClient({ host: "localhost", port: 8000 });
-
-// In-process cache of collection handles
-const cache = {};
+const cache  = {};
 
 async function getMemoryCollection(project) {
     if (cache[project]) return cache[project];
-
-    const name = MEMORY_COLLECTION_PREFIX + project;
+    const name        = MEMORY_COLLECTION_PREFIX + project;
     const collections = await client.listCollections();
-    const exists = collections.find(c => c.name === name);
-
-    cache[project] = exists
+    const exists      = collections.find(c => c.name === name);
+    cache[project]    = exists
         ? await client.getCollection({ name })
         : await client.createCollection({ name, embeddingFunction: null });
-
     return cache[project];
 }
 
 /**
- * Store a memory entry for a project.
+ * Store a structured memory entry.
+ *
  * @param {string} project
- * @param {string} text  - the knowledge to remember
- * @param {string} [tag] - optional category tag (e.g. "architecture", "fix", "pattern")
+ * @param {object|string} data
+ *   Pass a string for backward compat (stored as { type:"general", pattern: text }).
+ *   Pass an object: { type, pattern, files?, confidence? }
+ * @param {string} [tag]
  */
-export async function storeMemory(project, text, tag = "general") {
+export async function storeMemory(project, data, tag = "general") {
     try {
-        const collection = await getMemoryCollection(project);
-        const embedding  = await embed(text);
-        const id = Buffer.from(text.substring(0, 200) + Date.now()).toString("base64").substring(0, 512);
+        // Normalise to structured object
+        const entry = (typeof data === "string")
+            ? { type: "general", pattern: data, files: [], confidence: 0.8 }
+            : {
+                type:       data.type       || "general",
+                pattern:    data.pattern    || data.text || "",
+                files:      Array.isArray(data.files) ? data.files.slice(0, 5) : [],
+                confidence: typeof data.confidence === "number" ? data.confidence : 0.8
+            };
 
+        if (!entry.pattern || entry.pattern.length < 10) return;  // skip noise
+
+        entry.tag = tag;
+        entry.ts  = Date.now();
+
+        const text      = entry.pattern;  // embed the pattern text for semantic search
+        const embedding = await embed(text);
+        const id        = Buffer.from(text.substring(0, 180) + entry.ts)
+            .toString("base64").substring(0, 512);
+
+        const collection = await getMemoryCollection(project);
         await collection.add({
             ids:        [id],
-            documents:  [text],
+            documents:  [JSON.stringify(entry)],   // store full struct as document
             embeddings: [embedding],
-            metadatas:  [{ tag, ts: Date.now() }]
+            metadatas:  [{ tag, type: entry.type, ts: entry.ts, confidence: entry.confidence }]
         });
 
-        console.error(`[memory] Stored (${tag}): ${text.substring(0, 80)}...`);
+        console.error(`[memory] Stored (${entry.type}): ${text.substring(0, 80)}`);
     } catch (err) {
         console.error("[memory] storeMemory error:", err.message);
     }
 }
 
 /**
- * Query memory for context relevant to a prompt.
- * Returns a formatted string ready to inject into a planner/executor prompt.
- * Returns "" if nothing relevant is found.
+ * Query memory for entries relevant to a prompt.
+ *
+ * @param {string}  project
+ * @param {string}  prompt
+ * @param {object}  [opts]
+ * @param {boolean} [opts.returnStructured=false]  if true → return parsed objects array
+ * @param {string}  [opts.filterType]              optional type filter (e.g. "architecture")
+ * @param {number}  [opts.minConfidence=0]         skip entries below this confidence
+ * @returns {string|object[]}  formatted string (default) or array of structured entries
  */
-export async function queryMemory(project, prompt) {
+export async function queryMemory(project, prompt, opts = {}) {
+    const { returnStructured = false, filterType = null, minConfidence = 0 } = opts;
+
     try {
         const collection = await getMemoryCollection(project);
-        const count = await collection.count();
-        if (count === 0) return "";
+        const count      = await collection.count();
+        if (count === 0) return returnStructured ? [] : "";
 
-        const embedding = await embed(prompt);
-        const results   = await collection.query({
+        // If prompt is empty just fetch most recent entries by count
+        const embedding = prompt.length > 0
+            ? await embed(prompt)
+            : await embed("architecture pattern code");  // neutral fallback
+
+        const nResults = Math.min(MEMORY_MAX_RESULTS + 2, count);  // fetch extras for filtering
+        const results  = await collection.query({
             queryEmbeddings: [embedding],
-            nResults: Math.min(MEMORY_MAX_RESULTS, count)
+            nResults,
+            ...(filterType ? { where: { type: filterType } } : {})
         });
 
-        const docs = results.documents?.[0];
-        if (!docs || docs.length === 0) return "";
+        const docs      = results.documents?.[0] || [];
+        const metadatas = results.metadatas?.[0]  || [];
 
-        return docs
-            .map(d => d.length > MEMORY_MAX_SNIPPET ? d.substring(0, MEMORY_MAX_SNIPPET) + "..." : d)
+        // Parse entries, apply confidence filter, sort by confidence desc
+        const entries = docs
+            .map((doc, i) => {
+                try {
+                    const parsed = JSON.parse(doc);
+                    parsed._meta = metadatas[i] || {};
+                    return parsed;
+                } catch {
+                    // Legacy plain-text entry
+                    return {
+                        type: "general",
+                        pattern: doc.substring(0, MEMORY_MAX_SNIPPET),
+                        text: doc,
+                        files: [],
+                        confidence: 0.7,
+                        _meta: metadatas[i] || {}
+                    };
+                }
+            })
+            .filter(e => (e.confidence || 0) >= minConfidence)
+            .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+            .slice(0, MEMORY_MAX_RESULTS);
+
+        if (returnStructured) return entries;
+
+        // Format as injection-ready string
+        if (entries.length === 0) return "";
+        return entries
+            .map(e => {
+                let line = `[${e.type}] ${e.pattern || e.text}`;
+                if (e.files?.length) line += ` (see: ${e.files.slice(0, 3).join(", ")})`;
+                if (e.confidence) line += ` [conf: ${e.confidence.toFixed(1)}]`;
+                return line;
+            })
             .join("\n- ");
 
     } catch {
-        // Memory collection may not exist yet on first run — silent fail
-        return "";
+        return returnStructured ? [] : "";
     }
 }
 
@@ -3032,41 +3327,32 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\queryCodebase.js
 ========================================
 import { ChromaClient } from "chromadb";
 
-const client = new ChromaClient({
-    host: "localhost",
-    port: 8000
-});
-
-const cache = {};
+const client = new ChromaClient({ host: "localhost", port: 8000 });
+const cache  = {};
 
 async function getCollection(project) {
-
     if (cache[project]) return cache[project];
-
-    const name = "codebase_" + project;
-
-    cache[project] = await client.getCollection({
-        name
-    });
-
+    const name     = "codebase_" + project;
+    cache[project] = await client.getCollection({ name });
     return cache[project];
 }
 
-export async function queryCodebase(queryEmbedding, project) {
-
+/**
+ * Query the codebase vector collection.
+ * @param {number[]} queryEmbedding
+ * @param {string}   project
+ * @param {number}   [nResults=6]  number of results to fetch (retriever may request more for reranking)
+ */
+export async function queryCodebase(queryEmbedding, project, nResults = 6) {
     const collection = await getCollection(project);
-
-    const results = await collection.query({
+    const results    = await collection.query({
         queryEmbeddings: [queryEmbedding],
-        nResults: 6
+        nResults
     });
-
-    if (!results.documents || results.documents.length === 0) {
-        return [];
-    }
-
+    if (!results.documents || results.documents.length === 0) return [];
     return results.documents[0];
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\runIndex.js
