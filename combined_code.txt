@@ -712,37 +712,36 @@ import {
     CallToolRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { scanProject } from "./tools/scanProject.js";
-import { readFiles } from "./tools/readFiles.js";
-import { applyChanges } from "./tools/applyChanges.js";
-import { searchProject } from "./tools/projectSearch.js";
-import { applyPatch } from "./tools/projectPatch.js";
-import { buildProject } from "./tools/projectBuild.js";
+import { scanProject }       from "./tools/scanProject.js";
+import { readFiles }         from "./tools/readFiles.js";
+import { applyChanges }      from "./tools/applyChanges.js";
+import { searchProject }     from "./tools/projectSearch.js";
+import { applyPatch }        from "./tools/projectPatch.js";
+import { buildProject }      from "./tools/projectBuild.js";
 import { projectFindSymbol } from "./tools/projectFindSymbol.js";
-import { projectIndex } from "./tools/projectIndex.js";
+import { projectIndex }      from "./tools/projectIndex.js";
 import { projectStrReplace } from "./tools/projectStrReplace.js";
-import { runAutoFix } from "./autoFixLoop/autoFixLoop.js";
+import { analyzeProject }    from "./tools/staticAnalyzer.js";
+import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
 
 import { getProject, listProjects } from "./core/projectRegistry.js";
-import { buildDependencyGraph } from "./analysis/dependencyGraph.js";
-import { queryCodebase } from "./vector/queryCodebase.js";
-import { embed } from "./vector/embedder.js";
+import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
+import { queryCodebase }            from "./vector/queryCodebase.js";
+import { embed }                    from "./vector/embedder.js";
+import { storeMemory, queryMemory } from "./vector/memory.js";
 
 const server = new Server(
-    { name: "ai-dev-mcp", version: "2.2.0" },
+    { name: "ai-dev-mcp", version: "3.0.0" },
     { capabilities: { tools: {} } }
 );
 
+// ─── Tool definitions ────────────────────────────────────────────────────────
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
         {
             name: "project_scan",
             description: "Scan project structure",
-            inputSchema: {
-                type: "object",
-                properties: { project: { type: "string" } },
-                required: ["project"]
-            }
+            inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
             name: "project_read_files",
@@ -751,28 +750,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 type: "object",
                 properties: {
                     project: { type: "string" },
-                    paths: { type: "array", items: { type: "string" } }
+                    paths:   { type: "array", items: { type: "string" } }
                 },
                 required: ["project", "paths"]
             }
         },
         {
             name: "project_apply_changes",
-            description: "Write files and commit",
+            description: "Write full files and commit — use for new files only. Prefer project_str_replace for edits.",
             inputSchema: {
                 type: "object",
                 properties: {
-                    project: { type: "string" },
-                    files: { type: "array" },
+                    project:       { type: "string" },
+                    files:         { type: "array" },
                     commitMessage: { type: "string" },
-                    increment: { type: "boolean" }
+                    increment:     { type: "boolean" }
                 },
                 required: ["project", "files", "commitMessage"]
             }
         },
         {
             name: "project_str_replace",
-            description: "Apply targeted search-and-replace edits to files without rewriting the whole file. Safer and more token-efficient than project_apply_changes for small changes.",
+            description: "Apply targeted search-and-replace edits without rewriting whole files. Safer and more token-efficient. Prefer this over project_apply_changes for modifications.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -799,10 +798,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: "Search code using ripgrep",
             inputSchema: {
                 type: "object",
-                properties: {
-                    project: { type: "string" },
-                    query: { type: "string" }
-                },
+                properties: { project: { type: "string" }, query: { type: "string" } },
                 required: ["project", "query"]
             }
         },
@@ -811,92 +807,91 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: "Apply git diff patch",
             inputSchema: {
                 type: "object",
-                properties: {
-                    project: { type: "string" },
-                    patch: { type: "string" }
-                },
+                properties: { project: { type: "string" }, patch: { type: "string" } },
                 required: ["project", "patch"]
             }
         },
         {
             name: "project_build",
             description: "Run project build command",
-            inputSchema: {
-                type: "object",
-                properties: { project: { type: "string" } },
-                required: ["project"]
-            }
+            inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
             name: "project_index",
-            description: "Build semantic index of project",
-            inputSchema: {
-                type: "object",
-                properties: { project: { type: "string" } },
-                required: ["project"]
-            }
+            description: "Build semantic index of project (incremental — skips unchanged files)",
+            inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
             name: "project_find_symbol",
             description: "Find symbol in semantic index",
             inputSchema: {
                 type: "object",
-                properties: {
-                    project: { type: "string" },
-                    name: { type: "string" }
-                },
+                properties: { project: { type: "string" }, name: { type: "string" } },
                 required: ["project", "name"]
             }
         },
         {
             name: "project_dependency_graph",
             description: "Analyze project dependency graph",
-            inputSchema: {
-                type: "object",
-                properties: { project: { type: "string" } },
-                required: ["project"]
-            }
+            inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
             name: "project_build_and_fix",
             description: "Build project and auto-fix compilation errors",
-            inputSchema: {
-                type: "object",
-                properties: { project: { type: "string" } },
-                required: ["project"]
-            }
+            inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
             name: "project_semantic_search",
             description: "Search relevant code snippets using semantic meaning",
             inputSchema: {
                 type: "object",
+                properties: { project: { type: "string" }, query: { type: "string" } },
+                required: ["project", "query"]
+            }
+        },
+        {
+            name: "project_analyze",
+            description: "Run static analysis before build — checks broken imports and syntax errors",
+            inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
+        },
+        {
+            name: "project_memory_store",
+            description: "Store an architecture pattern or decision to long-term project memory",
+            inputSchema: {
+                type: "object",
                 properties: {
                     project: { type: "string" },
-                    query: { type: "string" }
+                    text:    { type: "string" },
+                    tag:     { type: "string" }
                 },
-                required: ["project", "query"]
+                required: ["project", "text"]
+            }
+        },
+        {
+            name: "project_memory_query",
+            description: "Query long-term project memory for architecture patterns relevant to a prompt",
+            inputSchema: {
+                type: "object",
+                properties: { project: { type: "string" }, prompt: { type: "string" } },
+                required: ["project", "prompt"]
             }
         },
         {
             name: "project_list",
             description: "List all available projects registered in this MCP server",
-            inputSchema: {
-                type: "object",
-                properties: {},
-                required: []
-            }
+            inputSchema: { type: "object", properties: {}, required: [] }
         }
     ]
 }));
 
+// ─── Tool router ─────────────────────────────────────────────────────────────
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     const tool = req.params.name;
     const args = req.params.arguments;
     console.error("\n========== TOOL CALL ==========");
     console.error("Tool:", tool);
-    console.error("Args:", args);
+    console.error("Args:", JSON.stringify(args).substring(0, 200));
     console.error("================================");
 
     if (tool === "project_scan")           return scanProject(args);
@@ -908,42 +903,45 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (tool === "project_build")          return buildProject(args);
     if (tool === "project_index")          return projectIndex(args);
     if (tool === "project_find_symbol")    return projectFindSymbol(args);
+    if (tool === "project_analyze")        return analyzeProject(args);
 
     if (tool === "project_list") {
         return {
-            content: [{
-                type: "text",
-                text: JSON.stringify(listProjects(), null, 2)
-            }]
+            content: [{ type: "text", text: JSON.stringify(listProjects(), null, 2) }]
         };
     }
 
     if (tool === "project_dependency_graph") {
         const projectRoot = getProject(args.project).root;
         const graph = buildDependencyGraph(projectRoot);
-        return {
-            content: [{ type: "text", text: JSON.stringify(graph, null, 2) }]
-        };
+        return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
     }
 
     if (tool === "project_build_and_fix") {
         await runAutoFix(args.project);
-        return {
-            content: [{ type: "text", text: "Build + auto-fix completed" }]
-        };
+        return { content: [{ type: "text", text: "Build + auto-fix completed" }] };
     }
 
     if (tool === "project_semantic_search") {
         const embedding = await embed(args.query);
         const docs = await queryCodebase(embedding, args.project);
-        return {
-            content: [{ type: "text", text: docs.join("\n\n---\n\n") }]
-        };
+        return { content: [{ type: "text", text: docs.join("\n\n---\n\n") }] };
+    }
+
+    if (tool === "project_memory_store") {
+        await storeMemory(args.project, args.text, args.tag || "general");
+        return { content: [{ type: "text", text: "Memory stored" }] };
+    }
+
+    if (tool === "project_memory_query") {
+        const memory = await queryMemory(args.project, args.prompt);
+        return { content: [{ type: "text", text: memory || "No relevant memory found" }] };
     }
 
     throw new Error("Unknown tool: " + tool);
 });
 
+// ─── Transport: stdio (primary — used by Claude Desktop / Antigravity) ────────
 await server.connect(new StdioServerTransport());
 
 
@@ -957,14 +955,64 @@ import { executeStep } from "./executor.js";
 import { retrieveContext } from "./retriever.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { TrainingCollector } from "../training/collector.js";
+import { storeMemory } from "../vector/memory.js";
+import { askLLM } from "./ollamaClient.js";
+import { COMPRESS_EVERY_N_STEPS, COMPRESS_MAX_CHARS } from "../core/constants.js";
 
 process.env.NODE_NO_WARNINGS = "1";
 
+const MODEL = "qwen2.5-coder:7b";
 const mcp = new MCPClient();
 const collector = new TrainingCollector();
 
 console.error(`[training] ${collector.count()} examples collected so far`);
 
+// ─── Context compression ─────────────────────────────────────────────────────
+// Summarises executionContext when it grows beyond COMPRESS_MAX_CHARS.
+// Keeps the context window small without losing important information.
+async function compressContext(context, project) {
+    if (context.length < COMPRESS_MAX_CHARS) return context;
+
+    console.error("[agent] Compressing context...");
+
+    const summary = await askLLM(MODEL,
+        `Summarise the following code agent execution log in 3-5 bullet points.
+Focus on: what files were read, what changes were made, what errors were found.
+Be concise. Output only the bullet points.
+
+${context.substring(0, COMPRESS_MAX_CHARS)}`,
+        { temperature: 0.1, num_predict: 400 }
+    );
+
+    console.error("[agent] Context compressed.");
+    return `[Compressed context summary]:\n${summary}`;
+}
+
+// ─── Run summary → memory ────────────────────────────────────────────────────
+// After a successful run, extract a one-line architecture insight and store it
+// in long-term memory so future runs benefit from it.
+async function extractAndStoreMemory(project, prompt, context) {
+    try {
+        const insight = await askLLM(MODEL,
+            `Based on this coding agent run, write ONE concise sentence (max 120 chars)
+describing an architecture pattern, coding convention, or key decision observed.
+Only output the sentence, nothing else.
+
+Task: ${prompt.substring(0, 200)}
+Context summary: ${context.substring(0, 800)}`,
+            { temperature: 0.2, num_predict: 80 }
+        );
+
+        const clean = insight.trim().replace(/^["']/,"").replace(/["']$/,"");
+        if (clean.length > 20) {
+            await storeMemory(project, clean, "pattern");
+        }
+    } catch (err) {
+        console.error("[agent] Memory extraction failed:", err.message);
+    }
+}
+
+// ─── Main agent loop ─────────────────────────────────────────────────────────
 async function runAgent(prompt) {
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
     if (!projectMatch) {
@@ -975,22 +1023,20 @@ async function runAgent(prompt) {
     console.error("Project:", project);
     console.error("\nCreating plan...\n");
 
-    // Retrieve context ONCE for the full plan — not again per step
+    // Retrieve RAG context + pass project to planner so it can query memory
     const planContext = await retrieveContext(prompt, project);
-
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
-    const plan = await createPlan(enrichedPrompt);
+    const plan = await createPlan(enrichedPrompt, project);
 
     console.error("\nPlan:\n");
     console.error(plan);
 
-    // Parse numbered steps robustly — handles "1." "1)" "Step 1:" etc.
     const steps = plan
         .split("\n")
         .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
         .filter(s => s.length > 4);
 
-    let executionContext = planContext;  // Seed context with plan context
+    let executionContext = planContext;
     const MAX_STEPS = 20;
     let successfulSteps = 0;
 
@@ -1002,7 +1048,11 @@ async function runAgent(prompt) {
 
         console.error(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
 
-        // Retrieve fresh vector context for each step (delta context)
+        // Compress context every N steps to keep token usage bounded
+        if (i > 0 && i % COMPRESS_EVERY_N_STEPS === 0) {
+            executionContext = await compressContext(executionContext, project);
+        }
+
         const stepContext = await retrieveContext(step, project);
         const fullContext = executionContext + (stepContext ? "\n\n" + stepContext : "");
 
@@ -1023,7 +1073,6 @@ async function runAgent(prompt) {
 
                 const result = await mcp.callTool(parsed.tool, parsed.args || {});
 
-                // Extract text content from MCP result for context
                 const resultText = result?.content
                     ?.map(c => c.text || "")
                     .join("\n")
@@ -1034,7 +1083,6 @@ async function runAgent(prompt) {
 
                 executionContext += `\n\n[Step ${i + 1} result]:\n${resultText}`;
 
-                // Log successful tool call for training data collection
                 collector.logStep(step, { tool: parsed.tool, args: parsed.args }, resultText);
                 successfulSteps++;
             }
@@ -1050,8 +1098,12 @@ async function runAgent(prompt) {
         }
     }
 
-    // Save training data only if the run had meaningful successful steps
     collector.endRun(successfulSteps >= 2);
+
+    // Store an architecture insight to long-term memory after successful runs
+    if (successfulSteps >= 2) {
+        await extractAndStoreMemory(project, prompt, executionContext);
+    }
 
     console.error("\nAgent finished\n");
 }
@@ -1070,6 +1122,7 @@ rl.question("Prompt: ", async (prompt) => {
     process.exit();
 });
 
+
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executor.js
 ========================================
@@ -1078,39 +1131,66 @@ import { extractJSON } from "../utils/jsonUtils.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
-/**
- * Normalize args after parsing:
- * - Always sets project
- * - Hoists top-level keys the model put outside "args" back in
- * - Fixes common field name mistakes per tool
- */
+// ─── Rule-based tool router ──────────────────────────────────────────────────
+// Fires BEFORE the LLM. If a step matches a confident rule the LLM call is
+// skipped entirely — saves tokens and latency.
+//
+// Returns a pre-built JSON string, or null if no rule matched.
+function routeByRule(step, project) {
+    const s = step.toLowerCase();
+
+    // Scan / list structure
+    if (/\b(scan|list files|folder structure|project structure)\b/.test(s))
+        return JSON.stringify({ tool: "project_scan", args: { project } });
+
+    // Symbol lookup
+    const symbolMatch = s.match(/\b(find|locate|look up)\b.+\b(class|function|component|service|controller|symbol)\b[:\s]+([\w]+)/i)
+                     || s.match(/\bfind symbol[:\s]+([\w]+)/i);
+    if (symbolMatch) {
+        const name = symbolMatch[symbolMatch.length - 1];
+        return JSON.stringify({ tool: "project_find_symbol", args: { project, name } });
+    }
+
+    // Build
+    if (/\b(build and fix|build_and_fix|auto.?fix)\b/.test(s))
+        return JSON.stringify({ tool: "project_build_and_fix", args: { project } });
+
+    if (/\b(run build|npm run build|gradlew build|mvn|compile)\b/.test(s))
+        return JSON.stringify({ tool: "project_build", args: { project } });
+
+    // Static analysis
+    if (/\b(analyze|analyse|static.?analy|lint|check imports)\b/.test(s))
+        return JSON.stringify({ tool: "project_analyze", args: { project } });
+
+    // No confident match — fall through to LLM
+    return null;
+}
+
+// ─── Arg normaliser ──────────────────────────────────────────────────────────
 function normalizeArgs(tool, args, project) {
     if (!args) args = {};
-
-    // Enforce correct project
     args.project = project;
 
-    // Fix read_files: model sometimes uses "file" or passes a string
     if (tool === "project_read_files") {
         if (args.file) { args.paths = [args.file]; delete args.file; }
         if (typeof args.paths === "string") args.paths = [args.paths];
         if (!args.paths) args.paths = [];
     }
 
-    // Fix apply_changes defaults
     if (tool === "project_apply_changes") {
-        if (!args.files) args.files = [];
+        if (!args.files)         args.files         = [];
         if (!args.commitMessage) args.commitMessage = "AI generated change";
+    }
+
+    if (tool === "project_str_replace") {
+        if (!args.edits)         args.edits         = [];
+        if (!args.commitMessage) args.commitMessage = "AI str-replace edit";
     }
 
     return args;
 }
 
-/**
- * The model sometimes puts args at top level instead of inside "args".
- * E.g.: { "tool": "project_find_symbol", "name": "Foo", "args": {} }
- * Hoist unknown top-level keys into args.
- */
+// Hoist top-level keys the model put outside "args" back in
 function hoistTopLevelArgs(parsed) {
     const known = new Set(["tool", "args", "done"]);
     const extra = Object.keys(parsed).filter(k => !known.has(k));
@@ -1124,7 +1204,17 @@ function hoistTopLevelArgs(parsed) {
     return parsed;
 }
 
+// ─── Main entry ──────────────────────────────────────────────────────────────
 export async function executeStep(step, context, project) {
+
+    // 1. Try rule-based routing first (zero LLM cost)
+    const ruled = routeByRule(step, project);
+    if (ruled) {
+        console.error("[executor] Rule-matched (no LLM call)");
+        return ruled;
+    }
+
+    // 2. Fall back to LLM for ambiguous steps
     const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
 
 Context:
@@ -1139,6 +1229,14 @@ project_scan        — { "tool": "project_scan", "args": { "project": "string" 
 project_search      — { "tool": "project_search", "args": { "project": "string", "query": "string" } }
 project_find_symbol — { "tool": "project_find_symbol", "args": { "project": "string", "name": "string" } }
 project_read_files  — { "tool": "project_read_files", "args": { "project": "string", "paths": ["file"] } }
+project_str_replace — {
+  "tool": "project_str_replace",
+  "args": {
+    "project": "string",
+    "edits": [{ "path": "relative/path", "search": "exact string", "replace": "replacement" }],
+    "commitMessage": "message"
+  }
+}
 project_apply_changes — {
   "tool": "project_apply_changes",
   "args": {
@@ -1148,15 +1246,17 @@ project_apply_changes — {
   }
 }
 project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
+project_analyze       — { "tool": "project_analyze",       "args": { "project": "string" } }
 
 Rules:
+- Prefer project_str_replace over project_apply_changes for small edits
 - Output ONLY the JSON object, nothing else
 - All args MUST be inside the "args" key
 - project is always: ${project}
 
 JSON:`;
 
-    const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
+    const raw       = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
     const extracted = extractJSON(raw);
 
     try {
@@ -1172,6 +1272,7 @@ JSON:`;
         return raw;
     }
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\mcpClient.js
@@ -1315,27 +1416,41 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\planner.js
 ========================================
 import { askLLM } from "./ollamaClient.js";
 import { listProjects } from "../core/projectRegistry.js";
+import { queryMemory } from "../vector/memory.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
-export async function createPlan(prompt) {
+export async function createPlan(prompt, project = null) {
     const projects = listProjects().join(", ");
+
+    // Inject long-term memory so the planner already knows architecture patterns
+    let memoryContext = "";
+    if (project) {
+        const memory = await queryMemory(project, prompt);
+        if (memory) {
+            memoryContext = `\nKnown architecture patterns for this project:\n- ${memory}\n`;
+        }
+    }
 
     const planPrompt = `You are a senior software planning agent.
 
 Available projects: ${projects}
-
+${memoryContext}
 Available MCP tools:
-- project_scan        — list files/folders
-- project_search      — ripgrep text search
-- project_find_symbol — find class or function by name
-- project_read_files  — read file contents
-- project_apply_changes — write files and commit
+- project_scan          — list files/folders
+- project_search        — ripgrep text search
+- project_find_symbol   — find class or function by name
+- project_read_files    — read file contents
+- project_str_replace   — targeted search-and-replace edit (PREFER for small changes)
+- project_apply_changes — write full file and commit (use only for new files)
 - project_build_and_fix — build and auto-fix errors
+- project_analyze       — static analysis before build
 
 Rules:
 - Always read relevant files before modifying them
 - Use project_find_symbol to locate components before reading them
+- Prefer project_str_replace over project_apply_changes for small edits
+- Run project_analyze before project_build_and_fix to catch issues early
 - After applying code changes ALWAYS run project_build_and_fix
 - Return ONLY numbered steps, one per line, no explanation
 
@@ -1345,6 +1460,7 @@ ${prompt}
 
     return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\retriever.js
@@ -1674,6 +1790,16 @@ export const INDEXABLE_EXTENSIONS = [
 
 export const MAX_FILE_SIZE = 12000;
 export const BUILD_TIMEOUT_MS = 120000;
+
+// Memory layer
+export const MEMORY_COLLECTION_PREFIX = "memory_";
+export const MEMORY_MAX_RESULTS = 3;
+export const MEMORY_MAX_SNIPPET = 400;
+
+// Context compression: summarise execution context every N steps
+export const COMPRESS_EVERY_N_STEPS = 3;
+export const COMPRESS_MAX_CHARS = 6000;  // trigger compression above this
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\projectRegistry.js
@@ -2360,6 +2486,168 @@ export function scanProject({ project, extensions = [], maxDepth = 5 }) {
 }
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\staticAnalyzer.js
+========================================
+/**
+ * project_analyze — Pre-build static analyzer
+ *
+ * Runs BEFORE a full build to catch cheap-to-detect issues:
+ *   1. Broken relative imports / require() paths
+ *   2. Files referenced in imports that don't exist on disk
+ *   3. Basic syntax check via Node --check (JS/TS only)
+ *
+ * This avoids spinning up a full Gradle/Maven/Vite build just to discover
+ * a typo in an import path — saving 30–120 seconds per autofix attempt.
+ */
+
+import fs from "fs";
+import path from "path";
+import { spawnSync } from "child_process";
+import { getProject } from "../core/projectRegistry.js";
+import { IGNORE_FOLDERS } from "../core/constants.js";
+
+const JS_EXTENSIONS  = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs"]);
+const RESOLVABLE_EXT = ["", ".js", ".jsx", ".ts", ".tsx", "/index.js", "/index.ts"];
+
+/** Try to resolve a relative import path to an actual file. */
+function resolveImport(fromFile, importPath) {
+    if (!importPath.startsWith(".")) return true;  // non-relative = skip
+    const base = path.resolve(path.dirname(fromFile), importPath);
+    return RESOLVABLE_EXT.some(ext => fs.existsSync(base + ext));
+}
+
+/** Extract all import/require specifiers from a JS/TS file. */
+function extractImports(content) {
+    const specifiers = [];
+    const patterns = [
+        /import\s+.*?from\s+['"](.*?)['"];/g,
+        /require\s*\(\s*['"](.*?)['"]\s*\)/g,
+        /import\s*\(\s*['"](.*?)['"]\s*\)/g
+    ];
+    for (const re of patterns) {
+        let m;
+        while ((m = re.exec(content)) !== null) specifiers.push(m[1]);
+    }
+    return specifiers;
+}
+
+/** Walk the project and collect broken imports. */
+function checkBrokenImports(projectRoot) {
+    const issues = [];
+
+    function walk(dir) {
+        let items;
+        try { items = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+
+        for (const item of items) {
+            if (item.isDirectory()) {
+                if (IGNORE_FOLDERS.includes(item.name)) continue;
+                walk(path.join(dir, item.name));
+                continue;
+            }
+
+            const ext = path.extname(item.name);
+            if (!JS_EXTENSIONS.has(ext)) continue;
+
+            const full = path.join(dir, item.name);
+            let content;
+            try { content = fs.readFileSync(full, "utf8"); }
+            catch { continue; }
+
+            const imports = extractImports(content);
+            for (const imp of imports) {
+                if (!resolveImport(full, imp)) {
+                    issues.push({
+                        file:   path.relative(projectRoot, full),
+                        import: imp,
+                        issue:  "Import path not found on disk"
+                    });
+                }
+            }
+        }
+    }
+
+    walk(projectRoot);
+    return issues;
+}
+
+/** Quick Node syntax check on JS/JSX files (skips TS — needs tsc). */
+function checkSyntax(projectRoot) {
+    const issues = [];
+
+    function walk(dir) {
+        let items;
+        try { items = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+
+        for (const item of items) {
+            if (item.isDirectory()) {
+                if (IGNORE_FOLDERS.includes(item.name)) continue;
+                walk(path.join(dir, item.name));
+                continue;
+            }
+
+            const ext = path.extname(item.name);
+            if (ext !== ".js" && ext !== ".jsx" && ext !== ".mjs") continue;
+
+            const full = path.join(dir, item.name);
+            const result = spawnSync("node", ["--check", full], { encoding: "utf8" });
+
+            if (result.status !== 0 && result.stderr) {
+                issues.push({
+                    file:  path.relative(projectRoot, full),
+                    issue: result.stderr.trim().split("\n")[0]  // first line only
+                });
+            }
+        }
+    }
+
+    walk(projectRoot);
+    return issues;
+}
+
+/** MCP tool handler */
+export function analyzeProject({ project }) {
+    const config = getProject(project);
+    const root   = config.root;
+
+    const brokenImports = checkBrokenImports(root);
+    const syntaxErrors  = config.type !== "liferay-backend" && config.type !== "spring-boot"
+        ? checkSyntax(root)
+        : [];  // Node --check doesn't apply to Java projects
+
+    const total = brokenImports.length + syntaxErrors.length;
+
+    if (total === 0) {
+        return {
+            content: [{ type: "text", text: "Static analysis passed — no issues found." }]
+        };
+    }
+
+    const lines = [];
+
+    if (brokenImports.length > 0) {
+        lines.push(`Broken imports (${brokenImports.length}):`);
+        for (const i of brokenImports) {
+            lines.push(`  ${i.file}: import '${i.import}' — ${i.issue}`);
+        }
+    }
+
+    if (syntaxErrors.length > 0) {
+        lines.push(`Syntax errors (${syntaxErrors.length}):`);
+        for (const e of syntaxErrors) {
+            lines.push(`  ${e.file}: ${e.issue}`);
+        }
+    }
+
+    return {
+        content: [{ type: "text", text: lines.join("\n") }]
+    };
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\training\collector.js
 ========================================
 /**
@@ -2640,6 +2928,106 @@ export async function getCollection(project) {
 }
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\memory.js
+========================================
+/**
+ * Long-term memory layer — stores and retrieves project-level knowledge
+ * in a dedicated ChromaDB collection separate from the codebase index.
+ *
+ * Examples of what gets stored:
+ *   "React project uses React Query for all API calls"
+ *   "Spring Boot service follows Controller → Service → Repository pattern"
+ *   "Liferay modules use service.xml to define persistence layer"
+ *
+ * On every agent run the planner queries memory first and injects the
+ * results into the plan prompt, so the agent already "knows" your
+ * architecture without being told every time.
+ */
+
+import { ChromaClient } from "chromadb";
+import { embed } from "./embedder.js";
+import {
+    MEMORY_COLLECTION_PREFIX,
+    MEMORY_MAX_RESULTS,
+    MEMORY_MAX_SNIPPET
+} from "../core/constants.js";
+
+const client = new ChromaClient({ host: "localhost", port: 8000 });
+
+// In-process cache of collection handles
+const cache = {};
+
+async function getMemoryCollection(project) {
+    if (cache[project]) return cache[project];
+
+    const name = MEMORY_COLLECTION_PREFIX + project;
+    const collections = await client.listCollections();
+    const exists = collections.find(c => c.name === name);
+
+    cache[project] = exists
+        ? await client.getCollection({ name })
+        : await client.createCollection({ name, embeddingFunction: null });
+
+    return cache[project];
+}
+
+/**
+ * Store a memory entry for a project.
+ * @param {string} project
+ * @param {string} text  - the knowledge to remember
+ * @param {string} [tag] - optional category tag (e.g. "architecture", "fix", "pattern")
+ */
+export async function storeMemory(project, text, tag = "general") {
+    try {
+        const collection = await getMemoryCollection(project);
+        const embedding  = await embed(text);
+        const id = Buffer.from(text.substring(0, 200) + Date.now()).toString("base64").substring(0, 512);
+
+        await collection.add({
+            ids:        [id],
+            documents:  [text],
+            embeddings: [embedding],
+            metadatas:  [{ tag, ts: Date.now() }]
+        });
+
+        console.error(`[memory] Stored (${tag}): ${text.substring(0, 80)}...`);
+    } catch (err) {
+        console.error("[memory] storeMemory error:", err.message);
+    }
+}
+
+/**
+ * Query memory for context relevant to a prompt.
+ * Returns a formatted string ready to inject into a planner/executor prompt.
+ * Returns "" if nothing relevant is found.
+ */
+export async function queryMemory(project, prompt) {
+    try {
+        const collection = await getMemoryCollection(project);
+        const count = await collection.count();
+        if (count === 0) return "";
+
+        const embedding = await embed(prompt);
+        const results   = await collection.query({
+            queryEmbeddings: [embedding],
+            nResults: Math.min(MEMORY_MAX_RESULTS, count)
+        });
+
+        const docs = results.documents?.[0];
+        if (!docs || docs.length === 0) return "";
+
+        return docs
+            .map(d => d.length > MEMORY_MAX_SNIPPET ? d.substring(0, MEMORY_MAX_SNIPPET) + "..." : d)
+            .join("\n- ");
+
+    } catch {
+        // Memory collection may not exist yet on first run — silent fail
+        return "";
+    }
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\queryCodebase.js
 ========================================
 import { ChromaClient } from "chromadb";
@@ -2713,6 +3101,34 @@ import { getCollection } from "./indexCodebase.js";
 import { embed } from "./embedder.js";
 import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 
+// ─── Incremental index tracking ──────────────────────────────────────────────
+// We store a JSON sidecar { filePath: mtime } next to the ChromaDB data.
+// On re-index we skip files whose mtime hasn't changed — up to 10x faster.
+
+function getManifestPath(projectName) {
+    // Store manifest alongside this source file so it survives across restarts
+    return path.resolve(path.dirname(new URL(import.meta.url).pathname), `../../.index_manifest_${projectName}.json`);
+}
+
+function loadManifest(projectName) {
+    const p = getManifestPath(projectName);
+    try {
+        return JSON.parse(fs.readFileSync(p, "utf8"));
+    } catch {
+        return {};
+    }
+}
+
+function saveManifest(projectName, manifest) {
+    const p = getManifestPath(projectName);
+    try {
+        fs.writeFileSync(p, JSON.stringify(manifest, null, 2), "utf8");
+    } catch (err) {
+        console.error("[indexer] Could not save manifest:", err.message);
+    }
+}
+
+// ─── Code chunker ────────────────────────────────────────────────────────────
 function chunkCode(code) {
     const chunks = [];
     const parts = code.split(/function |export function |class |public |private |protected /);
@@ -2729,11 +3145,13 @@ function chunkCode(code) {
     return chunks;
 }
 
+// ─── Main indexer ─────────────────────────────────────────────────────────────
 export async function indexProject(projectRoot, projectName, extraExtensions = []) {
-    const collection = await getCollection(projectName);
-
-    // Merge default indexable extensions with any project-specific extras
-    const extensions = [...new Set([...INDEXABLE_EXTENSIONS, ...extraExtensions])];
+    const collection  = await getCollection(projectName);
+    const extensions  = [...new Set([...INDEXABLE_EXTENSIONS, ...extraExtensions])];
+    const manifest    = loadManifest(projectName);
+    let   indexed     = 0;
+    let   skipped     = 0;
 
     async function walk(dir) {
         let items;
@@ -2755,20 +3173,42 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
             const ext = path.extname(item.name);
             if (!extensions.includes(ext)) continue;
 
+            // ── Incremental check ──────────────────────────────────────────
+            const mtime = fs.statSync(full).mtimeMs;
+            if (manifest[full] === mtime) {
+                skipped++;
+                continue;   // file unchanged since last index — skip
+            }
+
             try {
-                const code = fs.readFileSync(full, "utf8");
+                const code   = fs.readFileSync(full, "utf8");
                 const chunks = chunkCode(code);
+                const rel    = path.relative(projectRoot, full);
 
                 for (const chunk of chunks) {
                     const embedding = await embed(chunk);
-                    await collection.add({
-                        ids: [Buffer.from(full + chunk).toString("base64").substring(0, 512)],
-                        documents: [chunk],
-                        embeddings: [embedding]
-                    });
+                    const id = Buffer.from(full + chunk).toString("base64").substring(0, 512);
+
+                    // Upsert so re-indexing a changed file replaces old vectors
+                    try {
+                        await collection.upsert({
+                            ids:        [id],
+                            documents:  [chunk],
+                            embeddings: [embedding]
+                        });
+                    } catch {
+                        // Fall back to add if upsert not supported by this Chroma version
+                        await collection.add({
+                            ids:        [id],
+                            documents:  [chunk],
+                            embeddings: [embedding]
+                        });
+                    }
                 }
 
-                console.error("Indexed:", path.relative(projectRoot, full));
+                manifest[full] = mtime;   // record new mtime
+                indexed++;
+                console.error("Indexed:", rel);
             } catch (err) {
                 console.error("Index error:", path.relative(projectRoot, full), err.message);
             }
@@ -2776,7 +3216,8 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
     }
 
     await walk(projectRoot);
-    console.error("Indexing completed for:", projectName);
+    saveManifest(projectName, manifest);
+    console.error(`Indexing completed for: ${projectName} — ${indexed} indexed, ${skipped} unchanged (skipped)`);
 }
 
 
