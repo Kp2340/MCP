@@ -145,7 +145,33 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     // 4. LLM call for ambiguous steps
     if (costState) costState.llmCalls++;
 
-    const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
+    const prompt = `You are a deterministic coding executor operating via MCP (Model Context Protocol).
+Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
+
+## CORE RULES
+- NEVER explain. ONLY output a JSON tool call.
+- ALWAYS prefer project_str_replace over project_apply_changes for edits.
+- NEVER read the same file twice.
+- NEVER modify the same file twice unless fixing a new error.
+- ALWAYS use the SMALLEST fix possible (targeted str_replace, not full rewrites).
+- Output MUST be { "tool": "...", "args": { ... } } OR { "done": true }
+
+## PRIORITY ORDER (follow strictly)
+1. Deterministic recovery (if error exists: identify → fix → verify)
+2. Tool-chain execution (use matching tool directly)
+3. Pattern-matched action (from memory/context)
+4. LLM reasoning (LAST resort only)
+
+## ERROR RECOVERY (deterministic, no planning)
+- import_error  → project_search → project_read_files → project_str_replace → project_analyze
+- syntax_error  → project_read_files → project_str_replace → project_analyze
+- build_failure → project_analyze → project_str_replace → project_build
+- runtime_error → project_analyze → project_read_files → project_str_replace
+
+## TOOL USAGE STRATEGY
+- Reading code: project_search or project_find_symbol FIRST, then project_read_files
+- Editing code: ALWAYS project_str_replace (never apply_changes for small edits)
+- Fixing errors: project_analyze FIRST, then minimal str_replace, then build
 
 Context:
 ${context}${memoryBlock}
@@ -177,11 +203,10 @@ project_apply_changes — {
 project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
 project_analyze       — { "tool": "project_analyze",       "args": { "project": "string" } }
 
-Rules:
-- Prefer project_str_replace over project_apply_changes for small edits
-- Output ONLY the JSON object, nothing else
+Constraints:
 - All args MUST be inside the "args" key
 - project is always: ${project}
+- Output ONLY the JSON object
 
 JSON:`;
 

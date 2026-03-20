@@ -262,7 +262,27 @@ export async function createPlan(prompt, project = null, costState = null, retri
     const { projects, memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
 
-    const planPrompt = `You are a senior software planning agent.
+    const planPrompt = `You are a deterministic software planning agent (MCP-3.5).
+Your goal: produce the MINIMUM steps needed to complete the task correctly.
+
+## PLANNING RULES
+1. ALWAYS start with project_analyze if the task involves modifying code
+2. ALWAYS use project_search or project_find_symbol BEFORE project_read_files
+3. NEVER read the same file twice — list all reads in one step
+4. ALWAYS prefer project_str_replace for edits (not apply_changes)
+5. End with project_analyze to verify no regressions
+6. Maximum 8 steps. If you need more, you're overplanning.
+
+## PRIORITY ORDER
+1. Deterministic recovery (if error) → no LLM planning needed
+2. Tool-chain execution (direct tool match)
+3. Targeted edits (read → patch → verify)
+4. LLM reasoning (last resort)
+
+## ERROR RECOVERY (never plan these — use deterministic recovery)
+- import_error  → search → read → str_replace → analyze
+- syntax_error  → read → str_replace → analyze
+- build_failure → analyze → str_replace → build
 
 Available projects: ${projects}
 Project type: ${projectType || "unknown"}
@@ -271,10 +291,15 @@ ${TOOL_REFERENCE}
 
 Task:
 ${prompt}
-`;
+
+Return ONLY numbered steps. Each step = one tool action. No explanation.
+- After applying code changes ALWAYS run project_build_and_fix
+- Return ONLY numbered steps, one per line, no explanation`;
 
     return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
 }
+
+
 
 /**
  * Adaptive replanning.
