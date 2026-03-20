@@ -104,8 +104,43 @@ function compress(doc) {
     return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc || "";
 }
 
+// ─── ExecutionState-aware scoring helpers ────────────────────────────────────
+
+/**
+ * Returns +0.25 score boost for docs from files that were recently modified.
+ * Returns -999 (exclude) for docs from files already read (token waste).
+ *
+ * @param {string}         doc
+ * @param {ExecutionState} execState
+ */
+function stateBoost(doc, execState) {
+    if (!execState) return 0;
+    const lowerDoc = doc.toLowerCase();
+
+    // Boost modified files — they are the most relevant right now
+    for (const modFile of execState.filesModified) {
+        const base = modFile.split(/[\\/]/).pop().toLowerCase();
+        if (base && lowerDoc.includes(base)) return 0.25;
+    }
+
+    // Penalise (but don't fully remove) already-read files — we already have that info
+    for (const readFile of execState.filesRead) {
+        const base = readFile.split(/[\\/]/).pop().toLowerCase();
+        if (base && lowerDoc.includes(base)) return -0.4;
+    }
+
+    return 0;
+}
+
 // ─── Main retrieval entry point ───────────────────────────────────────────────
-export async function retrieveContext(prompt, project = null) {
+/**
+ * Retrieve relevant code context.
+ *
+ * @param {string}          prompt
+ * @param {string}          [project]
+ * @param {ExecutionState}  [execState]   optional — enables state-aware scoring
+ */
+export async function retrieveContext(prompt, project = null, execState = null) {
     try {
         const embedding    = await embed(prompt);
         const intentLabel  = classifyIntentFromPrompt(prompt);
@@ -132,11 +167,19 @@ export async function retrieveContext(prompt, project = null) {
 
         const scored = docs.map((doc, i) => ({
             doc,
-            score: (1 - i / docs.length) + intentBoost(doc, intentRule)
+            score: (1 - i / docs.length)
+                + intentBoost(doc, intentRule)
+                + stateBoost(doc, execState)
         }));
 
-        scored.sort((a, b) => b.score - a.score);
-        const unique = deduplicate(scored.map(s => s.doc));
+        // Filter out heavily penalised docs (score < 0 = not useful)
+        const useful = scored.filter(s => s.score >= 0);
+        if (execState && useful.length < scored.length) {
+            console.error(`[retriever] ⚡ Skipped ${scored.length - useful.length} already-read chunk(s)`);
+        }
+
+        useful.sort((a, b) => b.score - a.score);
+        const unique = deduplicate(useful.map(s => s.doc));
         return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {

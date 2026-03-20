@@ -8,6 +8,55 @@ import {
 } from "../core/constants.js";
 import { formatStateForPrompt } from "./executionState.js";
 
+// ─── Tool-level deterministic failure recovery ───────────────────────────────
+// Each entry maps a failure type → array of { tool, args } objects.
+// These are executed DIRECTLY by agent.js — zero LLM involvement.
+// args with value "__ERROR_QUERY__" are resolved at call time from execState.
+
+export const DETERMINISTIC_RECOVERY_TOOLS = {
+    import_error: (project, execState) => [
+        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] || "import" } },
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    syntax_error: (project, _execState) => [
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    build_failure: (project, _execState) => [
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    not_found: (project, execState) => [
+        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
+        { tool: "project_analyze",     args: { project } }
+    ],
+    runtime_error: (project, _execState) => [
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    permission_error: (project, _execState) => [
+        { tool: "project_scan",        args: { project } }
+    ]
+};
+
+/**
+ * Returns a tool-level recovery plan for a known failure type.
+ * Returns null if no deterministic recovery exists (→ fall through to LLM).
+ *
+ * @param {string}         failureType
+ * @param {string}         project
+ * @param {ExecutionState} execState
+ * @returns {Array<{tool:string,args:object}>|null}
+ */
+export function handleFailureDeterministically(failureType, project, execState) {
+    const factory = DETERMINISTIC_RECOVERY_TOOLS[failureType];
+    if (!factory) return null;
+    const toolSteps = factory(project, execState);
+    console.error(`[planner] ⚡ Tool-level recovery for "${failureType}" — ${toolSteps.length} direct tool calls (0 LLM)`);
+    return toolSteps;
+}
+
 const MODEL = "qwen2.5-coder:7b";
 
 // ─── Real token estimator ────────────────────────────────────────────────────
@@ -65,19 +114,31 @@ Rules:
 - After applying code changes ALWAYS run project_build_and_fix
 - Return ONLY numbered steps, one per line, no explanation`;
 
-// ─── Context-aware heuristic planner ──────────────────────────────────────────
+// ─── Context-aware heuristic planner ─────────────────────────────────────────
 /**
  * Tries to match a prompt against tool-chain templates using:
- *   1. keyword hits (as before)
- *   2. project type filter (spring-boot won't use add_ui_component)
+ *   1. keyword hits
+ *   2. project type filter
  *   3. intent hint from retriever (ui/api/fix/general)
+ *   4. ExecutionState error bias — active error type boosts matching templates (+2)
  *
  * Returns template steps if confident match found, or null.
  */
-function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null) {
+function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null, activeErrorType = null) {
     const lower = prompt.toLowerCase();
     let bestTemplate = null;
     let bestScore    = 0;
+
+    // Error type → implied intent map for bias scoring
+    const ERROR_INTENT_MAP = {
+        import_error:     "fix",
+        syntax_error:     "fix",
+        build_failure:    "fix",
+        runtime_error:    "fix",
+        not_found:        "fix",
+        permission_error: "fix"
+    };
+    const errorImpliedIntent = activeErrorType ? ERROR_INTENT_MAP[activeErrorType] : null;
 
     for (const template of TOOL_CHAIN_TEMPLATES) {
         // Skip templates scoped to other project types
@@ -92,7 +153,10 @@ function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null) {
         // Intent bonus: +1 if retriever intent matches template intent
         const intentBonus = (retrieverIntent && retrieverIntent === template.intent) ? 1 : 0;
 
-        const score = keywordHits + intentBonus;
+        // ExecutionState error bias: +2 if active error type implies this template's intent
+        const errorBias = (errorImpliedIntent && template.intent === errorImpliedIntent) ? 2 : 0;
+
+        const score = keywordHits + intentBonus + errorBias;
 
         if (score > bestScore) {
             bestScore    = score;
@@ -102,15 +166,17 @@ function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null) {
 
     // Require ≥2 total score to avoid false positives
     if (bestScore >= 2 && bestTemplate) {
+        const biasLabel = activeErrorType ? `, errBias=${activeErrorType}` : "";
         console.error(
             `[planner] Heuristic: "${bestTemplate.name}" ` +
-            `(score=${bestScore}, type=${projectType || "any"}, intent=${retrieverIntent || "none"}) — skipping LLM`
+            `(score=${bestScore}, type=${projectType || "any"}, intent=${retrieverIntent || "none"}${biasLabel}) — skipping LLM`
         );
         return bestTemplate.steps;
     }
 
     return null;
 }
+
 
 // ─── Project type lookup ─────────────────────────────────────────────────────────
 function getProjectType(project) {
@@ -124,17 +190,20 @@ function getProjectType(project) {
 /**
  * Initial plan creation.
  *
- * @param {string}  prompt
- * @param {string}  [project]
- * @param {object}  [costState]        — { llmCalls } mutated in place
- * @param {string}  [retrieverIntent]  — intent label from retriever
+ * @param {string}         prompt
+ * @param {string}         [project]
+ * @param {object}         [costState]        — { llmCalls } mutated in place
+ * @param {string}         [retrieverIntent]  — intent label from retriever
+ * @param {ExecutionState} [execState]        — active state for planning bias
  * @returns {string}  newline-separated numbered steps
  */
-export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null) {
+export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null, execState = null) {
     const projectType = getProjectType(project);
 
-    // 1. Context-aware heuristic (zero LLM cost)
-    const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent);
+    // 1. Context-aware heuristic with ExecutionState bias (zero LLM cost)
+    //    If execState has an active error type, boost template score for matching templates
+    const activeErrorType = execState?.lastError()?.type || null;
+    const heuristicSteps  = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
     if (heuristicSteps) {
         return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
     }

@@ -82,17 +82,37 @@ function hoistTopLevelArgs(parsed) {
 /**
  * Execute a single plan step.
  *
- * @param {string} step          - natural-language step description
- * @param {string} context       - execution context (compressed history + RAG)
- * @param {string} project
- * @param {string} [memoryCtx]   - relevant memory entries to inject (optional)
- * @param {object} [costState]   - { llmCalls: number } mutated in place
+ * @param {string}         step          - natural-language step description
+ * @param {string}         context       - execution context (compressed history + RAG)
+ * @param {string}         project
+ * @param {string}         [memoryCtx]   - relevant memory entries to inject (optional)
+ * @param {object}         [costState]   - { llmCalls: number } mutated in place
+ * @param {ExecutionState} [execState]   - active state used to skip redundant reads
  */
-export async function executeStep(step, context, project, memoryCtx = "", costState = null) {
+export async function executeStep(step, context, project, memoryCtx = "", costState = null, execState = null) {
 
     // 1. Rule-based routing (zero LLM cost)
     const ruled = routeByRule(step, project);
     if (ruled) {
+        // Active ExecutionState gate: skip reads of already-known files
+        if (execState) {
+            try {
+                const parsed = JSON.parse(ruled);
+                if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
+                    const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
+                    if (unread.length === 0) {
+                        console.error(`[executor] ⚡ Skipping read — all files already in state: ${parsed.args.paths.join(", ")}`);
+                        return JSON.stringify({ skipped: true, reason: "already_read" });
+                    }
+                    // Only read the subset not yet seen
+                    if (unread.length < parsed.args.paths.length) {
+                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unread.join(", ")}`);
+                        parsed.args.paths = unread;
+                        return JSON.stringify(parsed);
+                    }
+                }
+            } catch { /* not JSON — fall through */ }
+        }
         console.error("[executor] Rule-matched (no LLM call)");
         return ruled;
     }
@@ -107,6 +127,9 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     const memoryBlock = memoryCtx
         ? `\nRelevant project memory:\n${memoryCtx}\n`
         : "";
+
+    // 3b. Active ExecutionState gate for LLM-resolved steps (applied post-parse below)
+    // (Nothing to do here pre-LLM — gate runs on LLM output)
 
     // 4. LLM call for ambiguous steps
     if (costState) costState.llmCalls++;
@@ -159,6 +182,20 @@ JSON:`;
         if (parsed.tool) {
             parsed = hoistTopLevelArgs(parsed);
             parsed.args = normalizeArgs(parsed.tool, parsed.args, project);
+
+            // Active ExecutionState gate on LLM-suggested reads
+            if (execState && parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
+                const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
+                if (unread.length === 0) {
+                    console.error(`[executor] ⚡ LLM suggested reading already-known files — skipping: ${parsed.args.paths.join(", ")}`);
+                    return JSON.stringify({ skipped: true, reason: "already_read" });
+                }
+                if (unread.length < parsed.args.paths.length) {
+                    const skipped = parsed.args.paths.filter(p => execState.hasRead(p));
+                    console.error(`[executor] ⚡ Partial skip (LLM): skipping known ${skipped.join(", ")}`);
+                    parsed.args.paths = unread;
+                }
+            }
         }
         return JSON.stringify(parsed);
     } catch {

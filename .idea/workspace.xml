@@ -4,7 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-2.2" />
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-2.2">
+      <change beforePath="$PROJECT_DIR$/src/agent/agent.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/agent.js" afterDir="false" />
+    </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -164,7 +166,7 @@
       <workItem from="1773416903744" duration="5387000" />
       <workItem from="1773637927965" duration="83000" />
       <workItem from="1773920188449" duration="1927000" />
-      <workItem from="1774025528375" duration="4004000" />
+      <workItem from="1774025528375" duration="6468000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -272,7 +274,8 @@
     <MESSAGE value="MCP-2" />
     <MESSAGE value="MCP-2.1" />
     <MESSAGE value="MCP-2.2" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-2.2" />
+    <MESSAGE value="MCP-3.3" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-3.3" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

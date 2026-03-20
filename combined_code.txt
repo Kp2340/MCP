@@ -950,20 +950,24 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\agent.js
 ========================================
 import readline from "readline";
 import { MCPClient } from "./mcpClient.js";
-import { createPlan, updatePlan } from "./planner.js";
+import { createPlan, updatePlan, estimateTokens, handleFailureDeterministically } from "./planner.js";
 import { executeStep } from "./executor.js";
-import { retrieveContext } from "./retriever.js";
+import { retrieveContext, classifyIntentFromPrompt } from "./retriever.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { TrainingCollector } from "../training/collector.js";
 import { storeMemory, queryMemory } from "../vector/memory.js";
 import { askLLM } from "./ollamaClient.js";
+import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
+import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
+import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
+import { reviewChanges } from "./reviewer.js";
 import {
     COMPRESS_EVERY_N_STEPS,
     COMPRESS_MAX_CHARS,
     MAX_LLM_CALLS_PER_RUN,
     MAX_TOTAL_TOKENS_PER_RUN,
-    MAX_TOKENS_ESTIMATE_PER_CALL,
-    MAX_REPLANS
+    MAX_REPLANS,
+    TOOL_CHAIN_TEMPLATES
 } from "../core/constants.js";
 
 process.env.NODE_NO_WARNINGS = "1";
@@ -977,34 +981,45 @@ const collector = new TrainingCollector();
 
 console.error(`[training] ${collector.count()} examples collected so far`);
 
-// ─── Cost state factory ─────────────────────────────────────────────────────
-// Shared mutable state tracking LLM usage across planner + executor.
+// ─── Cost state ──────────────────────────────────────────────────────────────
 function makeCostState() {
-    return { llmCalls: 0 };
+    return { llmCalls: 0, totalChars: 0 };
+}
+
+// Real token estimate: accumulates actual prompt/response char counts
+function trackChars(costState, ...texts) {
+    costState.totalChars += texts.reduce((s, t) => s + (t ? t.length : 0), 0);
 }
 
 function estimatedTokens(costState) {
-    return costState.llmCalls * MAX_TOKENS_ESTIMATE_PER_CALL;
+    return estimateTokens("".padEnd(costState.totalChars, "x"));
 }
 
 // ─── Context compression ─────────────────────────────────────────────────────
-async function compressContext(context, costState) {
+async function compressContext(context, execState, costState) {
     if (context.length < COMPRESS_MAX_CHARS) return context;
     console.error("[agent] Compressing context...");
     if (costState) costState.llmCalls++;
-    const summary = await askLLM(MODEL,
-        `Summarise the following code agent execution log in 3-5 bullet points.
+
+    const stateBlock = formatStateForPrompt(execState);
+    const prompt = `Summarise the following code agent execution log in 3-5 bullet points.
 Focus on: what files were read, what changes were made, what errors were found.
 Be concise. Output only the bullet points.
 
-${context.substring(0, COMPRESS_MAX_CHARS)}`,
-        { temperature: 0.1, num_predict: 400 }
-    );
+Execution state:
+${stateBlock}
+
+${context.substring(0, COMPRESS_MAX_CHARS)}`;
+
+    trackChars(costState, prompt);
+    const summary = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 400 });
+    trackChars(costState, summary);
+
     console.error("[agent] Context compressed.");
-    return `[Compressed context summary]:\n${summary}`;
+    return `[Compressed context summary]:\n${summary}\n\nExecution state:\n${stateBlock}`;
 }
 
-// ─── Structured memory extraction ──────────────────────────────────────────────
+// ─── Memory extraction ───────────────────────────────────────────────────────
 async function extractAndStoreMemory(project, prompt, context, costState) {
     try {
         if (costState) costState.llmCalls++;
@@ -1017,10 +1032,8 @@ Task: ${prompt.substring(0, 200)}
 Context: ${context.substring(0, 800)}`,
             { temperature: 0.1, num_predict: 120 }
         );
-
         let structured;
         try { structured = JSON.parse(extractJSON(raw)); } catch { structured = null; }
-
         if (structured?.pattern && structured.pattern.length > 20) {
             await storeMemory(project, structured, structured.type || "pattern");
         }
@@ -1030,26 +1043,13 @@ Context: ${context.substring(0, 800)}`,
 }
 
 // ─── Analyze-before-modify guard ─────────────────────────────────────────────────
-// Enforces: project_analyze must run before any build or apply_changes.
-// If the upcoming steps include a build/apply but no analyze precedes it,
-// inject an analyze step immediately before the first such step.
 function enforceAnalyzeBeforeBuild(steps) {
-    const BUILD_TOOLS = new Set([
-        "project_build_and_fix", "project_build",
-        "project_apply_changes", "project_str_replace"
-    ]);
     const ANALYZE_KEYWORDS = /(analyze|analyse|static.?analy|project_analyze)/i;
-
-    // Check if any step already mentions analyze
     const hasAnalyze = steps.some(s => ANALYZE_KEYWORDS.test(s));
-    if (hasAnalyze) return steps;  // already present — nothing to do
-
-    // Find first step that implies a build or file write
-    const BUILD_KEYWORDS = /(build|apply.?change|str.?replace|commit|modify|write)/i;
-    const firstBuildIdx  = steps.findIndex(s => BUILD_KEYWORDS.test(s));
-    if (firstBuildIdx === -1) return steps;  // no build step found
-
-    // Inject analyze before that step
+    if (hasAnalyze) return steps;
+    const BUILD_KEYWORDS  = /(build|apply.?change|str.?replace|commit|modify|write)/i;
+    const firstBuildIdx   = steps.findIndex(s => BUILD_KEYWORDS.test(s));
+    if (firstBuildIdx === -1) return steps;
     const injected = [...steps];
     injected.splice(firstBuildIdx, 0, "Run static analysis to identify issues before building");
     console.error(`[agent] Injected project_analyze before step ${firstBuildIdx + 1}`);
@@ -1057,19 +1057,20 @@ function enforceAnalyzeBeforeBuild(steps) {
 }
 
 // ─── Step executor with retry ────────────────────────────────────────────────
-async function executeWithRetry(step, context, project, memoryCtx, costState) {
+async function executeWithRetry(step, context, project, memoryCtx, costState, execState) {
     let lastError = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) console.error(`[agent] Retry ${attempt}/${MAX_RETRIES - 1}: ${step}`);
-        const action = await executeStep(step, context, project, memoryCtx, costState);
+        const action = await executeStep(step, context, project, memoryCtx, costState, execState);
+        trackChars(costState, action);
         try {
             const extracted = extractJSON(action);
             if (!extracted.startsWith("{")) { lastError = `Non-JSON: ${extracted.substring(0, 80)}`; continue; }
             const parsed = JSON.parse(extracted);
+            // Propagate skipped sentinel as success — no tool to call
+            if (parsed.skipped) return { ok: true, parsed };
             return { ok: true, parsed };
-        } catch (err) {
-            lastError = err.message;
-        }
+        } catch (err) { lastError = err.message; }
     }
     return { ok: false, error: lastError };
 }
@@ -1083,16 +1084,58 @@ async function runAgent(prompt) {
     console.error("Project:", project);
     console.error("\nCreating plan...\n");
 
-    // Shared cost state — passed to planner + executor so both track LLM usage
     const costState = makeCostState();
+    const execState = makeExecutionState();
 
-    const planContext    = await retrieveContext(prompt, project);
+    // Classify intent from prompt before retrieval so planner + heuristic can use it
+    const promptIntent = classifyIntentFromPrompt(prompt);
+    console.error(`[agent] Prompt intent: ${promptIntent}`);
+
+    const planContext    = await retrieveContext(prompt, project, execState);
+    trackChars(costState, planContext);
+
+    // Detect if initial plan maps to a known tool-chain template for direct execution
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
-    const initialPlan    = await createPlan(enrichedPrompt, project, costState);
+
+    // Check if we can run the plan directly via tool-chain executor (P0)
+    const matchedTemplate = TOOL_CHAIN_TEMPLATES.find(t => {
+        const lower = prompt.toLowerCase();
+        const hits  = t.keywords.filter(kw => lower.includes(kw)).length;
+        const intentOk = !t.intent || t.intent === promptIntent || t.intent === "general";
+        return hits >= 2 && intentOk;
+    });
+
+    if (matchedTemplate) {
+        console.error(`\n[agent] ⚡ Template "${matchedTemplate.name}" matched — executing directly (0 LLM steps)`);
+        const { results, success, stepsRun } = await executeToolChain(
+            matchedTemplate.name, project, mcp, execState, costState
+        );
+        if (success || stepsRun > 0) {
+            // Sufficient work done via direct chain — validate and finish
+            const executionContext = results.join("\n");
+            collector.startRun(prompt);
+            collector.endRun(stepsRun >= 2);
+            if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
+
+            const validation = validateGoal(promptIntent, execState);
+            logValidation(promptIntent, validation);
+
+            console.error(`\n─── Agent finished (direct chain) ───`);
+            console.error(`  Steps:       ${stepsRun} (template: ${matchedTemplate.name})`);
+            console.error(`  LLM calls:   ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
+            console.error(`  Files read:  ${[...execState.filesRead].join(", ") || "none"}`);
+            console.error(`  Files mod:   ${[...execState.filesModified].join(", ") || "none"}`);
+            return;
+        }
+        // Chain failed or produced no results — fall through to full LLM loop
+        console.error("[agent] Direct chain insufficient — falling back to full LLM loop");
+    }
+
+    const initialPlan    = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
+    trackChars(costState, initialPlan);
 
     console.error("\nInitial Plan:\n" + initialPlan);
 
-    // Parse + enforce analyze-before-build
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
             .split("\n")
@@ -1101,60 +1144,84 @@ async function runAgent(prompt) {
     );
 
     let executionContext = planContext;
-    let successfulSteps = 0;
-    let totalStepsDone  = 0;
-    let replanCount     = 0;
+    let successfulSteps  = 0;
+    let totalStepsDone   = 0;
+    let replanCount      = 0;
 
     collector.startRun(prompt);
 
     while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
 
-        // Token budget warning
+        // Real token budget check
         const estTokens = estimatedTokens(costState);
         if (estTokens > MAX_TOTAL_TOKENS_PER_RUN) {
-            console.error(`[agent] ⚠️  Estimated token usage (${estTokens}) exceeds budget (${MAX_TOTAL_TOKENS_PER_RUN}). Stopping.`);
+            console.error(`[agent] ⚠️  Token budget exceeded (~${estTokens} tokens). Stopping.`);
             break;
         }
 
-        // Compress context every N steps
+        // Compress every N steps
         if (totalStepsDone > 0 && totalStepsDone % COMPRESS_EVERY_N_STEPS === 0) {
-            executionContext = await compressContext(executionContext, costState);
+            executionContext = await compressContext(executionContext, execState, costState);
         }
 
         const step = remainingSteps.shift();
         totalStepsDone++;
 
-        console.error(`\n[${totalStepsDone}] Executing: ${step}`);
-        console.error(`[cost] LLM calls so far: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}`);
+        console.error(`\n[${totalStepsDone}] ${step}`);
+        console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
 
-        // Fetch step-relevant memory — injected into executor prompt
-        const stepMemory  = await queryMemory(project, step, { minConfidence: 0.7 });
-        const stepContext = await retrieveContext(step, project);
-        const fullContext = executionContext + (stepContext ? "\n\n" + stepContext : "");
+        // Intent-filtered memory for this specific step — now with execState for smart ranking
+        const stepIntent  = classifyIntentFromPrompt(step);
+        const memoryType  = stepIntent === "ui"  ? "architecture" :
+                            stepIntent === "api" ? "architecture" :
+                            stepIntent === "fix" ? "fix"          : null;
+
+        const stepMemory  = await queryMemory(project, step, {
+            minConfidence: 0.7,
+            filterType:    memoryType,
+            execState,
+            intent:        stepIntent
+        });
+
+        // State-aware retrieval: pass execState so retriever skips already-read files
+        const stepContext  = await retrieveContext(step, project, execState);
+        const stateBlock   = formatStateForPrompt(execState);
+        const fullContext  = executionContext +
+            (stateBlock ? `\n\n[Execution state]:\n${stateBlock}` : "") +
+            (stepContext ? `\n\n[Relevant code]:\n${stepContext}` : "");
+
+        trackChars(costState, fullContext, stepMemory);
 
         const { ok, parsed, error } = await executeWithRetry(
-            step, fullContext, project, stepMemory, costState
+            step, fullContext, project, stepMemory, costState, execState
         );
 
-        // ── Parse failed after all retries ──────────────────────────────────────
+        // ── Parse failed ─────────────────────────────────────────────────────────────
         if (!ok) {
-            console.warn(`[agent] Step failed to parse: ${error}`);
+            console.warn(`[agent] Parse failed: ${error}`);
             if (replanCount < MAX_REPLANS) {
                 replanCount++;
                 console.error(`[agent] Replanning (${replanCount}/${MAX_REPLANS})...`);
                 const revised = await updatePlan(
                     remainingSteps, step, `Parse failure: ${error}`,
-                    executionContext, project, costState
+                    executionContext, project, costState, execState
                 );
                 remainingSteps = enforceAnalyzeBeforeBuild(revised);
-                console.error(`[agent] ${remainingSteps.length} steps remain after replan.`);
+                console.error(`[agent] ${remainingSteps.length} steps remain.`);
             }
             continue;
         }
 
-        // ── Tool call ─────────────────────────────────────────────────────────────
+        // ── Skipped step (already-read file) ────────────────────────────────────────
+        if (parsed.skipped) {
+            console.error(`  ⚡ Step skipped (${parsed.reason}) — advancing`);
+            successfulSteps++;  // count as successful to avoid false replan
+            continue;
+        }
+
+        // ── Tool call ───────────────────────────────────────────────────────────────
         if (parsed.tool) {
-            console.error(`\n  → ${parsed.tool}`);
+            console.error(`  → ${parsed.tool}`);
 
             let resultText = "";
             let toolFailed = false;
@@ -1162,16 +1229,10 @@ async function runAgent(prompt) {
             try {
                 const result = await mcp.callTool(parsed.tool, parsed.args || {});
                 resultText   = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+                trackChars(costState, resultText);
 
                 console.error(`  ← ${resultText.length} chars`);
                 if (resultText.length < 500) console.error(resultText);
-
-                // Detect failure signals in result
-                const lower = resultText.toLowerCase();
-                toolFailed = lower.includes("error:") ||
-                             lower.includes("build failed") ||
-                             lower.includes("exception") ||
-                             lower.includes("not found");
 
             } catch (toolErr) {
                 console.warn(`[agent] Tool error: ${toolErr.message}`);
@@ -1179,17 +1240,34 @@ async function runAgent(prompt) {
                 toolFailed = true;
             }
 
+            // Update structured execution state
+            execState.recordToolCall(parsed.tool, parsed.args, resultText, totalStepsDone);
+            toolFailed = toolFailed || execState.lastError()?.stepIndex === totalStepsDone;
+
             executionContext += `\n\n[Step ${totalStepsDone} — ${parsed.tool}]:\n${resultText}`;
 
             if (toolFailed && replanCount < MAX_REPLANS) {
                 replanCount++;
-                console.error(`[agent] Tool failure. Replanning (${replanCount}/${MAX_REPLANS})...`);
-                const revised = await updatePlan(
-                    remainingSteps, step, resultText,
-                    executionContext, project, costState
-                );
-                remainingSteps = enforceAnalyzeBeforeBuild(revised);
-                console.error(`[agent] ${remainingSteps.length} steps remain after replan.`);
+                const failType = execState.lastError()?.type || "unknown";
+                console.error(`[agent] ${failType} failure. Trying tool-level deterministic recovery...`);
+
+                // P0.5: Tool-level recovery — { tool, args } objects, ZERO LLM
+                const deterministicToolSteps = handleFailureDeterministically(failType, project, execState);
+                if (deterministicToolSteps) {
+                    // Execute structured tool steps directly — no LLM conversion needed
+                    const { results: recoveryResults } = await executeToolsDirect(deterministicToolSteps, mcp, execState);
+                    executionContext += `\n\n[Recovery — ${failType}]:\n${recoveryResults.join("\n")}`;
+                    console.error(`[agent] ⚡ Deterministic recovery done. Continuing with ${remainingSteps.length} remaining steps.`);
+                } else {
+                    // Fallback: LLM replan (only for truly uncharted failures)
+                    console.error(`[agent] No deterministic recovery for "${failType}" — LLM replan (${replanCount}/${MAX_REPLANS})`);
+                    const revised = await updatePlan(
+                        remainingSteps, step, resultText,
+                        executionContext, project, costState, execState
+                    );
+                    remainingSteps = enforceAnalyzeBeforeBuild(revised);
+                }
+                console.error(`[agent] ${remainingSteps.length} steps remain.`);
             }
 
             collector.logStep(step, { tool: parsed.tool, args: parsed.args }, resultText);
@@ -1202,12 +1280,29 @@ async function runAgent(prompt) {
     collector.endRun(successfulSteps >= 2);
     if (successfulSteps >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
 
-    // ── Cost summary ─────────────────────────────────────────────────────────────
+    // ── Heuristic goal validation ────────────────────────────────────────────────
+    const validation = validateGoal(promptIntent, execState);
+    logValidation(promptIntent, validation);
+
+    // ── Build-based validation (system-aware) ────────────────────────────────────
+    await validateWithBuild(project, promptIntent, mcp);
+
+    // ── Reviewer agent (P2) — fires only when files were actually changed ────────
+    if (execState.filesModified.size >= 2) {
+        await reviewChanges(project, prompt, execState, costState, executionContext);
+    }
+
+    // ── Final summary ─────────────────────────────────────────────────────────────
     console.error(`\n─── Agent finished ───`);
-    console.error(`  Steps:      ${successfulSteps} successful / ${totalStepsDone} total`);
-    console.error(`  Replans:    ${replanCount}`);
-    console.error(`  LLM calls:  ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
-    console.error(`  Est tokens: ~${estimatedTokens(costState).toLocaleString()}`);
+    console.error(`  Steps:       ${successfulSteps} ok / ${totalStepsDone} total`);
+    console.error(`  Replans:     ${replanCount}`);
+    console.error(`  LLM calls:   ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
+    console.error(`  Est tokens:  ~${estimatedTokens(costState).toLocaleString()} / ${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
+    console.error(`  Files read:  ${[...execState.filesRead].join(", ") || "none"}`);
+    console.error(`  Files mod:   ${[...execState.filesModified].join(", ") || "none"}`);
+    if (execState.errors.length > 0) {
+        console.error(`  Errors seen: ${execState.errors.map(e => e.type).join(", ")}`);
+    }
     console.error(`──────────────────────\n`);
 }
 
@@ -1221,6 +1316,188 @@ rl.question("Prompt: ", async (prompt) => {
     }
     process.exit();
 });
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executionState.js
+========================================
+/**
+ * Execution State Engine
+ *
+ * Tracks structured state across the entire agent run:
+ *   - which files were read / modified
+ *   - which tools were used
+ *   - errors seen (raw text + classified type)
+ *
+ * Used by:
+ *   - agent.js  — maintained and passed around
+ *   - planner.js — injected into replan prompts for better reasoning
+ *   - executor.js — injected alongside memory context
+ *
+ * Replaces the unstructured "executionContext string" as the source of truth
+ * for WHAT has happened, while the string remains the source of truth for
+ * WHAT WAS SAID (LLM context).
+ */
+
+// ─── Failure classifier ───────────────────────────────────────────────────────
+// Returns a specific failure category instead of relying on generic
+// "includes('error')" checks. The category is used to guide replanning.
+
+const FAILURE_PATTERNS = [
+    {
+        type:     "import_error",
+        patterns: [/cannot find module/i, /import.*not found/i, /module not found/i, /unresolved import/i]
+    },
+    {
+        type:     "syntax_error",
+        patterns: [/syntaxerror/i, /unexpected token/i, /unexpected end/i, /parse error/i]
+    },
+    {
+        type:     "build_failure",
+        patterns: [/build failed/i, /compilation failed/i, /task.*failed/i, /error:.*\.java/i]
+    },
+    {
+        type:     "runtime_error",
+        patterns: [/typeerror/i, /referenceerror/i, /nullpointerexception/i, /classnotfoundexception/i, /stack trace/i]
+    },
+    {
+        type:     "not_found",
+        patterns: [/not found/i, /does not exist/i, /no such file/i, /404/]
+    },
+    {
+        type:     "permission_error",
+        patterns: [/permission denied/i, /access denied/i, /forbidden/i, /eacces/i]
+    }
+];
+
+export function classifyFailure(resultText) {
+    if (!resultText) return null;
+    const lower = resultText.toLowerCase();
+
+    // Quick pre-check — if no failure signals at all, return null
+    const hasFailureSignal =
+        lower.includes("error") ||
+        lower.includes("fail") ||
+        lower.includes("exception") ||
+        lower.includes("not found");
+
+    if (!hasFailureSignal) return null;
+
+    for (const { type, patterns } of FAILURE_PATTERNS) {
+        if (patterns.some(re => re.test(resultText))) {
+            return type;
+        }
+    }
+
+    return "unknown_error";  // failure signal present but unclassified
+}
+
+// ─── File path extractor ─────────────────────────────────────────────────────
+// Extracts relative file paths mentioned in tool args or result text.
+function extractPathsFromArgs(tool, args) {
+    if (!args) return [];
+    const paths = [];
+    if (tool === "project_read_files"   && Array.isArray(args.paths))  paths.push(...args.paths);
+    if (tool === "project_apply_changes" && Array.isArray(args.files))  paths.push(...args.files.map(f => f.path).filter(Boolean));
+    if (tool === "project_str_replace"  && Array.isArray(args.edits))  paths.push(...args.edits.map(e => e.path).filter(Boolean));
+    return paths;
+}
+
+// ─── ExecutionState class ─────────────────────────────────────────────────────
+
+export class ExecutionState {
+    constructor() {
+        this.filesRead     = new Set();  // paths passed to project_read_files
+        this.filesModified = new Set();  // paths written by apply_changes / str_replace
+        this.toolsUsed     = [];         // [{ tool, stepIndex }]
+        this.errors        = [];         // [{ type, text, stepIndex }]
+        this.stepCount     = 0;
+    }
+
+    /**
+     * Update state after a tool call completes.
+     * @param {string} tool        - tool name
+     * @param {object} args        - tool args
+     * @param {string} resultText  - tool result text
+     * @param {number} stepIndex
+     */
+    recordToolCall(tool, args, resultText, stepIndex) {
+        this.stepCount = stepIndex;
+        this.toolsUsed.push({ tool, stepIndex });
+
+        const paths = extractPathsFromArgs(tool, args);
+
+        if (tool === "project_read_files") {
+            paths.forEach(p => this.filesRead.add(p));
+        }
+        if (tool === "project_apply_changes" || tool === "project_str_replace") {
+            paths.forEach(p => {
+                this.filesModified.add(p);
+                this.filesRead.add(p);  // modified files were implicitly read too
+            });
+        }
+
+        const failureType = classifyFailure(resultText);
+        if (failureType) {
+            this.errors.push({
+                type:      failureType,
+                text:      resultText.substring(0, 300),
+                stepIndex
+            });
+        }
+    }
+
+    /** True if any failure of the given type has occurred this run. */
+    hasErrorType(type) {
+        return this.errors.some(e => e.type === type);
+    }
+
+    /** True if a given file has already been read this run. */
+    hasRead(filePath) {
+        return this.filesRead.has(filePath);
+    }
+
+    /** True if a given file has been modified this run. */
+    hasModified(filePath) {
+        return this.filesModified.has(filePath);
+    }
+
+    /** Most recent error, or null. */
+    lastError() {
+        return this.errors.length > 0 ? this.errors[this.errors.length - 1] : null;
+    }
+}
+
+/** Factory — creates a fresh ExecutionState for a new run. */
+export function makeExecutionState() {
+    return new ExecutionState();
+}
+
+/**
+ * Format execution state as a compact string for injection into prompts.
+ * Keeps it short to avoid burning tokens on state description.
+ */
+export function formatStateForPrompt(state) {
+    const lines = [];
+
+    if (state.filesRead.size > 0) {
+        lines.push(`Files read: ${[...state.filesRead].slice(0, 8).join(", ")}`);
+    }
+    if (state.filesModified.size > 0) {
+        lines.push(`Files modified: ${[...state.filesModified].slice(0, 8).join(", ")}`);
+    }
+    if (state.errors.length > 0) {
+        const last = state.errors[state.errors.length - 1];
+        lines.push(`Last error type: ${last.type}`);
+        lines.push(`Last error: ${last.text.substring(0, 120)}`);
+    }
+    if (state.toolsUsed.length > 0) {
+        const recent = state.toolsUsed.slice(-4).map(t => t.tool).join(" → ");
+        lines.push(`Recent tools: ${recent}`);
+    }
+
+    return lines.length > 0 ? lines.join("\n") : "No actions taken yet.";
+}
 
 
 ========================================
@@ -1310,17 +1587,37 @@ function hoistTopLevelArgs(parsed) {
 /**
  * Execute a single plan step.
  *
- * @param {string} step          - natural-language step description
- * @param {string} context       - execution context (compressed history + RAG)
- * @param {string} project
- * @param {string} [memoryCtx]   - relevant memory entries to inject (optional)
- * @param {object} [costState]   - { llmCalls: number } mutated in place
+ * @param {string}         step          - natural-language step description
+ * @param {string}         context       - execution context (compressed history + RAG)
+ * @param {string}         project
+ * @param {string}         [memoryCtx]   - relevant memory entries to inject (optional)
+ * @param {object}         [costState]   - { llmCalls: number } mutated in place
+ * @param {ExecutionState} [execState]   - active state used to skip redundant reads
  */
-export async function executeStep(step, context, project, memoryCtx = "", costState = null) {
+export async function executeStep(step, context, project, memoryCtx = "", costState = null, execState = null) {
 
     // 1. Rule-based routing (zero LLM cost)
     const ruled = routeByRule(step, project);
     if (ruled) {
+        // Active ExecutionState gate: skip reads of already-known files
+        if (execState) {
+            try {
+                const parsed = JSON.parse(ruled);
+                if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
+                    const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
+                    if (unread.length === 0) {
+                        console.error(`[executor] ⚡ Skipping read — all files already in state: ${parsed.args.paths.join(", ")}`);
+                        return JSON.stringify({ skipped: true, reason: "already_read" });
+                    }
+                    // Only read the subset not yet seen
+                    if (unread.length < parsed.args.paths.length) {
+                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unread.join(", ")}`);
+                        parsed.args.paths = unread;
+                        return JSON.stringify(parsed);
+                    }
+                }
+            } catch { /* not JSON — fall through */ }
+        }
         console.error("[executor] Rule-matched (no LLM call)");
         return ruled;
     }
@@ -1335,6 +1632,9 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     const memoryBlock = memoryCtx
         ? `\nRelevant project memory:\n${memoryCtx}\n`
         : "";
+
+    // 3b. Active ExecutionState gate for LLM-resolved steps (applied post-parse below)
+    // (Nothing to do here pre-LLM — gate runs on LLM output)
 
     // 4. LLM call for ambiguous steps
     if (costState) costState.llmCalls++;
@@ -1387,12 +1687,153 @@ JSON:`;
         if (parsed.tool) {
             parsed = hoistTopLevelArgs(parsed);
             parsed.args = normalizeArgs(parsed.tool, parsed.args, project);
+
+            // Active ExecutionState gate on LLM-suggested reads
+            if (execState && parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
+                const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
+                if (unread.length === 0) {
+                    console.error(`[executor] ⚡ LLM suggested reading already-known files — skipping: ${parsed.args.paths.join(", ")}`);
+                    return JSON.stringify({ skipped: true, reason: "already_read" });
+                }
+                if (unread.length < parsed.args.paths.length) {
+                    const skipped = parsed.args.paths.filter(p => execState.hasRead(p));
+                    console.error(`[executor] ⚡ Partial skip (LLM): skipping known ${skipped.join(", ")}`);
+                    parsed.args.paths = unread;
+                }
+            }
         }
         return JSON.stringify(parsed);
     } catch {
         console.warn("\n[executor] Could not parse model output:");
         console.warn(raw);
         return raw;
+    }
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\goalValidator.js
+========================================
+/**
+ * Goal Validator — P1 upgrade
+ *
+ * Verifies whether the agent achieved its goal after the main loop finishes.
+ * Uses ExecutionState and classified intent to emit a structured verdict.
+ *
+ * This is NOT a blocking gate — it only observes and reports.
+ * Future iterations can use the verdict to trigger auto-retry.
+ */
+
+// ─── Validators by intent ─────────────────────────────────────────────────────
+const VALIDATORS = [
+    {
+        intent: "fix",
+        check(execState) {
+            const last = execState.lastError();
+            if (!last) return { passed: true, reason: "No errors in execution state after run" };
+
+            // Check if the error was from an early step and later steps succeeded
+            const lastErrStep   = last.stepIndex;
+            const totalSteps    = execState.stepCount;
+            const errorClearedByLaterSteps = totalSteps > lastErrStep + 1;
+
+            if (errorClearedByLaterSteps) {
+                return { passed: true, reason: `Error at step ${lastErrStep} appears resolved by later steps` };
+            }
+            return {
+                passed:  false,
+                reason:  `Last error (step ${lastErrStep}): [${last.type}] ${last.text.substring(0, 100)}`,
+                suggest: "Re-run with deterministic recovery or inspect the failing file"
+            };
+        }
+    },
+    {
+        intent: "api",
+        check(execState) {
+            if (execState.filesModified.size === 0) {
+                return { passed: false, reason: "No files were modified — API goal may be incomplete", suggest: "Check that a service/controller file was actually changed" };
+            }
+            return { passed: true, reason: `${execState.filesModified.size} file(s) modified: ${[...execState.filesModified].slice(0, 3).join(", ")}` };
+        }
+    },
+    {
+        intent: "ui",
+        check(execState) {
+            const uiExtensions = [".jsx", ".tsx", ".vue", ".css", ".scss"];
+            const uiFiles      = [...execState.filesModified].filter(f =>
+                uiExtensions.some(ext => f.endsWith(ext)) ||
+                /component|page|layout|screen|style/i.test(f)
+            );
+            if (uiFiles.length === 0) {
+                return { passed: false, reason: "No UI files (.jsx/.tsx/component) modified", suggest: "Verify the component path and check for routing changes" };
+            }
+            return { passed: true, reason: `UI files modified: ${uiFiles.slice(0, 3).join(", ")}` };
+        }
+    },
+    {
+        intent: "auth",
+        check(execState) {
+            const authFiles = [...execState.filesModified].filter(f =>
+                /auth|login|token|security|permission|role/i.test(f)
+            );
+            if (authFiles.length === 0) {
+                return { passed: false, reason: "No auth-related files modified", suggest: "Confirm the auth module path was correctly resolved" };
+            }
+            return { passed: true, reason: `Auth files modified: ${authFiles.slice(0, 3).join(", ")}` };
+        }
+    },
+    {
+        intent: "config",
+        check(execState) {
+            const configFiles = [...execState.filesModified].filter(f =>
+                /config|constant|\.env|\.json|\.yaml|\.properties/i.test(f)
+            );
+            if (configFiles.length === 0) {
+                return { passed: false, reason: "No config files modified", suggest: "Verify config file path and check project structure" };
+            }
+            return { passed: true, reason: `Config files modified: ${configFiles.slice(0, 3).join(", ")}` };
+        }
+    }
+];
+
+const GENERAL_VALIDATOR = {
+    check(execState) {
+        const toolCount = execState.toolsUsed.length;
+        if (toolCount === 0) {
+            return { passed: false, reason: "No tools were executed", suggest: "Check prompt format and project registration" };
+        }
+        return { passed: true, reason: `${toolCount} tool call(s) completed across ${execState.stepCount} steps` };
+    }
+};
+
+// ─── Main export ─────────────────────────────────────────────────────────────
+
+/**
+ * Validate whether the agent goal was achieved.
+ *
+ * @param {string}         intent    — from classifyIntentFromPrompt()
+ * @param {ExecutionState} execState — final state after run
+ * @returns {{ passed: boolean, reason: string, suggest?: string }}
+ */
+export function validateGoal(intent, execState) {
+    const validator = VALIDATORS.find(v => v.intent === intent) || GENERAL_VALIDATOR;
+    return validator.check(execState);
+}
+
+/**
+ * Print the validation result to stderr in a consistent format.
+ *
+ * @param {string}  intent
+ * @param {object}  result   — { passed, reason, suggest? }
+ */
+export function logValidation(intent, result) {
+    const icon   = result.passed ? "✅" : "❌";
+    const status = result.passed ? "PASSED" : "FAILED";
+
+    console.error(`\n[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
+    console.error(`[validator]    Reason: ${result.reason}`);
+    if (result.suggest) {
+        console.error(`[validator]    Suggest: ${result.suggest}`);
     }
 }
 
@@ -1538,21 +1979,89 @@ export async function askLLM(model, prompt, opts = {}) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\planner.js
 ========================================
 import { askLLM } from "./ollamaClient.js";
-import { listProjects } from "../core/projectRegistry.js";
+import { listProjects, getProject } from "../core/projectRegistry.js";
 import { queryMemory } from "../vector/memory.js";
 import {
     TOOL_CHAIN_TEMPLATES,
-    MAX_LLM_CALLS_PER_RUN
+    MAX_LLM_CALLS_PER_RUN,
+    CHARS_PER_TOKEN
 } from "../core/constants.js";
+import { formatStateForPrompt } from "./executionState.js";
+
+// ─── Tool-level deterministic failure recovery ───────────────────────────────
+// Each entry maps a failure type → array of { tool, args } objects.
+// These are executed DIRECTLY by agent.js — zero LLM involvement.
+// args with value "__ERROR_QUERY__" are resolved at call time from execState.
+
+export const DETERMINISTIC_RECOVERY_TOOLS = {
+    import_error: (project, execState) => [
+        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] || "import" } },
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    syntax_error: (project, _execState) => [
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    build_failure: (project, _execState) => [
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    not_found: (project, execState) => [
+        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
+        { tool: "project_analyze",     args: { project } }
+    ],
+    runtime_error: (project, _execState) => [
+        { tool: "project_analyze",     args: { project } },
+        { tool: "project_build_and_fix", args: { project } }
+    ],
+    permission_error: (project, _execState) => [
+        { tool: "project_scan",        args: { project } }
+    ]
+};
+
+/**
+ * Returns a tool-level recovery plan for a known failure type.
+ * Returns null if no deterministic recovery exists (→ fall through to LLM).
+ *
+ * @param {string}         failureType
+ * @param {string}         project
+ * @param {ExecutionState} execState
+ * @returns {Array<{tool:string,args:object}>|null}
+ */
+export function handleFailureDeterministically(failureType, project, execState) {
+    const factory = DETERMINISTIC_RECOVERY_TOOLS[failureType];
+    if (!factory) return null;
+    const toolSteps = factory(project, execState);
+    console.error(`[planner] ⚡ Tool-level recovery for "${failureType}" — ${toolSteps.length} direct tool calls (0 LLM)`);
+    return toolSteps;
+}
 
 const MODEL = "qwen2.5-coder:7b";
 
+// ─── Real token estimator ────────────────────────────────────────────────────
+export function estimateTokens(...texts) {
+    const totalChars = texts.reduce((sum, t) => sum + (t ? t.length : 0), 0);
+    return Math.ceil(totalChars / CHARS_PER_TOKEN);
+}
+
 // ─── Shared context builder ─────────────────────────────────────────────────
-async function buildPlannerContext(project) {
+async function buildPlannerContext(project, intent = null) {
     const projects = listProjects().join(", ");
     let memoryContext = "";
+
     if (project) {
-        const memory = await queryMemory(project, "", { returnStructured: true });
+        // Filter memory by intent type when we know it — avoids injecting
+        // backend patterns into a frontend step and vice versa.
+        const filterType = intent === "ui"  ? "architecture" :
+                           intent === "api" ? "architecture" :
+                           intent === "fix" ? "fix"          : null;
+
+        const memory = await queryMemory(project, "", {
+            returnStructured: true,
+            filterType
+        });
+
         if (memory && memory.length > 0) {
             const lines = memory
                 .map(m =>
@@ -1563,6 +2072,7 @@ async function buildPlannerContext(project) {
             memoryContext = `\nKnown architecture patterns for this project:\n${lines}\n`;
         }
     }
+
     return { projects, memoryContext };
 }
 
@@ -1584,43 +2094,96 @@ Rules:
 - After applying code changes ALWAYS run project_build_and_fix
 - Return ONLY numbered steps, one per line, no explanation`;
 
-// ─── Heuristic planner ─────────────────────────────────────────────────────
-// Matches a prompt against known task templates.
-// Returns template steps if matched (zero LLM cost), or null if LLM is needed.
-function tryHeuristicPlan(prompt) {
+// ─── Context-aware heuristic planner ─────────────────────────────────────────
+/**
+ * Tries to match a prompt against tool-chain templates using:
+ *   1. keyword hits
+ *   2. project type filter
+ *   3. intent hint from retriever (ui/api/fix/general)
+ *   4. ExecutionState error bias — active error type boosts matching templates (+2)
+ *
+ * Returns template steps if confident match found, or null.
+ */
+function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null, activeErrorType = null) {
     const lower = prompt.toLowerCase();
     let bestTemplate = null;
-    let bestHits     = 0;
+    let bestScore    = 0;
+
+    // Error type → implied intent map for bias scoring
+    const ERROR_INTENT_MAP = {
+        import_error:     "fix",
+        syntax_error:     "fix",
+        build_failure:    "fix",
+        runtime_error:    "fix",
+        not_found:        "fix",
+        permission_error: "fix"
+    };
+    const errorImpliedIntent = activeErrorType ? ERROR_INTENT_MAP[activeErrorType] : null;
 
     for (const template of TOOL_CHAIN_TEMPLATES) {
-        const hits = template.keywords.filter(kw => lower.includes(kw)).length;
-        if (hits > bestHits) {
-            bestHits     = hits;
+        // Skip templates scoped to other project types
+        if (template.projectTypes && projectType &&
+            !template.projectTypes.includes(projectType)) {
+            continue;
+        }
+
+        const keywordHits = template.keywords.filter(kw => lower.includes(kw)).length;
+        if (keywordHits === 0) continue;
+
+        // Intent bonus: +1 if retriever intent matches template intent
+        const intentBonus = (retrieverIntent && retrieverIntent === template.intent) ? 1 : 0;
+
+        // ExecutionState error bias: +2 if active error type implies this template's intent
+        const errorBias = (errorImpliedIntent && template.intent === errorImpliedIntent) ? 2 : 0;
+
+        const score = keywordHits + intentBonus + errorBias;
+
+        if (score > bestScore) {
+            bestScore    = score;
             bestTemplate = template;
         }
     }
 
-    // Only trust the heuristic if at least 2 keywords matched
-    if (bestHits >= 2 && bestTemplate) {
-        console.error(`[planner] Heuristic matched template: "${bestTemplate.name}" (${bestHits} keywords) — skipping LLM`);
+    // Require ≥2 total score to avoid false positives
+    if (bestScore >= 2 && bestTemplate) {
+        const biasLabel = activeErrorType ? `, errBias=${activeErrorType}` : "";
+        console.error(
+            `[planner] Heuristic: "${bestTemplate.name}" ` +
+            `(score=${bestScore}, type=${projectType || "any"}, intent=${retrieverIntent || "none"}${biasLabel}) — skipping LLM`
+        );
         return bestTemplate.steps;
     }
 
-    return null;  // not confident enough — fall through to LLM
+    return null;
+}
+
+
+// ─── Project type lookup ─────────────────────────────────────────────────────────
+function getProjectType(project) {
+    try {
+        return getProject(project)?.type || null;
+    } catch {
+        return null;
+    }
 }
 
 /**
  * Initial plan creation.
- * Tries heuristic templates first; falls back to LLM only if needed.
  *
- * @param {string}  prompt
- * @param {string}  [project]
- * @param {object}  [costState]  — { llmCalls: number } mutated in place
+ * @param {string}         prompt
+ * @param {string}         [project]
+ * @param {object}         [costState]        — { llmCalls } mutated in place
+ * @param {string}         [retrieverIntent]  — intent label from retriever
+ * @param {ExecutionState} [execState]        — active state for planning bias
  * @returns {string}  newline-separated numbered steps
  */
-export async function createPlan(prompt, project = null, costState = null) {
-    // 1. Try zero-cost heuristic first
-    const heuristicSteps = tryHeuristicPlan(prompt);
+export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null, execState = null) {
+    const projectType = getProjectType(project);
+
+    // 1. Context-aware heuristic with ExecutionState bias (zero LLM cost)
+    //    If execState has an active error type, boost template score for matching templates
+    const activeErrorType = execState?.lastError()?.type || null;
+    const heuristicSteps  = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
     if (heuristicSteps) {
         return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
     }
@@ -1631,13 +2194,14 @@ export async function createPlan(prompt, project = null, costState = null) {
         return "1. Run static analysis\n2. Run build and fix";
     }
 
-    // 3. LLM plan
-    const { projects, memoryContext } = await buildPlannerContext(project);
+    // 3. LLM plan — memory filtered by intent
+    const { projects, memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
 
     const planPrompt = `You are a senior software planning agent.
 
 Available projects: ${projects}
+Project type: ${projectType || "unknown"}
 ${memoryContext}
 ${TOOL_REFERENCE}
 
@@ -1649,49 +2213,59 @@ ${prompt}
 }
 
 /**
- * Adaptive replanning — called mid-run when a step fails.
- * Respects LLM call budget; returns minimal recovery plan if budget exceeded.
+ * Adaptive replanning.
+ * Now includes execution state for much better recovery reasoning.
  *
- * @param {string[]} remainingSteps
- * @param {string}   failedStep
- * @param {string}   failureReason
- * @param {string}   context
- * @param {string}   [project]
- * @param {object}   [costState]
- * @returns {string[]}  revised remaining steps
+ * @param {string[]}       remainingSteps
+ * @param {string}         failedStep
+ * @param {string}         failureReason
+ * @param {string}         context
+ * @param {string}         [project]
+ * @param {object}         [costState]
+ * @param {ExecutionState} [execState]
+ * @returns {string[]}
  */
 export async function updatePlan(
     remainingSteps, failedStep, failureReason, context,
-    project = null, costState = null
+    project = null, costState = null, execState = null
 ) {
-    // Cost guard — return safe minimal recovery instead of another LLM call
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
-        console.error("[planner] LLM budget exhausted during replan — using safe fallback");
+        console.error("[planner] LLM budget exhausted during replan — safe fallback");
         return ["Run static analysis", "Run build and fix to verify"];
     }
+
+    const projectType = getProjectType(project);
+
+    // Extract failure type from execState for targeted recovery
+    const lastError   = execState?.lastError();
+    const failureType = lastError?.type || "unknown";
 
     const { projects, memoryContext } = await buildPlannerContext(project);
     if (costState) costState.llmCalls++;
 
+    // Format execution state for prompt injection
+    const stateBlock = execState
+        ? `\nExecution state:\n${formatStateForPrompt(execState)}\n`
+        : "";
+
     const replanPrompt = `You are a senior software planning agent doing mid-run correction.
 
 Available projects: ${projects}
+Project type: ${projectType || "unknown"}
 ${memoryContext}
 ${TOOL_REFERENCE}
-
+${stateBlock}
 Execution context so far:
-${context.substring(0, 1500)}
+${context.substring(0, 1200)}
 
-Failed step:
-${failedStep}
-
-Failure reason:
-${failureReason.substring(0, 600)}
+Failed step: ${failedStep}
+Failure type: ${failureType}
+Failure reason: ${failureReason.substring(0, 500)}
 
 Remaining steps that were planned:
 ${remainingSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
-Revise the remaining plan to recover from the failure.
+Revise the remaining plan to recover from this ${failureType} failure.
 Return ONLY numbered steps, one per line, no explanation.
 Do NOT repeat already-completed steps.
 `;
@@ -1711,11 +2285,14 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\retriever.js
 /**
  * Intent-aware smart retriever.
  *
- * Upgrades from the naive "embed → top-4 → truncate" approach to:
- *   1. Intent classification   — what kind of code is the prompt about?
+ * Pipeline:
+ *   1. Intent classification   — classify prompt intent
  *   2. Intent-boosted scoring  — re-weight results by file-type relevance
  *   3. Deduplication           — drop near-identical chunks (Jaccard ≥ 0.8)
  *   4. Reranking               — sort by combined semantic + intent score
+ *
+ * Also exports classifyIntentFromPrompt() so agent.js can use the same
+ * intent label for memory filtering without running retrieval again.
  */
 
 import { queryCodebase } from "../vector/queryCodebase.js";
@@ -1724,23 +2301,23 @@ import { indexProject }  from "../vector/runIndexCore.js";
 import { getProject }    from "../core/projectRegistry.js";
 
 const MAX_SNIPPET = 600;
-const MAX_RESULTS = 5;       // fetch more then rerank down to this
-const FETCH_N     = 10;      // fetch extra candidates for reranking
+const MAX_RESULTS = 5;
+const FETCH_N     = 10;
 
 let indexing = false;
 
-// ─── Intent classifier ───────────────────────────────────────────────────────
-// Maps prompt keywords to an intent label and a set of high-signal file
-// patterns that should score higher for that intent.
+// ─── Intent rules (shared with memory filtering) ─────────────────────────────────
 const INTENT_RULES = [
     {
         label:    "ui",
-        keywords: ["component", "page", "ui", "button", "form", "modal", "style", "css", "layout", "render", "jsx", "tsx", "react", "frontend"],
+        keywords: ["component", "page", "ui", "button", "form", "modal", "style", "css",
+                   "layout", "render", "jsx", "tsx", "react", "frontend", "screen"],
         boost:    [".jsx", ".tsx", "component", "page", "layout", "style", "css"]
     },
     {
         label:    "api",
-        keywords: ["api", "endpoint", "rest", "route", "controller", "service", "repository", "fetch", "axios", "http"],
+        keywords: ["api", "endpoint", "rest", "route", "controller", "service",
+                   "repository", "fetch", "axios", "http", "service method"],
         boost:    ["controller", "service", "repository", "api", "route", ".java", "LocalService"]
     },
     {
@@ -1756,29 +2333,30 @@ const INTENT_RULES = [
     {
         label:    "fix",
         keywords: ["fix", "bug", "error", "crash", "exception", "broken", "fail", "issue"],
-        boost:    []   // no file-type preference — all files equally relevant
+        boost:    []
     }
 ];
 
-function classifyIntent(prompt) {
+/**
+ * Classify intent from a prompt string.
+ * Exported so agent.js can call this without triggering a full retrieval.
+ */
+export function classifyIntentFromPrompt(prompt) {
     const lower = prompt.toLowerCase();
     let bestLabel = "general";
     let bestScore = 0;
-
     for (const rule of INTENT_RULES) {
         const hits = rule.keywords.filter(kw => lower.includes(kw)).length;
-        if (hits > bestScore) {
-            bestScore = hits;
-            bestLabel = rule.label;
-        }
+        if (hits > bestScore) { bestScore = hits; bestLabel = rule.label; }
     }
+    return bestLabel;
+}
 
-    return { label: bestLabel, rule: INTENT_RULES.find(r => r.label === bestLabel) || null };
+function getIntentRule(label) {
+    return INTENT_RULES.find(r => r.label === label) || null;
 }
 
 // ─── Intent boost scorer ─────────────────────────────────────────────────────
-// Returns an additional score (0.0–0.3) for a doc based on whether its text
-// contains file-type signals matching the intent.
 function intentBoost(doc, rule) {
     if (!rule || rule.boost.length === 0) return 0;
     const lower   = doc.toLowerCase();
@@ -1786,49 +2364,78 @@ function intentBoost(doc, rule) {
     return Math.min(0.3, matches * 0.1);
 }
 
-// ─── Deduplicator (Jaccard on token sets) ────────────────────────────────────
+// ─── Deduplicator ──────────────────────────────────────────────────────────────
 function tokenSet(text) {
     return new Set(text.toLowerCase().split(/\W+/).filter(t => t.length > 3));
 }
-
 function jaccardSimilarity(a, b) {
     const setA = tokenSet(a);
     const setB = tokenSet(b);
     const intersection = [...setA].filter(t => setB.has(t)).length;
-    const union = new Set([...setA, ...setB]).size;
+    const union        = new Set([...setA, ...setB]).size;
     return union === 0 ? 0 : intersection / union;
 }
-
 function deduplicate(docs, threshold = 0.8) {
     const kept = [];
     for (const doc of docs) {
-        const isDuplicate = kept.some(k => jaccardSimilarity(k, doc) >= threshold);
-        if (!isDuplicate) kept.push(doc);
+        if (!kept.some(k => jaccardSimilarity(k, doc) >= threshold)) kept.push(doc);
     }
     return kept;
 }
 
-// ─── Snippet compressor ───────────────────────────────────────────────────────
+// ─── Compressor ──────────────────────────────────────────────────────────────
 function compress(doc) {
-    if (!doc) return "";
-    return doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc;
+    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc || "";
+}
+
+// ─── ExecutionState-aware scoring helpers ────────────────────────────────────
+
+/**
+ * Returns +0.25 score boost for docs from files that were recently modified.
+ * Returns -999 (exclude) for docs from files already read (token waste).
+ *
+ * @param {string}         doc
+ * @param {ExecutionState} execState
+ */
+function stateBoost(doc, execState) {
+    if (!execState) return 0;
+    const lowerDoc = doc.toLowerCase();
+
+    // Boost modified files — they are the most relevant right now
+    for (const modFile of execState.filesModified) {
+        const base = modFile.split(/[\\/]/).pop().toLowerCase();
+        if (base && lowerDoc.includes(base)) return 0.25;
+    }
+
+    // Penalise (but don't fully remove) already-read files — we already have that info
+    for (const readFile of execState.filesRead) {
+        const base = readFile.split(/[\\/]/).pop().toLowerCase();
+        if (base && lowerDoc.includes(base)) return -0.4;
+    }
+
+    return 0;
 }
 
 // ─── Main retrieval entry point ───────────────────────────────────────────────
-export async function retrieveContext(prompt, project = null) {
+/**
+ * Retrieve relevant code context.
+ *
+ * @param {string}          prompt
+ * @param {string}          [project]
+ * @param {ExecutionState}  [execState]   optional — enables state-aware scoring
+ */
+export async function retrieveContext(prompt, project = null, execState = null) {
     try {
-        const embedding = await embed(prompt);
-        const intent    = classifyIntent(prompt);
+        const embedding    = await embed(prompt);
+        const intentLabel  = classifyIntentFromPrompt(prompt);
+        const intentRule   = getIntentRule(intentLabel);
 
-        if (intent.label !== "general") {
-            console.error(`[retriever] Intent: ${intent.label}`);
-        }
+        if (intentLabel !== "general") console.error(`[retriever] Intent: ${intentLabel}`);
 
         let docs;
         try {
             docs = await queryCodebase(embedding, project, FETCH_N);
         } catch {
-            // Collection missing — auto-build index once
             if (project && !indexing) {
                 indexing = true;
                 console.error("\n[retriever] Vector index missing. Building automatically...\n");
@@ -1842,25 +2449,319 @@ export async function retrieveContext(prompt, project = null) {
 
         if (!docs || docs.length === 0) return "";
 
-        // 1. Score = base rank score (inverted position) + intent boost
         const scored = docs.map((doc, i) => ({
             doc,
-            score: (1 - i / docs.length) + intentBoost(doc, intent.rule)
+            score: (1 - i / docs.length)
+                + intentBoost(doc, intentRule)
+                + stateBoost(doc, execState)
         }));
 
-        // 2. Sort by combined score descending
-        scored.sort((a, b) => b.score - a.score);
+        // Filter out heavily penalised docs (score < 0 = not useful)
+        const useful = scored.filter(s => s.score >= 0);
+        if (execState && useful.length < scored.length) {
+            console.error(`[retriever] ⚡ Skipped ${scored.length - useful.length} already-read chunk(s)`);
+        }
 
-        // 3. Deduplicate near-identical chunks
-        const unique = deduplicate(scored.map(s => s.doc));
-
-        // 4. Take top MAX_RESULTS and compress
+        useful.sort((a, b) => b.score - a.score);
+        const unique = deduplicate(useful.map(s => s.doc));
         return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {
         console.error("[retriever] Error:", err.message);
         return "";
     }
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\reviewer.js
+========================================
+/**
+ * Reviewer Agent — P2 upgrade
+ *
+ * A lightweight post-execution LLM review that checks:
+ *   - logical correctness of applied changes
+ *   - missing edge cases
+ *   - bad or risky edits
+ *
+ * Fires AFTER the main agent loop when:
+ *   - ≥2 files were modified
+ *   - LLM budget has at least 2 calls remaining
+ *
+ * Output is logged only — does NOT block or revert changes.
+ * Future: can feed back into a retry loop.
+ */
+
+import { askLLM } from "./ollamaClient.js";
+import { MAX_LLM_CALLS_PER_RUN } from "../core/constants.js";
+
+const MODEL = "qwen2.5-coder:7b";
+
+/**
+ * Review the agent's changes for correctness.
+ *
+ * @param {string}         project
+ * @param {string}         originalPrompt
+ * @param {ExecutionState} execState
+ * @param {object}         costState        — { llmCalls, totalChars } — mutated
+ * @param {string}         executionContext  — log of what happened
+ * @returns {{ verdict: string, issues: string[], confident: boolean }}
+ */
+export async function reviewChanges(project, originalPrompt, execState, costState, executionContext) {
+    // Budget guard — only run if enough LLM calls remain
+    const remaining = MAX_LLM_CALLS_PER_RUN - costState.llmCalls;
+    if (remaining < 2) {
+        console.error("[reviewer] Skipping — insufficient LLM budget remaining");
+        return { verdict: "skipped", issues: [], confident: false };
+    }
+
+    const modifiedFiles = [...execState.filesModified];
+    if (modifiedFiles.length < 1) {
+        console.error("[reviewer] Skipping — no files were modified");
+        return { verdict: "skipped", issues: [], confident: false };
+    }
+
+    console.error(`\n[reviewer] 🔍 Reviewing ${modifiedFiles.length} modified file(s)...`);
+    costState.llmCalls++;
+
+    // Build a compact summary of what happened
+    const stateLines = [
+        `Project: ${project}`,
+        `Goal: ${originalPrompt.substring(0, 200)}`,
+        `Files modified: ${modifiedFiles.slice(0, 5).join(", ")}`,
+        `Files read: ${[...execState.filesRead].slice(0, 5).join(", ")}`,
+        `Errors encountered: ${execState.errors.map(e => e.type).join(", ") || "none"}`,
+        `Total steps: ${execState.stepCount}`
+    ].join("\n");
+
+    // Truncated execution log for context
+    const contextSnippet = executionContext.substring(executionContext.length - 2000);
+
+    const prompt = `You are a senior code reviewer. Review the following coding agent run and assess correctness.
+
+${stateLines}
+
+Recent execution log:
+${contextSnippet}
+
+Output ONLY a JSON object with these fields:
+- verdict: "correct" | "likely_correct" | "has_issues" | "needs_review"
+- issues: array of strings describing specific problems (empty if none)
+- confident: boolean (true if you have enough context to judge)
+
+JSON:`;
+
+    try {
+        const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 300 });
+        costState.totalChars += prompt.length + raw.length;
+
+        // Parse reviewer output
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON in reviewer output");
+
+        const result = JSON.parse(jsonMatch[0]);
+        const icon   = result.verdict === "correct" || result.verdict === "likely_correct" ? "✅" : "⚠️";
+
+        console.error(`[reviewer] ${icon} Verdict: ${result.verdict} (confident: ${result.confident})`);
+        if (result.issues?.length > 0) {
+            result.issues.forEach(issue => console.error(`[reviewer]    ⚠ ${issue}`));
+        } else {
+            console.error("[reviewer]    No issues found");
+        }
+
+        return result;
+
+    } catch (err) {
+        console.error("[reviewer] Parse error:", err.message);
+        return { verdict: "unknown", issues: [], confident: false };
+    }
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\toolChainExecutor.js
+========================================
+/**
+ * Tool Chain Executor — P0 upgrade
+ *
+ * Directly executes a named TOOL_CHAIN_TEMPLATES entry without any LLM calls.
+ * Each step in the template is resolved via rule-based routing from executor.js.
+ *
+ * This replaces the old pattern where:
+ *   heuristic plan found → LLM still called per step → tools run
+ *
+ * New pattern:
+ *   heuristic plan found → toolChainExecutor runs steps directly → done
+ *
+ * Usage:
+ *   const { results, success } = await executeToolChain("fix_error", project, mcp, execState, costState);
+ */
+
+import { TOOL_CHAIN_TEMPLATES } from "../core/constants.js";
+
+// ─── Rule router (duplicated from executor to avoid circular dep) ─────────────
+// This mirrors the routing logic in executor.js without the LLM path.
+function resolveStepToTool(step, project) {
+    const s = step.toLowerCase();
+
+    if (/\b(scan|list files|folder structure|project structure)\b/.test(s))
+        return { tool: "project_scan", args: { project } };
+
+    const symbolMatch =
+        s.match(/\b(?:find|locate|look up)\b.+\b(?:class|function|component|service|controller|symbol)\b[:\s]+([\w]+)/i) ||
+        s.match(/\bfind symbol[:\s]+([\w]+)/i);
+    if (symbolMatch) {
+        const name = symbolMatch[symbolMatch.length - 1];
+        return { tool: "project_find_symbol", args: { project, name } };
+    }
+
+    if (/\b(build and fix|build_and_fix|auto.?fix|run build and fix)\b/.test(s))
+        return { tool: "project_build_and_fix", args: { project } };
+
+    if (/\b(run build|npm run build|gradlew build|mvn|compile)\b/.test(s))
+        return { tool: "project_build", args: { project } };
+
+    if (/\b(analyze|analyse|static.?analy|lint|check imports|run static analysis|identify issues)\b/.test(s))
+        return { tool: "project_analyze", args: { project } };
+
+    if (/\b(search|find files|look for|grep)\b/.test(s))
+        return { tool: "project_search", args: { project, query: step.replace(/^(search|find|look for)\s*/i, "").trim() } };
+
+    // Cannot resolve without LLM
+    return null;
+}
+
+/**
+ * Execute a predefined list of { tool, args } objects directly — ZERO LLM calls.
+ * Used by deterministic failure recovery to run structured tool sequences.
+ *
+ * @param {Array<{tool:string,args:object}>} toolSteps
+ * @param {MCPClient}                        mcpClient
+ * @param {ExecutionState}                   execState
+ * @returns {{ results: string[], success: boolean, stepsRun: number }}
+ */
+export async function executeToolsDirect(toolSteps, mcpClient, execState) {
+    if (!toolSteps || toolSteps.length === 0) {
+        return { results: [], success: false, stepsRun: 0 };
+    }
+
+    console.error(`\n[toolChain] ⚡ Direct recovery: ${toolSteps.length} tool call(s), 0 LLM`);
+
+    const results = [];
+    let stepsRun  = 0;
+    let anyFailed = false;
+
+    for (const { tool, args } of toolSteps) {
+        // ExecutionState skip-gate for reads
+        if (tool === "project_read_files" && Array.isArray(args?.paths)) {
+            const unread = args.paths.filter(p => !execState.hasRead(p));
+            if (unread.length === 0) {
+                console.error(`[toolChain]   ⚡ Skip already-read: ${args.paths.join(", ")}`);
+                continue;
+            }
+            args.paths = unread;
+        }
+
+        console.error(`[toolChain]   → ${tool}`);
+        stepsRun++;
+
+        try {
+            const result    = await mcpClient.callTool(tool, args);
+            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+
+            execState.recordToolCall(tool, args, resultText, stepsRun);
+            results.push(`[${tool}]:\n${resultText}`);
+
+            console.error(`[toolChain]   ← ${resultText.length} chars`);
+            if (resultText.length < 400) console.error(resultText);
+
+        } catch (err) {
+            console.error(`[toolChain]   ✗ Tool error: ${err.message}`);
+            execState.recordToolCall(tool, args, `Tool error: ${err.message}`, stepsRun);
+            results.push(`[${tool} ERROR]: ${err.message}`);
+            anyFailed = true;
+        }
+    }
+
+    const success = !anyFailed && stepsRun > 0;
+    console.error(`[toolChain] Direct recovery done — ${stepsRun} steps, success=${success}`);
+    return { results, success, stepsRun };
+}
+
+/**
+ * Execute a named template's steps directly — zero LLM calls.
+ *
+ * @param {string}         templateName  — must match a TOOL_CHAIN_TEMPLATES[].name
+ * @param {string}         project
+ * @param {MCPClient}      mcpClient
+ * @param {ExecutionState} execState
+ * @param {object}         [costState]   — { llmCalls, totalChars } — not incremented here
+ * @returns {{ results: string[], success: boolean, stepsRun: number }}
+ */
+export async function executeToolChain(templateName, project, mcpClient, execState, costState = null) {
+    const template = TOOL_CHAIN_TEMPLATES.find(t => t.name === templateName);
+    if (!template) {
+        console.error(`[toolChain] Template "${templateName}" not found`);
+        return { results: [], success: false, stepsRun: 0 };
+    }
+
+    console.error(`\n[toolChain] ⚡ Executing template "${templateName}" directly (${template.steps.length} steps, 0 LLM calls)`);
+
+    const results = [];
+    let stepsRun  = 0;
+    let anyFailed = false;
+
+    for (const step of template.steps) {
+        const toolCall = resolveStepToTool(step, project);
+
+        if (!toolCall) {
+            // Step requires LLM resolution — cannot execute directly; log and skip
+            console.error(`[toolChain]   ⚠ Step "${step}" needs LLM — skipped in direct mode`);
+            continue;
+        }
+
+        // Active ExecutionState gate: skip redundant reads
+        if (toolCall.tool === "project_read_files" && Array.isArray(toolCall.args?.paths)) {
+            const unread = toolCall.args.paths.filter(p => !execState.hasRead(p));
+            if (unread.length === 0) {
+                console.error(`[toolChain]   ⚡ Skipping already-read: ${toolCall.args.paths.join(", ")}`);
+                continue;
+            }
+            toolCall.args.paths = unread;
+        }
+
+        console.error(`[toolChain]   → ${toolCall.tool}`);
+        stepsRun++;
+
+        try {
+            const result    = await mcpClient.callTool(toolCall.tool, toolCall.args);
+            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+
+            execState.recordToolCall(toolCall.tool, toolCall.args, resultText, stepsRun);
+            results.push(`[${toolCall.tool}]:\n${resultText}`);
+
+            console.error(`[toolChain]   ← ${resultText.length} chars`);
+            if (resultText.length < 400) console.error(resultText);
+
+            // Stop chain early on severe failure
+            const lastErr = execState.lastError();
+            if (lastErr?.stepIndex === stepsRun && lastErr.type === "build_failure") {
+                console.error(`[toolChain]   ✗ Build failure on step ${stepsRun} — stopping chain`);
+                anyFailed = true;
+                break;
+            }
+
+        } catch (err) {
+            console.error(`[toolChain]   ✗ Tool error: ${err.message}`);
+            execState.recordToolCall(toolCall.tool, toolCall.args, `Tool error: ${err.message}`, stepsRun);
+            results.push(`[${toolCall.tool} ERROR]: ${err.message}`);
+            anyFailed = true;
+        }
+    }
+
+    const success = !anyFailed && stepsRun > 0;
+    console.error(`[toolChain] Template "${templateName}" done — ${stepsRun} steps, success=${success}`);
+    return { results, success, stepsRun };
 }
 
 
@@ -2155,20 +3056,20 @@ export const COMPRESS_EVERY_N_STEPS = 3;
 export const COMPRESS_MAX_CHARS     = 6000;
 
 // ── Cost-aware agent ──────────────────────────────────────────────────────────
-// Hard limits per agent run to prevent runaway LLM loops.
-export const MAX_LLM_CALLS_PER_RUN       = 30;    // total LLM invocations allowed
-export const MAX_TOKENS_ESTIMATE_PER_CALL = 2048;  // assumed output tokens per call
-export const MAX_TOTAL_TOKENS_PER_RUN    = 60000;  // triggers a warning (not a hard stop)
-export const MAX_REPLANS                 = 3;      // max mid-run replan attempts
+export const MAX_LLM_CALLS_PER_RUN   = 30;
+export const MAX_TOTAL_TOKENS_PER_RUN = 60000;  // soft budget — triggers warning
+export const MAX_REPLANS              = 3;
+
+// Real token estimation: 1 token ≈ 4 chars (GPT/Qwen convention)
+export const CHARS_PER_TOKEN = 4;
 
 // ── Tool-chain templates ──────────────────────────────────────────────────────
-// Programmatic plans for common task shapes — zero LLM cost when matched.
-// Each entry: { keywords: string[], steps: string[] }
-// The heuristic planner tries these before calling the LLM.
 export const TOOL_CHAIN_TEMPLATES = [
     {
-        name:     "fix_error",
-        keywords: ["fix", "error", "bug", "crash", "exception", "broken", "failing"],
+        name:        "fix_error",
+        keywords:    ["fix", "error", "bug", "crash", "exception", "broken", "failing"],
+        projectTypes: null,   // applies to all project types
+        intent:      "fix",
         steps: [
             "Run static analysis to identify issues",
             "Read the files mentioned in the errors",
@@ -2177,8 +3078,10 @@ export const TOOL_CHAIN_TEMPLATES = [
         ]
     },
     {
-        name:     "add_api",
-        keywords: ["add api", "new endpoint", "add route", "create endpoint", "add service method"],
+        name:        "add_api",
+        keywords:    ["add api", "new endpoint", "add route", "create endpoint", "add service method"],
+        projectTypes: ["spring-boot", "liferay-backend", "nodejs"],
+        intent:      "api",
         steps: [
             "Find the relevant controller or service symbol",
             "Read the controller and service files",
@@ -2188,19 +3091,36 @@ export const TOOL_CHAIN_TEMPLATES = [
         ]
     },
     {
-        name:     "add_ui_component",
-        keywords: ["add component", "create page", "add form", "create ui", "add screen"],
+        name:        "add_ui_component",
+        keywords:    ["add component", "create page", "add form", "create ui", "add screen"],
+        projectTypes: ["react-vite", "nextjs"],
+        intent:      "ui",
         steps: [
             "Scan project structure to find components folder",
             "Find similar existing component for reference",
             "Read the reference component",
             "Create the new component file using project_apply_changes",
+            "Run static analysis",
             "Run build and fix to verify"
         ]
     },
     {
-        name:     "read_only",
-        keywords: ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze"],
+        name:        "fix_import_error",
+        keywords:    ["import error", "module not found", "cannot find module", "unresolved import"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Run static analysis to find broken imports",
+            "Read the file with the broken import",
+            "Fix the import path using project_str_replace",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "read_only",
+        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze"],
+        projectTypes: null,
+        intent:      "general",
         steps: [
             "Find the relevant symbol in the project",
             "Read the relevant files"
@@ -3431,10 +4351,12 @@ export async function storeMemory(project, data, tag = "general") {
  * @param {boolean} [opts.returnStructured=false]  if true → return parsed objects array
  * @param {string}  [opts.filterType]              optional type filter (e.g. "architecture")
  * @param {number}  [opts.minConfidence=0]         skip entries below this confidence
+ * @param {object}  [opts.execState]               ExecutionState — enables file-overlap scoring
+ * @param {string}  [opts.intent]                  current intent — enables intent-match scoring
  * @returns {string|object[]}  formatted string (default) or array of structured entries
  */
 export async function queryMemory(project, prompt, opts = {}) {
-    const { returnStructured = false, filterType = null, minConfidence = 0 } = opts;
+    const { returnStructured = false, filterType = null, minConfidence = 0, execState = null, intent = null } = opts;
 
     try {
         const collection = await getMemoryCollection(project);
@@ -3446,7 +4368,7 @@ export async function queryMemory(project, prompt, opts = {}) {
             ? await embed(prompt)
             : await embed("architecture pattern code");  // neutral fallback
 
-        const nResults = Math.min(MEMORY_MAX_RESULTS + 2, count);  // fetch extras for filtering
+        const nResults = Math.min(MEMORY_MAX_RESULTS + 4, count);  // fetch extras for re-ranking
         const results  = await collection.query({
             queryEmbeddings: [embedding],
             nResults,
@@ -3454,36 +4376,59 @@ export async function queryMemory(project, prompt, opts = {}) {
         });
 
         const docs      = results.documents?.[0] || [];
+        const distances = results.distances?.[0]  || [];
         const metadatas = results.metadatas?.[0]  || [];
 
-        // Parse entries, apply confidence filter, sort by confidence desc
-        const entries = docs
-            .map((doc, i) => {
-                try {
-                    const parsed = JSON.parse(doc);
-                    parsed._meta = metadatas[i] || {};
-                    return parsed;
-                } catch {
-                    // Legacy plain-text entry
-                    return {
-                        type: "general",
-                        pattern: doc.substring(0, MEMORY_MAX_SNIPPET),
-                        text: doc,
-                        files: [],
-                        confidence: 0.7,
-                        _meta: metadatas[i] || {}
-                    };
-                }
-            })
+        // Parse entries
+        const entries = docs.map((doc, i) => {
+            let parsed;
+            try {
+                parsed = JSON.parse(doc);
+            } catch {
+                parsed = {
+                    type: "general",
+                    pattern: doc.substring(0, MEMORY_MAX_SNIPPET),
+                    text: doc,
+                    files: [],
+                    confidence: 0.7
+                };
+            }
+            parsed._meta     = metadatas[i] || {};
+            parsed._distance = distances[i]  || 1.0;  // lower = more similar
+            return parsed;
+        });
+
+        // Build read-file set from execState for overlap scoring
+        const readFiles = execState ? [...execState.filesRead].map(f => f.split(/[\\/]/).pop().toLowerCase()) : [];
+
+        // Smart composite scoring
+        const scored = entries
             .filter(e => (e.confidence || 0) >= minConfidence)
-            .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+            .map(e => {
+                // 1. Semantic rank based on vector distance
+                const semanticScore = 1 - (e._distance || 0);
+
+                // 2. File overlap: boost if memory.files intersect with currently-read files
+                const fileOverlap   = readFiles.length > 0 && Array.isArray(e.files)
+                    ? e.files.filter(f => readFiles.includes(f.split(/[\\/]/).pop().toLowerCase())).length * 0.3
+                    : 0;
+
+                // 3. Intent match: boost if memory type matches current intent
+                const intentTypes   = { ui: "architecture", api: "architecture", fix: "fix", auth: "fix", config: "architecture" };
+                const expectedType  = intentTypes[intent] || null;
+                const intentMatch   = (expectedType && e.type === expectedType) ? 0.2 : 0;
+
+                const totalScore    = semanticScore + fileOverlap + intentMatch;
+                return { ...e, _score: totalScore };
+            })
+            .sort((a, b) => b._score - a._score)
             .slice(0, MEMORY_MAX_RESULTS);
 
-        if (returnStructured) return entries;
+        if (returnStructured) return scored;
 
         // Format as injection-ready string
-        if (entries.length === 0) return "";
-        return entries
+        if (scored.length === 0) return "";
+        return scored
             .map(e => {
                 let line = `[${e.type}] ${e.pattern || e.text}`;
                 if (e.files?.length) line += ` (see: ${e.files.slice(0, 3).join(", ")})`;
@@ -3496,6 +4441,8 @@ export async function queryMemory(project, prompt, opts = {}) {
         return returnStructured ? [] : "";
     }
 }
+
+
 
 
 ========================================

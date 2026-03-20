@@ -91,10 +91,12 @@ export async function storeMemory(project, data, tag = "general") {
  * @param {boolean} [opts.returnStructured=false]  if true → return parsed objects array
  * @param {string}  [opts.filterType]              optional type filter (e.g. "architecture")
  * @param {number}  [opts.minConfidence=0]         skip entries below this confidence
+ * @param {object}  [opts.execState]               ExecutionState — enables file-overlap scoring
+ * @param {string}  [opts.intent]                  current intent — enables intent-match scoring
  * @returns {string|object[]}  formatted string (default) or array of structured entries
  */
 export async function queryMemory(project, prompt, opts = {}) {
-    const { returnStructured = false, filterType = null, minConfidence = 0 } = opts;
+    const { returnStructured = false, filterType = null, minConfidence = 0, execState = null, intent = null } = opts;
 
     try {
         const collection = await getMemoryCollection(project);
@@ -106,7 +108,7 @@ export async function queryMemory(project, prompt, opts = {}) {
             ? await embed(prompt)
             : await embed("architecture pattern code");  // neutral fallback
 
-        const nResults = Math.min(MEMORY_MAX_RESULTS + 2, count);  // fetch extras for filtering
+        const nResults = Math.min(MEMORY_MAX_RESULTS + 4, count);  // fetch extras for re-ranking
         const results  = await collection.query({
             queryEmbeddings: [embedding],
             nResults,
@@ -114,36 +116,59 @@ export async function queryMemory(project, prompt, opts = {}) {
         });
 
         const docs      = results.documents?.[0] || [];
+        const distances = results.distances?.[0]  || [];
         const metadatas = results.metadatas?.[0]  || [];
 
-        // Parse entries, apply confidence filter, sort by confidence desc
-        const entries = docs
-            .map((doc, i) => {
-                try {
-                    const parsed = JSON.parse(doc);
-                    parsed._meta = metadatas[i] || {};
-                    return parsed;
-                } catch {
-                    // Legacy plain-text entry
-                    return {
-                        type: "general",
-                        pattern: doc.substring(0, MEMORY_MAX_SNIPPET),
-                        text: doc,
-                        files: [],
-                        confidence: 0.7,
-                        _meta: metadatas[i] || {}
-                    };
-                }
-            })
+        // Parse entries
+        const entries = docs.map((doc, i) => {
+            let parsed;
+            try {
+                parsed = JSON.parse(doc);
+            } catch {
+                parsed = {
+                    type: "general",
+                    pattern: doc.substring(0, MEMORY_MAX_SNIPPET),
+                    text: doc,
+                    files: [],
+                    confidence: 0.7
+                };
+            }
+            parsed._meta     = metadatas[i] || {};
+            parsed._distance = distances[i]  || 1.0;  // lower = more similar
+            return parsed;
+        });
+
+        // Build read-file set from execState for overlap scoring
+        const readFiles = execState ? [...execState.filesRead].map(f => f.split(/[\\/]/).pop().toLowerCase()) : [];
+
+        // Smart composite scoring
+        const scored = entries
             .filter(e => (e.confidence || 0) >= minConfidence)
-            .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+            .map(e => {
+                // 1. Semantic rank based on vector distance
+                const semanticScore = 1 - (e._distance || 0);
+
+                // 2. File overlap: boost if memory.files intersect with currently-read files
+                const fileOverlap   = readFiles.length > 0 && Array.isArray(e.files)
+                    ? e.files.filter(f => readFiles.includes(f.split(/[\\/]/).pop().toLowerCase())).length * 0.3
+                    : 0;
+
+                // 3. Intent match: boost if memory type matches current intent
+                const intentTypes   = { ui: "architecture", api: "architecture", fix: "fix", auth: "fix", config: "architecture" };
+                const expectedType  = intentTypes[intent] || null;
+                const intentMatch   = (expectedType && e.type === expectedType) ? 0.2 : 0;
+
+                const totalScore    = semanticScore + fileOverlap + intentMatch;
+                return { ...e, _score: totalScore };
+            })
+            .sort((a, b) => b._score - a._score)
             .slice(0, MEMORY_MAX_RESULTS);
 
-        if (returnStructured) return entries;
+        if (returnStructured) return scored;
 
         // Format as injection-ready string
-        if (entries.length === 0) return "";
-        return entries
+        if (scored.length === 0) return "";
+        return scored
             .map(e => {
                 let line = `[${e.type}] ${e.pattern || e.text}`;
                 if (e.files?.length) line += ` (see: ${e.files.slice(0, 3).join(", ")})`;
@@ -156,3 +181,5 @@ export async function queryMemory(project, prompt, opts = {}) {
         return returnStructured ? [] : "";
     }
 }
+
+
