@@ -31,20 +31,20 @@ export const COMPRESS_EVERY_N_STEPS = 3;
 export const COMPRESS_MAX_CHARS     = 6000;
 
 // ── Cost-aware agent ──────────────────────────────────────────────────────────
-// Hard limits per agent run to prevent runaway LLM loops.
-export const MAX_LLM_CALLS_PER_RUN       = 30;    // total LLM invocations allowed
-export const MAX_TOKENS_ESTIMATE_PER_CALL = 2048;  // assumed output tokens per call
-export const MAX_TOTAL_TOKENS_PER_RUN    = 60000;  // triggers a warning (not a hard stop)
-export const MAX_REPLANS                 = 3;      // max mid-run replan attempts
+export const MAX_LLM_CALLS_PER_RUN   = 30;
+export const MAX_TOTAL_TOKENS_PER_RUN = 60000;  // soft budget — triggers warning
+export const MAX_REPLANS              = 3;
+
+// Real token estimation: 1 token ≈ 4 chars (GPT/Qwen convention)
+export const CHARS_PER_TOKEN = 4;
 
 // ── Tool-chain templates ──────────────────────────────────────────────────────
-// Programmatic plans for common task shapes — zero LLM cost when matched.
-// Each entry: { keywords: string[], steps: string[] }
-// The heuristic planner tries these before calling the LLM.
 export const TOOL_CHAIN_TEMPLATES = [
     {
-        name:     "fix_error",
-        keywords: ["fix", "error", "bug", "crash", "exception", "broken", "failing"],
+        name:        "fix_error",
+        keywords:    ["fix", "error", "bug", "crash", "exception", "broken", "failing"],
+        projectTypes: null,   // applies to all project types
+        intent:      "fix",
         steps: [
             "Run static analysis to identify issues",
             "Read the files mentioned in the errors",
@@ -53,8 +53,10 @@ export const TOOL_CHAIN_TEMPLATES = [
         ]
     },
     {
-        name:     "add_api",
-        keywords: ["add api", "new endpoint", "add route", "create endpoint", "add service method"],
+        name:        "add_api",
+        keywords:    ["add api", "new endpoint", "add route", "create endpoint", "add service method"],
+        projectTypes: ["spring-boot", "liferay-backend", "nodejs"],
+        intent:      "api",
         steps: [
             "Find the relevant controller or service symbol",
             "Read the controller and service files",
@@ -64,19 +66,36 @@ export const TOOL_CHAIN_TEMPLATES = [
         ]
     },
     {
-        name:     "add_ui_component",
-        keywords: ["add component", "create page", "add form", "create ui", "add screen"],
+        name:        "add_ui_component",
+        keywords:    ["add component", "create page", "add form", "create ui", "add screen"],
+        projectTypes: ["react-vite", "nextjs"],
+        intent:      "ui",
         steps: [
             "Scan project structure to find components folder",
             "Find similar existing component for reference",
             "Read the reference component",
             "Create the new component file using project_apply_changes",
+            "Run static analysis",
             "Run build and fix to verify"
         ]
     },
     {
-        name:     "read_only",
-        keywords: ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze"],
+        name:        "fix_import_error",
+        keywords:    ["import error", "module not found", "cannot find module", "unresolved import"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Run static analysis to find broken imports",
+            "Read the file with the broken import",
+            "Fix the import path using project_str_replace",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "read_only",
+        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze"],
+        projectTypes: null,
+        intent:      "general",
         steps: [
             "Find the relevant symbol in the project",
             "Read the relevant files"

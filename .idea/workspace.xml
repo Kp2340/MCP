@@ -42,6 +42,16 @@
     &quot;assignee&quot;: &quot;Kp2340&quot;
   }
 }</component>
+  <component name="GitRewordedCommitMessages">
+    <option name="commitMessagesMapping">
+      <RewordedCommitMessageMapping>
+        <option name="originalMessage" value="MCP-3.0" />
+        <option name="rewordedMessage" value="MCP-3.0" />
+      </RewordedCommitMessageMapping>
+    </option>
+    <option name="currentCommit" value="1" />
+    <option name="onto" value="550ff9c53fd2360f4c22a5924fa0045a1526f045" />
+  </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/Kp2340/MCP.git&quot;,
@@ -154,7 +164,7 @@
       <workItem from="1773416903744" duration="5387000" />
       <workItem from="1773637927965" duration="83000" />
       <workItem from="1773920188449" duration="1927000" />
-      <workItem from="1774025528375" duration="3396000" />
+      <workItem from="1774025528375" duration="4004000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />

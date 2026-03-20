@@ -1,19 +1,38 @@
 import { askLLM } from "./ollamaClient.js";
-import { listProjects } from "../core/projectRegistry.js";
+import { listProjects, getProject } from "../core/projectRegistry.js";
 import { queryMemory } from "../vector/memory.js";
 import {
     TOOL_CHAIN_TEMPLATES,
-    MAX_LLM_CALLS_PER_RUN
+    MAX_LLM_CALLS_PER_RUN,
+    CHARS_PER_TOKEN
 } from "../core/constants.js";
+import { formatStateForPrompt } from "./executionState.js";
 
 const MODEL = "qwen2.5-coder:7b";
 
+// ─── Real token estimator ────────────────────────────────────────────────────
+export function estimateTokens(...texts) {
+    const totalChars = texts.reduce((sum, t) => sum + (t ? t.length : 0), 0);
+    return Math.ceil(totalChars / CHARS_PER_TOKEN);
+}
+
 // ─── Shared context builder ─────────────────────────────────────────────────
-async function buildPlannerContext(project) {
+async function buildPlannerContext(project, intent = null) {
     const projects = listProjects().join(", ");
     let memoryContext = "";
+
     if (project) {
-        const memory = await queryMemory(project, "", { returnStructured: true });
+        // Filter memory by intent type when we know it — avoids injecting
+        // backend patterns into a frontend step and vice versa.
+        const filterType = intent === "ui"  ? "architecture" :
+                           intent === "api" ? "architecture" :
+                           intent === "fix" ? "fix"          : null;
+
+        const memory = await queryMemory(project, "", {
+            returnStructured: true,
+            filterType
+        });
+
         if (memory && memory.length > 0) {
             const lines = memory
                 .map(m =>
@@ -24,6 +43,7 @@ async function buildPlannerContext(project) {
             memoryContext = `\nKnown architecture patterns for this project:\n${lines}\n`;
         }
     }
+
     return { projects, memoryContext };
 }
 
@@ -45,43 +65,76 @@ Rules:
 - After applying code changes ALWAYS run project_build_and_fix
 - Return ONLY numbered steps, one per line, no explanation`;
 
-// ─── Heuristic planner ─────────────────────────────────────────────────────
-// Matches a prompt against known task templates.
-// Returns template steps if matched (zero LLM cost), or null if LLM is needed.
-function tryHeuristicPlan(prompt) {
+// ─── Context-aware heuristic planner ──────────────────────────────────────────
+/**
+ * Tries to match a prompt against tool-chain templates using:
+ *   1. keyword hits (as before)
+ *   2. project type filter (spring-boot won't use add_ui_component)
+ *   3. intent hint from retriever (ui/api/fix/general)
+ *
+ * Returns template steps if confident match found, or null.
+ */
+function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null) {
     const lower = prompt.toLowerCase();
     let bestTemplate = null;
-    let bestHits     = 0;
+    let bestScore    = 0;
 
     for (const template of TOOL_CHAIN_TEMPLATES) {
-        const hits = template.keywords.filter(kw => lower.includes(kw)).length;
-        if (hits > bestHits) {
-            bestHits     = hits;
+        // Skip templates scoped to other project types
+        if (template.projectTypes && projectType &&
+            !template.projectTypes.includes(projectType)) {
+            continue;
+        }
+
+        const keywordHits = template.keywords.filter(kw => lower.includes(kw)).length;
+        if (keywordHits === 0) continue;
+
+        // Intent bonus: +1 if retriever intent matches template intent
+        const intentBonus = (retrieverIntent && retrieverIntent === template.intent) ? 1 : 0;
+
+        const score = keywordHits + intentBonus;
+
+        if (score > bestScore) {
+            bestScore    = score;
             bestTemplate = template;
         }
     }
 
-    // Only trust the heuristic if at least 2 keywords matched
-    if (bestHits >= 2 && bestTemplate) {
-        console.error(`[planner] Heuristic matched template: "${bestTemplate.name}" (${bestHits} keywords) — skipping LLM`);
+    // Require ≥2 total score to avoid false positives
+    if (bestScore >= 2 && bestTemplate) {
+        console.error(
+            `[planner] Heuristic: "${bestTemplate.name}" ` +
+            `(score=${bestScore}, type=${projectType || "any"}, intent=${retrieverIntent || "none"}) — skipping LLM`
+        );
         return bestTemplate.steps;
     }
 
-    return null;  // not confident enough — fall through to LLM
+    return null;
+}
+
+// ─── Project type lookup ─────────────────────────────────────────────────────────
+function getProjectType(project) {
+    try {
+        return getProject(project)?.type || null;
+    } catch {
+        return null;
+    }
 }
 
 /**
  * Initial plan creation.
- * Tries heuristic templates first; falls back to LLM only if needed.
  *
  * @param {string}  prompt
  * @param {string}  [project]
- * @param {object}  [costState]  — { llmCalls: number } mutated in place
+ * @param {object}  [costState]        — { llmCalls } mutated in place
+ * @param {string}  [retrieverIntent]  — intent label from retriever
  * @returns {string}  newline-separated numbered steps
  */
-export async function createPlan(prompt, project = null, costState = null) {
-    // 1. Try zero-cost heuristic first
-    const heuristicSteps = tryHeuristicPlan(prompt);
+export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null) {
+    const projectType = getProjectType(project);
+
+    // 1. Context-aware heuristic (zero LLM cost)
+    const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent);
     if (heuristicSteps) {
         return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
     }
@@ -92,13 +145,14 @@ export async function createPlan(prompt, project = null, costState = null) {
         return "1. Run static analysis\n2. Run build and fix";
     }
 
-    // 3. LLM plan
-    const { projects, memoryContext } = await buildPlannerContext(project);
+    // 3. LLM plan — memory filtered by intent
+    const { projects, memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
 
     const planPrompt = `You are a senior software planning agent.
 
 Available projects: ${projects}
+Project type: ${projectType || "unknown"}
 ${memoryContext}
 ${TOOL_REFERENCE}
 
@@ -110,49 +164,59 @@ ${prompt}
 }
 
 /**
- * Adaptive replanning — called mid-run when a step fails.
- * Respects LLM call budget; returns minimal recovery plan if budget exceeded.
+ * Adaptive replanning.
+ * Now includes execution state for much better recovery reasoning.
  *
- * @param {string[]} remainingSteps
- * @param {string}   failedStep
- * @param {string}   failureReason
- * @param {string}   context
- * @param {string}   [project]
- * @param {object}   [costState]
- * @returns {string[]}  revised remaining steps
+ * @param {string[]}       remainingSteps
+ * @param {string}         failedStep
+ * @param {string}         failureReason
+ * @param {string}         context
+ * @param {string}         [project]
+ * @param {object}         [costState]
+ * @param {ExecutionState} [execState]
+ * @returns {string[]}
  */
 export async function updatePlan(
     remainingSteps, failedStep, failureReason, context,
-    project = null, costState = null
+    project = null, costState = null, execState = null
 ) {
-    // Cost guard — return safe minimal recovery instead of another LLM call
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
-        console.error("[planner] LLM budget exhausted during replan — using safe fallback");
+        console.error("[planner] LLM budget exhausted during replan — safe fallback");
         return ["Run static analysis", "Run build and fix to verify"];
     }
+
+    const projectType = getProjectType(project);
+
+    // Extract failure type from execState for targeted recovery
+    const lastError   = execState?.lastError();
+    const failureType = lastError?.type || "unknown";
 
     const { projects, memoryContext } = await buildPlannerContext(project);
     if (costState) costState.llmCalls++;
 
+    // Format execution state for prompt injection
+    const stateBlock = execState
+        ? `\nExecution state:\n${formatStateForPrompt(execState)}\n`
+        : "";
+
     const replanPrompt = `You are a senior software planning agent doing mid-run correction.
 
 Available projects: ${projects}
+Project type: ${projectType || "unknown"}
 ${memoryContext}
 ${TOOL_REFERENCE}
-
+${stateBlock}
 Execution context so far:
-${context.substring(0, 1500)}
+${context.substring(0, 1200)}
 
-Failed step:
-${failedStep}
-
-Failure reason:
-${failureReason.substring(0, 600)}
+Failed step: ${failedStep}
+Failure type: ${failureType}
+Failure reason: ${failureReason.substring(0, 500)}
 
 Remaining steps that were planned:
 ${remainingSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
-Revise the remaining plan to recover from the failure.
+Revise the remaining plan to recover from this ${failureType} failure.
 Return ONLY numbered steps, one per line, no explanation.
 Do NOT repeat already-completed steps.
 `;

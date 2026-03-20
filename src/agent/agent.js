@@ -1,18 +1,18 @@
 import readline from "readline";
 import { MCPClient } from "./mcpClient.js";
-import { createPlan, updatePlan } from "./planner.js";
+import { createPlan, updatePlan, estimateTokens } from "./planner.js";
 import { executeStep } from "./executor.js";
-import { retrieveContext } from "./retriever.js";
+import { retrieveContext, classifyIntentFromPrompt } from "./retriever.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { TrainingCollector } from "../training/collector.js";
 import { storeMemory, queryMemory } from "../vector/memory.js";
 import { askLLM } from "./ollamaClient.js";
+import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import {
     COMPRESS_EVERY_N_STEPS,
     COMPRESS_MAX_CHARS,
     MAX_LLM_CALLS_PER_RUN,
     MAX_TOTAL_TOKENS_PER_RUN,
-    MAX_TOKENS_ESTIMATE_PER_CALL,
     MAX_REPLANS
 } from "../core/constants.js";
 
@@ -27,34 +27,45 @@ const collector = new TrainingCollector();
 
 console.error(`[training] ${collector.count()} examples collected so far`);
 
-// ─── Cost state factory ─────────────────────────────────────────────────────
-// Shared mutable state tracking LLM usage across planner + executor.
+// ─── Cost state ──────────────────────────────────────────────────────────────
 function makeCostState() {
-    return { llmCalls: 0 };
+    return { llmCalls: 0, totalChars: 0 };
+}
+
+// Real token estimate: accumulates actual prompt/response char counts
+function trackChars(costState, ...texts) {
+    costState.totalChars += texts.reduce((s, t) => s + (t ? t.length : 0), 0);
 }
 
 function estimatedTokens(costState) {
-    return costState.llmCalls * MAX_TOKENS_ESTIMATE_PER_CALL;
+    return estimateTokens("".padEnd(costState.totalChars, "x"));
 }
 
 // ─── Context compression ─────────────────────────────────────────────────────
-async function compressContext(context, costState) {
+async function compressContext(context, execState, costState) {
     if (context.length < COMPRESS_MAX_CHARS) return context;
     console.error("[agent] Compressing context...");
     if (costState) costState.llmCalls++;
-    const summary = await askLLM(MODEL,
-        `Summarise the following code agent execution log in 3-5 bullet points.
+
+    const stateBlock = formatStateForPrompt(execState);
+    const prompt = `Summarise the following code agent execution log in 3-5 bullet points.
 Focus on: what files were read, what changes were made, what errors were found.
 Be concise. Output only the bullet points.
 
-${context.substring(0, COMPRESS_MAX_CHARS)}`,
-        { temperature: 0.1, num_predict: 400 }
-    );
+Execution state:
+${stateBlock}
+
+${context.substring(0, COMPRESS_MAX_CHARS)}`;
+
+    trackChars(costState, prompt);
+    const summary = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 400 });
+    trackChars(costState, summary);
+
     console.error("[agent] Context compressed.");
-    return `[Compressed context summary]:\n${summary}`;
+    return `[Compressed context summary]:\n${summary}\n\nExecution state:\n${stateBlock}`;
 }
 
-// ─── Structured memory extraction ──────────────────────────────────────────────
+// ─── Memory extraction ───────────────────────────────────────────────────────
 async function extractAndStoreMemory(project, prompt, context, costState) {
     try {
         if (costState) costState.llmCalls++;
@@ -67,10 +78,8 @@ Task: ${prompt.substring(0, 200)}
 Context: ${context.substring(0, 800)}`,
             { temperature: 0.1, num_predict: 120 }
         );
-
         let structured;
         try { structured = JSON.parse(extractJSON(raw)); } catch { structured = null; }
-
         if (structured?.pattern && structured.pattern.length > 20) {
             await storeMemory(project, structured, structured.type || "pattern");
         }
@@ -80,26 +89,13 @@ Context: ${context.substring(0, 800)}`,
 }
 
 // ─── Analyze-before-modify guard ─────────────────────────────────────────────────
-// Enforces: project_analyze must run before any build or apply_changes.
-// If the upcoming steps include a build/apply but no analyze precedes it,
-// inject an analyze step immediately before the first such step.
 function enforceAnalyzeBeforeBuild(steps) {
-    const BUILD_TOOLS = new Set([
-        "project_build_and_fix", "project_build",
-        "project_apply_changes", "project_str_replace"
-    ]);
     const ANALYZE_KEYWORDS = /(analyze|analyse|static.?analy|project_analyze)/i;
-
-    // Check if any step already mentions analyze
     const hasAnalyze = steps.some(s => ANALYZE_KEYWORDS.test(s));
-    if (hasAnalyze) return steps;  // already present — nothing to do
-
-    // Find first step that implies a build or file write
-    const BUILD_KEYWORDS = /(build|apply.?change|str.?replace|commit|modify|write)/i;
-    const firstBuildIdx  = steps.findIndex(s => BUILD_KEYWORDS.test(s));
-    if (firstBuildIdx === -1) return steps;  // no build step found
-
-    // Inject analyze before that step
+    if (hasAnalyze) return steps;
+    const BUILD_KEYWORDS  = /(build|apply.?change|str.?replace|commit|modify|write)/i;
+    const firstBuildIdx   = steps.findIndex(s => BUILD_KEYWORDS.test(s));
+    if (firstBuildIdx === -1) return steps;
     const injected = [...steps];
     injected.splice(firstBuildIdx, 0, "Run static analysis to identify issues before building");
     console.error(`[agent] Injected project_analyze before step ${firstBuildIdx + 1}`);
@@ -112,14 +108,13 @@ async function executeWithRetry(step, context, project, memoryCtx, costState) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) console.error(`[agent] Retry ${attempt}/${MAX_RETRIES - 1}: ${step}`);
         const action = await executeStep(step, context, project, memoryCtx, costState);
+        trackChars(costState, action);
         try {
             const extracted = extractJSON(action);
             if (!extracted.startsWith("{")) { lastError = `Non-JSON: ${extracted.substring(0, 80)}`; continue; }
             const parsed = JSON.parse(extracted);
             return { ok: true, parsed };
-        } catch (err) {
-            lastError = err.message;
-        }
+        } catch (err) { lastError = err.message; }
     }
     return { ok: false, error: lastError };
 }
@@ -133,16 +128,22 @@ async function runAgent(prompt) {
     console.error("Project:", project);
     console.error("\nCreating plan...\n");
 
-    // Shared cost state — passed to planner + executor so both track LLM usage
     const costState = makeCostState();
+    const execState = makeExecutionState();
+
+    // Classify intent from prompt before retrieval so planner + heuristic can use it
+    const promptIntent = classifyIntentFromPrompt(prompt);
+    console.error(`[agent] Prompt intent: ${promptIntent}`);
 
     const planContext    = await retrieveContext(prompt, project);
+    trackChars(costState, planContext);
+
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
-    const initialPlan    = await createPlan(enrichedPrompt, project, costState);
+    const initialPlan    = await createPlan(enrichedPrompt, project, costState, promptIntent);
+    trackChars(costState, initialPlan);
 
     console.error("\nInitial Plan:\n" + initialPlan);
 
-    // Parse + enforce analyze-before-build
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
             .split("\n")
@@ -151,60 +152,74 @@ async function runAgent(prompt) {
     );
 
     let executionContext = planContext;
-    let successfulSteps = 0;
-    let totalStepsDone  = 0;
-    let replanCount     = 0;
+    let successfulSteps  = 0;
+    let totalStepsDone   = 0;
+    let replanCount      = 0;
 
     collector.startRun(prompt);
 
     while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
 
-        // Token budget warning
+        // Real token budget check
         const estTokens = estimatedTokens(costState);
         if (estTokens > MAX_TOTAL_TOKENS_PER_RUN) {
-            console.error(`[agent] ⚠️  Estimated token usage (${estTokens}) exceeds budget (${MAX_TOTAL_TOKENS_PER_RUN}). Stopping.`);
+            console.error(`[agent] ⚠️  Token budget exceeded (~${estTokens} tokens). Stopping.`);
             break;
         }
 
-        // Compress context every N steps
+        // Compress every N steps
         if (totalStepsDone > 0 && totalStepsDone % COMPRESS_EVERY_N_STEPS === 0) {
-            executionContext = await compressContext(executionContext, costState);
+            executionContext = await compressContext(executionContext, execState, costState);
         }
 
         const step = remainingSteps.shift();
         totalStepsDone++;
 
-        console.error(`\n[${totalStepsDone}] Executing: ${step}`);
-        console.error(`[cost] LLM calls so far: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}`);
+        console.error(`\n[${totalStepsDone}] ${step}`);
+        console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
 
-        // Fetch step-relevant memory — injected into executor prompt
-        const stepMemory  = await queryMemory(project, step, { minConfidence: 0.7 });
-        const stepContext = await retrieveContext(step, project);
-        const fullContext = executionContext + (stepContext ? "\n\n" + stepContext : "");
+        // Intent-filtered memory for this specific step
+        const stepIntent  = classifyIntentFromPrompt(step);
+        const memoryType  = stepIntent === "ui"  ? "architecture" :
+                            stepIntent === "api" ? "architecture" :
+                            stepIntent === "fix" ? "fix"          : null;
+
+        const stepMemory  = await queryMemory(project, step, {
+            minConfidence: 0.7,
+            filterType:    memoryType
+        });
+
+        const stepContext  = await retrieveContext(step, project);
+        const stateBlock   = formatStateForPrompt(execState);
+        const fullContext  = executionContext +
+            (stateBlock ? `\n\n[Execution state]:\n${stateBlock}` : "") +
+            (stepContext ? `\n\n[Relevant code]:\n${stepContext}` : "");
+
+        trackChars(costState, fullContext, stepMemory);
 
         const { ok, parsed, error } = await executeWithRetry(
             step, fullContext, project, stepMemory, costState
         );
 
-        // ── Parse failed after all retries ──────────────────────────────────────
+        // ── Parse failed ─────────────────────────────────────────────────────────────
         if (!ok) {
-            console.warn(`[agent] Step failed to parse: ${error}`);
+            console.warn(`[agent] Parse failed: ${error}`);
             if (replanCount < MAX_REPLANS) {
                 replanCount++;
                 console.error(`[agent] Replanning (${replanCount}/${MAX_REPLANS})...`);
                 const revised = await updatePlan(
                     remainingSteps, step, `Parse failure: ${error}`,
-                    executionContext, project, costState
+                    executionContext, project, costState, execState
                 );
                 remainingSteps = enforceAnalyzeBeforeBuild(revised);
-                console.error(`[agent] ${remainingSteps.length} steps remain after replan.`);
+                console.error(`[agent] ${remainingSteps.length} steps remain.`);
             }
             continue;
         }
 
-        // ── Tool call ─────────────────────────────────────────────────────────────
+        // ── Tool call ───────────────────────────────────────────────────────────────
         if (parsed.tool) {
-            console.error(`\n  → ${parsed.tool}`);
+            console.error(`  → ${parsed.tool}`);
 
             let resultText = "";
             let toolFailed = false;
@@ -212,16 +227,10 @@ async function runAgent(prompt) {
             try {
                 const result = await mcp.callTool(parsed.tool, parsed.args || {});
                 resultText   = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+                trackChars(costState, resultText);
 
                 console.error(`  ← ${resultText.length} chars`);
                 if (resultText.length < 500) console.error(resultText);
-
-                // Detect failure signals in result
-                const lower = resultText.toLowerCase();
-                toolFailed = lower.includes("error:") ||
-                             lower.includes("build failed") ||
-                             lower.includes("exception") ||
-                             lower.includes("not found");
 
             } catch (toolErr) {
                 console.warn(`[agent] Tool error: ${toolErr.message}`);
@@ -229,17 +238,22 @@ async function runAgent(prompt) {
                 toolFailed = true;
             }
 
+            // Update structured execution state
+            execState.recordToolCall(parsed.tool, parsed.args, resultText, totalStepsDone);
+            toolFailed = toolFailed || execState.lastError()?.stepIndex === totalStepsDone;
+
             executionContext += `\n\n[Step ${totalStepsDone} — ${parsed.tool}]:\n${resultText}`;
 
             if (toolFailed && replanCount < MAX_REPLANS) {
                 replanCount++;
-                console.error(`[agent] Tool failure. Replanning (${replanCount}/${MAX_REPLANS})...`);
+                const failType = execState.lastError()?.type || "unknown";
+                console.error(`[agent] ${failType} failure. Replanning (${replanCount}/${MAX_REPLANS})...`);
                 const revised = await updatePlan(
                     remainingSteps, step, resultText,
-                    executionContext, project, costState
+                    executionContext, project, costState, execState
                 );
                 remainingSteps = enforceAnalyzeBeforeBuild(revised);
-                console.error(`[agent] ${remainingSteps.length} steps remain after replan.`);
+                console.error(`[agent] ${remainingSteps.length} steps remain.`);
             }
 
             collector.logStep(step, { tool: parsed.tool, args: parsed.args }, resultText);
@@ -252,12 +266,17 @@ async function runAgent(prompt) {
     collector.endRun(successfulSteps >= 2);
     if (successfulSteps >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
 
-    // ── Cost summary ─────────────────────────────────────────────────────────────
+    // ── Final summary ─────────────────────────────────────────────────────────────
     console.error(`\n─── Agent finished ───`);
-    console.error(`  Steps:      ${successfulSteps} successful / ${totalStepsDone} total`);
-    console.error(`  Replans:    ${replanCount}`);
-    console.error(`  LLM calls:  ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
-    console.error(`  Est tokens: ~${estimatedTokens(costState).toLocaleString()}`);
+    console.error(`  Steps:       ${successfulSteps} ok / ${totalStepsDone} total`);
+    console.error(`  Replans:     ${replanCount}`);
+    console.error(`  LLM calls:   ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
+    console.error(`  Est tokens:  ~${estimatedTokens(costState).toLocaleString()} / ${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
+    console.error(`  Files read:  ${[...execState.filesRead].join(", ") || "none"}`);
+    console.error(`  Files mod:   ${[...execState.filesModified].join(", ") || "none"}`);
+    if (execState.errors.length > 0) {
+        console.error(`  Errors seen: ${execState.errors.map(e => e.type).join(", ")}`);
+    }
     console.error(`──────────────────────\n`);
 }
 
