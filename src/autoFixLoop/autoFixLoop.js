@@ -1,5 +1,4 @@
-import { buildProject } from "../build/buildProject.js";
-import { parseErrors } from "../build/parseBuildErrors.js";
+import { buildProject } from "../tools/projectBuild.js";
 import { askLLM } from "../agent/ollamaClient.js";
 import { getProject } from "../core/projectRegistry.js";
 import { applyChanges } from "../tools/applyChanges.js";
@@ -11,7 +10,25 @@ const MODEL = "qwen2.5-coder:7b";
 const MAX_ATTEMPTS = 5;
 
 /**
- * Parse file paths from error messages so we can send file context to the LLM.
+ * Extract error lines from raw build output.
+ * Handles Java (javac/gradle), TypeScript (tsc), and generic patterns.
+ */
+function parseErrors(output) {
+    if (!output) return [];
+    return output
+        .split("\n")
+        .map(l => l.trim())
+        .filter(l =>
+            l.includes("error:") ||
+            l.includes("ERROR") ||
+            l.includes("FAILED") ||
+            l.match(/^\s*at .+\(.+:\d+\)/)    // stack traces
+        )
+        .slice(0, 30);
+}
+
+/**
+ * Parse file paths mentioned in error lines so we can send file context to LLM.
  * Handles patterns like: "src/components/Foo.jsx:42:5"
  */
 function extractFilesFromErrors(errors, projectRoot) {
@@ -28,7 +45,7 @@ function extractFilesFromErrors(errors, projectRoot) {
         }
     }
 
-    return [...files].slice(0, 4);  // Max 4 files to keep prompt size reasonable
+    return [...files].slice(0, 4);
 }
 
 function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
@@ -39,7 +56,7 @@ function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
             const content = fs.readFileSync(full, "utf8").substring(0, maxChars);
             results.push(`--- ${rel} ---\n${content}`);
         } catch {
-            // File unreadable, skip
+            // unreadable file, skip
         }
     }
     return results.join("\n\n");
@@ -49,25 +66,25 @@ export async function runAutoFix(projectName) {
     const project = getProject(projectName);
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        console.log(`[autofix] Build attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
+        console.error(`[autofix] Build attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
 
         const result = await buildProject({ project: projectName });
 
         if (result.success) {
-            console.log("[autofix] Build successful");
+            console.error("[autofix] Build successful");
             return { success: true, attempts: attempt + 1 };
         }
 
-        const errors = parseErrors(result.stderr || result.stdout || "");
+        const rawOutput = result.content?.[0]?.text || "";
+        const errors = parseErrors(rawOutput);
 
         if (errors.length === 0) {
-            console.log("[autofix] Build failed but no parseable errors — stopping");
+            console.error("[autofix] Build failed but no parseable errors — stopping");
             break;
         }
 
-        console.log(`[autofix] Found ${errors.length} error(s). Asking LLM to fix...`);
+        console.error(`[autofix] Found ${errors.length} error(s). Asking LLM to fix...`);
 
-        // Read source files mentioned in errors for context
         const errorFiles = extractFilesFromErrors(errors, project.root);
         const fileContext = readFilesSafe(errorFiles, project.root);
 
@@ -99,7 +116,7 @@ JSON:`;
             continue;
         }
 
-        console.log(`[autofix] Applying ${value.files.length} file fix(es)...`);
+        console.error(`[autofix] Applying ${value.files.length} file fix(es)...`);
 
         try {
             await applyChanges({
@@ -113,6 +130,6 @@ JSON:`;
         }
     }
 
-    console.log("[autofix] Max attempts reached");
+    console.error("[autofix] Max attempts reached");
     return { success: false, attempts: MAX_ATTEMPTS };
 }

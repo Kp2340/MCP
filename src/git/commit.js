@@ -1,10 +1,8 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
+import { sanitizeCommitMessage } from "../core/validator.js";
 
 export function commitChanges(projectRoot, message) {
-
-    execSync("git add .", { cwd: projectRoot });
-
-    execSync(`git commit -m "${message}"`, {
-        cwd: projectRoot
-    });
+    const safe = sanitizeCommitMessage(message);
+    spawnSync("git", ["add", "."], { cwd: projectRoot });
+    spawnSync("git", ["commit", "-m", safe], { cwd: projectRoot });
 }

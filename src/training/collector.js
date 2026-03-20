@@ -23,19 +23,83 @@ const SYSTEM_PROMPT =
 
 if (ENABLED) {
     fs.mkdirSync(DATASET_DIR, { recursive: true });
-    console.log("[collector] Training data collection ENABLED");
-    console.log("[collector] Writing to:", DATASET_FILE);
+    console.error("[collector] Training data collection ENABLED");
+    console.error("[collector] Writing to:", DATASET_FILE);
 }
 
 /**
- * Record a successful agent step as a training example.
- * Only records steps where the model produced valid JSON.
+ * TrainingCollector — class interface used by agent.js.
+ * Tracks a single agent run and persists successful steps to JSONL.
  */
+export class TrainingCollector {
+
+    constructor() {
+        this._prompt = null;
+        this._steps  = [];
+    }
+
+    /** Returns number of examples already on disk. */
+    count() {
+        if (!fs.existsSync(DATASET_FILE)) return 0;
+        return fs.readFileSync(DATASET_FILE, "utf8")
+            .split("\n")
+            .filter(Boolean)
+            .length;
+    }
+
+    /** Called at the start of a new agent run. */
+    startRun(prompt) {
+        this._prompt = prompt;
+        this._steps  = [];
+    }
+
+    /**
+     * Log a successful step.
+     * @param {string} step       - natural-language step description
+     * @param {object} toolCall   - { tool, args }
+     * @param {string} result     - text result from MCP
+     */
+    logStep(step, toolCall, result) {
+        if (!ENABLED) return;
+        const toolCallJSON = JSON.stringify(toolCall);
+        // Only record steps that produced valid JSON tool calls
+        try { JSON.parse(toolCallJSON); } catch { return; }
+        this._steps.push({ step, toolCall, result });
+    }
+
+    /**
+     * Called at the end of a run.
+     * @param {boolean} save - only persist if the run was meaningfully successful
+     */
+    endRun(save) {
+        if (!ENABLED || !save || this._steps.length === 0) return;
+
+        for (const { step, toolCall, result } of this._steps) {
+            const example = {
+                messages: [
+                    { role: "system",    content: SYSTEM_PROMPT },
+                    {
+                        role: "user",
+                        content: `Project context:\n${this._prompt.substring(0, 800)}\n\nStep:\n${step}`
+                    },
+                    { role: "assistant", content: JSON.stringify(toolCall) }
+                ]
+            };
+            try {
+                fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
+            } catch (err) {
+                console.warn("[collector] Write failed:", err.message);
+            }
+        }
+
+        console.error(`[collector] Saved ${this._steps.length} training example(s)`);
+    }
+}
+
+/** Legacy functional API — kept for any direct callers. */
 export function recordSuccess(step, context, toolCallJSON, project) {
     if (!ENABLED) return;
-
     try { JSON.parse(toolCallJSON); } catch { return; }
-
     const example = {
         messages: [
             { role: "system",    content: SYSTEM_PROMPT },
@@ -43,7 +107,6 @@ export function recordSuccess(step, context, toolCallJSON, project) {
             { role: "assistant", content: toolCallJSON }
         ]
     };
-
     try {
         fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
     } catch (err) {
@@ -53,10 +116,10 @@ export function recordSuccess(step, context, toolCallJSON, project) {
 
 export function printStats() {
     if (!fs.existsSync(DATASET_FILE)) {
-        console.log("[collector] No training data collected yet.");
+        console.error("[collector] No training data collected yet.");
         return;
     }
     const lines = fs.readFileSync(DATASET_FILE, "utf8").split("\n").filter(Boolean);
-    console.log(`[collector] Examples collected: ${lines.length}`);
-    console.log(`[collector] Dataset: ${DATASET_FILE}`);
+    console.error(`[collector] Examples collected: ${lines.length}`);
+    console.error(`[collector] Dataset: ${DATASET_FILE}`);
 }

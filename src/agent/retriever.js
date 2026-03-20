@@ -24,10 +24,10 @@ export async function retrieveContext(prompt, project = null) {
             // Collection missing — auto-build index once
             if (project && !indexing) {
                 indexing = true;
-                console.log("\n[retriever] Vector index missing. Building automatically...\n");
+                console.error("\n[retriever] Vector index missing. Building automatically...\n");
                 const config = getProject(project);
                 await indexProject(config.root, project);
-                console.log("\n[retriever] Vector index built.\n");
+                console.error("\n[retriever] Vector index built.\n");
                 indexing = false;
             }
             docs = await queryCodebase(embedding, project);

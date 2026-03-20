@@ -11,7 +11,7 @@ process.env.NODE_NO_WARNINGS = "1";
 const mcp = new MCPClient();
 const collector = new TrainingCollector();
 
-console.log(`[training] ${collector.count()} examples collected so far`);
+console.error(`[training] ${collector.count()} examples collected so far`);
 
 async function runAgent(prompt) {
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
@@ -20,8 +20,8 @@ async function runAgent(prompt) {
     }
     const project = projectMatch[1];
 
-    console.log("Project:", project);
-    console.log("\nCreating plan...\n");
+    console.error("Project:", project);
+    console.error("\nCreating plan...\n");
 
     // Retrieve context ONCE for the full plan — not again per step
     const planContext = await retrieveContext(prompt, project);
@@ -29,8 +29,8 @@ async function runAgent(prompt) {
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
     const plan = await createPlan(enrichedPrompt);
 
-    console.log("\nPlan:\n");
-    console.log(plan);
+    console.error("\nPlan:\n");
+    console.error(plan);
 
     // Parse numbered steps robustly — handles "1." "1)" "Step 1:" etc.
     const steps = plan
@@ -48,7 +48,7 @@ async function runAgent(prompt) {
         const step = steps[i];
         if (!step) continue;
 
-        console.log(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
+        console.error(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
 
         // Retrieve fresh vector context for each step (delta context)
         const stepContext = await retrieveContext(step, project);
@@ -59,15 +59,15 @@ async function runAgent(prompt) {
         try {
             const extracted = extractJSON(action);
             if (!extracted.startsWith("{")) {
-                console.log(extracted);
+                console.error(extracted);
                 continue;
             }
 
             const parsed = JSON.parse(extracted);
 
             if (parsed.tool) {
-                console.log(`\n  → Calling tool: ${parsed.tool}`);
-                console.log(`    Args: ${JSON.stringify(parsed.args)}`);
+                console.error(`\n  → Calling tool: ${parsed.tool}`);
+                console.error(`    Args: ${JSON.stringify(parsed.args)}`);
 
                 const result = await mcp.callTool(parsed.tool, parsed.args || {});
 
@@ -77,8 +77,8 @@ async function runAgent(prompt) {
                     .join("\n")
                     .substring(0, 3000) || "";
 
-                console.log(`\n  ← Result (${resultText.length} chars)`);
-                if (resultText.length < 500) console.log(resultText);
+                console.error(`\n  ← Result (${resultText.length} chars)`);
+                if (resultText.length < 500) console.error(resultText);
 
                 executionContext += `\n\n[Step ${i + 1} result]:\n${resultText}`;
 
@@ -88,7 +88,7 @@ async function runAgent(prompt) {
             }
 
             if (parsed.done) {
-                console.log("\nTask completed\n");
+                console.error("\nTask completed\n");
                 break;
             }
 
@@ -101,7 +101,7 @@ async function runAgent(prompt) {
     // Save training data only if the run had meaningful successful steps
     collector.endRun(successfulSteps >= 2);
 
-    console.log("\nAgent finished\n");
+    console.error("\nAgent finished\n");
 }
 
 const rl = readline.createInterface({

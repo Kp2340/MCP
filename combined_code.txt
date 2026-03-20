@@ -720,13 +720,16 @@ import { applyPatch } from "./tools/projectPatch.js";
 import { buildProject } from "./tools/projectBuild.js";
 import { projectFindSymbol } from "./tools/projectFindSymbol.js";
 import { projectIndex } from "./tools/projectIndex.js";
+import { projectStrReplace } from "./tools/projectStrReplace.js";
 import { runAutoFix } from "./autoFixLoop/autoFixLoop.js";
 
-import { getProject } from "./core/projectRegistry.js";
+import { getProject, listProjects } from "./core/projectRegistry.js";
 import { buildDependencyGraph } from "./analysis/dependencyGraph.js";
+import { queryCodebase } from "./vector/queryCodebase.js";
+import { embed } from "./vector/embedder.js";
 
 const server = new Server(
-    { name: "ai-dev-mcp", version: "8.2.0" },
+    { name: "ai-dev-mcp", version: "2.2.0" },
     { capabilities: { tools: {} } }
 );
 
@@ -765,6 +768,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     increment: { type: "boolean" }
                 },
                 required: ["project", "files", "commitMessage"]
+            }
+        },
+        {
+            name: "project_str_replace",
+            description: "Apply targeted search-and-replace edits to files without rewriting the whole file. Safer and more token-efficient than project_apply_changes for small changes.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    edits: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                path:    { type: "string" },
+                                search:  { type: "string" },
+                                replace: { type: "string" }
+                            },
+                            required: ["path", "search", "replace"]
+                        }
+                    },
+                    commitMessage: { type: "string" }
+                },
+                required: ["project", "edits", "commitMessage"]
             }
         },
         {
@@ -826,9 +853,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: "Analyze project dependency graph",
             inputSchema: {
                 type: "object",
-                properties: {
-                    project: { type: "string" }
-                },
+                properties: { project: { type: "string" } },
                 required: ["project"]
             }
         },
@@ -840,6 +865,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 properties: { project: { type: "string" } },
                 required: ["project"]
             }
+        },
+        {
+            name: "project_semantic_search",
+            description: "Search relevant code snippets using semantic meaning",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    query: { type: "string" }
+                },
+                required: ["project", "query"]
+            }
+        },
+        {
+            name: "project_list",
+            description: "List all available projects registered in this MCP server",
+            inputSchema: {
+                type: "object",
+                properties: {},
+                required: []
+            }
         }
     ]
 }));
@@ -848,47 +894,50 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     const tool = req.params.name;
     const args = req.params.arguments;
-    console.log("\n========== TOOL CALL ==========");
-    console.log("Tool:", tool);
-    console.log("Args:", args);
-    console.log("================================");
+    console.error("\n========== TOOL CALL ==========");
+    console.error("Tool:", tool);
+    console.error("Args:", args);
+    console.error("================================");
 
-    if (tool === "project_scan") return scanProject(args);
-    if (tool === "project_read_files") return readFiles(args);
-    if (tool === "project_apply_changes") return applyChanges(args);
-    if (tool === "project_search") return searchProject(args);
-    if (tool === "project_apply_patch") return applyPatch(args);
-    if (tool === "project_build") return buildProject(args);
-    if (tool === "project_index") return projectIndex(args);
-    if (tool === "project_find_symbol") return projectFindSymbol(args);
+    if (tool === "project_scan")           return scanProject(args);
+    if (tool === "project_read_files")     return readFiles(args);
+    if (tool === "project_apply_changes")  return applyChanges(args);
+    if (tool === "project_str_replace")    return projectStrReplace(args);
+    if (tool === "project_search")         return searchProject(args);
+    if (tool === "project_apply_patch")    return applyPatch(args);
+    if (tool === "project_build")          return buildProject(args);
+    if (tool === "project_index")          return projectIndex(args);
+    if (tool === "project_find_symbol")    return projectFindSymbol(args);
+
+    if (tool === "project_list") {
+        return {
+            content: [{
+                type: "text",
+                text: JSON.stringify(listProjects(), null, 2)
+            }]
+        };
+    }
 
     if (tool === "project_dependency_graph") {
-
         const projectRoot = getProject(args.project).root;
-
         const graph = buildDependencyGraph(projectRoot);
-
         return {
-            content: [
-                {
-                    type: "text",
-                    text: JSON.stringify(graph, null, 2)
-                }
-            ]
+            content: [{ type: "text", text: JSON.stringify(graph, null, 2) }]
         };
     }
 
     if (tool === "project_build_and_fix") {
-
         await runAutoFix(args.project);
-
         return {
-            content: [
-                {
-                    type: "text",
-                    text: "Build + auto-fix completed"
-                }
-            ]
+            content: [{ type: "text", text: "Build + auto-fix completed" }]
+        };
+    }
+
+    if (tool === "project_semantic_search") {
+        const embedding = await embed(args.query);
+        const docs = await queryCodebase(embedding, args.project);
+        return {
+            content: [{ type: "text", text: docs.join("\n\n---\n\n") }]
         };
     }
 
@@ -896,6 +945,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 await server.connect(new StdioServerTransport());
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\agent.js
@@ -913,7 +963,7 @@ process.env.NODE_NO_WARNINGS = "1";
 const mcp = new MCPClient();
 const collector = new TrainingCollector();
 
-console.log(`[training] ${collector.count()} examples collected so far`);
+console.error(`[training] ${collector.count()} examples collected so far`);
 
 async function runAgent(prompt) {
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
@@ -922,8 +972,8 @@ async function runAgent(prompt) {
     }
     const project = projectMatch[1];
 
-    console.log("Project:", project);
-    console.log("\nCreating plan...\n");
+    console.error("Project:", project);
+    console.error("\nCreating plan...\n");
 
     // Retrieve context ONCE for the full plan — not again per step
     const planContext = await retrieveContext(prompt, project);
@@ -931,8 +981,8 @@ async function runAgent(prompt) {
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
     const plan = await createPlan(enrichedPrompt);
 
-    console.log("\nPlan:\n");
-    console.log(plan);
+    console.error("\nPlan:\n");
+    console.error(plan);
 
     // Parse numbered steps robustly — handles "1." "1)" "Step 1:" etc.
     const steps = plan
@@ -950,7 +1000,7 @@ async function runAgent(prompt) {
         const step = steps[i];
         if (!step) continue;
 
-        console.log(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
+        console.error(`\n[${i + 1}/${steps.length}] Executing: ${step}`);
 
         // Retrieve fresh vector context for each step (delta context)
         const stepContext = await retrieveContext(step, project);
@@ -961,15 +1011,15 @@ async function runAgent(prompt) {
         try {
             const extracted = extractJSON(action);
             if (!extracted.startsWith("{")) {
-                console.log(extracted);
+                console.error(extracted);
                 continue;
             }
 
             const parsed = JSON.parse(extracted);
 
             if (parsed.tool) {
-                console.log(`\n  → Calling tool: ${parsed.tool}`);
-                console.log(`    Args: ${JSON.stringify(parsed.args)}`);
+                console.error(`\n  → Calling tool: ${parsed.tool}`);
+                console.error(`    Args: ${JSON.stringify(parsed.args)}`);
 
                 const result = await mcp.callTool(parsed.tool, parsed.args || {});
 
@@ -979,8 +1029,8 @@ async function runAgent(prompt) {
                     .join("\n")
                     .substring(0, 3000) || "";
 
-                console.log(`\n  ← Result (${resultText.length} chars)`);
-                if (resultText.length < 500) console.log(resultText);
+                console.error(`\n  ← Result (${resultText.length} chars)`);
+                if (resultText.length < 500) console.error(resultText);
 
                 executionContext += `\n\n[Step ${i + 1} result]:\n${resultText}`;
 
@@ -990,7 +1040,7 @@ async function runAgent(prompt) {
             }
 
             if (parsed.done) {
-                console.log("\nTask completed\n");
+                console.error("\nTask completed\n");
                 break;
             }
 
@@ -1003,7 +1053,7 @@ async function runAgent(prompt) {
     // Save training data only if the run had meaningful successful steps
     collector.endRun(successfulSteps >= 2);
 
-    console.log("\nAgent finished\n");
+    console.error("\nAgent finished\n");
 }
 
 const rl = readline.createInterface({
@@ -1325,10 +1375,10 @@ export async function retrieveContext(prompt, project = null) {
             // Collection missing — auto-build index once
             if (project && !indexing) {
                 indexing = true;
-                console.log("\n[retriever] Vector index missing. Building automatically...\n");
+                console.error("\n[retriever] Vector index missing. Building automatically...\n");
                 const config = getProject(project);
                 await indexProject(config.root, project);
-                console.log("\n[retriever] Vector index built.\n");
+                console.error("\n[retriever] Vector index built.\n");
                 indexing = false;
             }
             docs = await queryCodebase(embedding, project);
@@ -1399,8 +1449,7 @@ export function buildDependencyGraph(root) {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\autoFixLoop\autoFixLoop.js
 ========================================
-import { buildProject } from "../build/buildProject.js";
-import { parseErrors } from "../build/parseBuildErrors.js";
+import { buildProject } from "../tools/projectBuild.js";
 import { askLLM } from "../agent/ollamaClient.js";
 import { getProject } from "../core/projectRegistry.js";
 import { applyChanges } from "../tools/applyChanges.js";
@@ -1412,7 +1461,25 @@ const MODEL = "qwen2.5-coder:7b";
 const MAX_ATTEMPTS = 5;
 
 /**
- * Parse file paths from error messages so we can send file context to the LLM.
+ * Extract error lines from raw build output.
+ * Handles Java (javac/gradle), TypeScript (tsc), and generic patterns.
+ */
+function parseErrors(output) {
+    if (!output) return [];
+    return output
+        .split("\n")
+        .map(l => l.trim())
+        .filter(l =>
+            l.includes("error:") ||
+            l.includes("ERROR") ||
+            l.includes("FAILED") ||
+            l.match(/^\s*at .+\(.+:\d+\)/)    // stack traces
+        )
+        .slice(0, 30);
+}
+
+/**
+ * Parse file paths mentioned in error lines so we can send file context to LLM.
  * Handles patterns like: "src/components/Foo.jsx:42:5"
  */
 function extractFilesFromErrors(errors, projectRoot) {
@@ -1429,7 +1496,7 @@ function extractFilesFromErrors(errors, projectRoot) {
         }
     }
 
-    return [...files].slice(0, 4);  // Max 4 files to keep prompt size reasonable
+    return [...files].slice(0, 4);
 }
 
 function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
@@ -1440,7 +1507,7 @@ function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
             const content = fs.readFileSync(full, "utf8").substring(0, maxChars);
             results.push(`--- ${rel} ---\n${content}`);
         } catch {
-            // File unreadable, skip
+            // unreadable file, skip
         }
     }
     return results.join("\n\n");
@@ -1450,25 +1517,25 @@ export async function runAutoFix(projectName) {
     const project = getProject(projectName);
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        console.log(`[autofix] Build attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
+        console.error(`[autofix] Build attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
 
         const result = await buildProject({ project: projectName });
 
         if (result.success) {
-            console.log("[autofix] Build successful");
+            console.error("[autofix] Build successful");
             return { success: true, attempts: attempt + 1 };
         }
 
-        const errors = parseErrors(result.stderr || result.stdout || "");
+        const rawOutput = result.content?.[0]?.text || "";
+        const errors = parseErrors(rawOutput);
 
         if (errors.length === 0) {
-            console.log("[autofix] Build failed but no parseable errors — stopping");
+            console.error("[autofix] Build failed but no parseable errors — stopping");
             break;
         }
 
-        console.log(`[autofix] Found ${errors.length} error(s). Asking LLM to fix...`);
+        console.error(`[autofix] Found ${errors.length} error(s). Asking LLM to fix...`);
 
-        // Read source files mentioned in errors for context
         const errorFiles = extractFilesFromErrors(errors, project.root);
         const fileContext = readFilesSafe(errorFiles, project.root);
 
@@ -1500,7 +1567,7 @@ JSON:`;
             continue;
         }
 
-        console.log(`[autofix] Applying ${value.files.length} file fix(es)...`);
+        console.error(`[autofix] Applying ${value.files.length} file fix(es)...`);
 
         try {
             await applyChanges({
@@ -1514,9 +1581,10 @@ JSON:`;
         }
     }
 
-    console.log("[autofix] Max attempts reached");
+    console.error("[autofix] Max attempts reached");
     return { success: false, attempts: MAX_ATTEMPTS };
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
@@ -1526,45 +1594,60 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
     "root": "C:/Users/kushp/liferay-workspace/zeveal-backend-6/zeveal-backend",
     "type": "liferay-backend",
     "buildCommand": "gradlew build",
-    "branchPrefix": "ZB"
+    "branchPrefix": "ZB",
+    "indexExtensions": [".java"]
   },
   "zeveal-frontend": {
     "root": "C:/Users/kushp/liferay-workspace/zeveal-ui-3/zeveal-ui",
     "type": "react-vite",
     "buildCommand": "npm run build",
-    "branchPrefix": "ZF"
+    "branchPrefix": "ZF",
+    "indexExtensions": []
   },
   "decorom-frontend": {
     "root": "G:/Secret Invasion S01 (2023) 1080p/shubh/Decorom3.5",
     "type": "react-vite",
     "buildCommand": "npm run build",
-    "branchPrefix": "DF"
+    "branchPrefix": "DF",
+    "indexExtensions": []
   },
   "decorom-backend": {
     "root": "C:/Users/kushp/IdeaProjects/Decorom Backend",
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
-    "branchPrefix": "DB"
+    "branchPrefix": "DB",
+    "indexExtensions": [".java"]
   },
   "whatsapp-backend": {
     "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp",
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
-    "branchPrefix": "WB"
+    "branchPrefix": "WB",
+    "indexExtensions": [".java"]
   },
   "whatsapp-frontend": {
     "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp UI",
     "type": "react-vite",
     "buildCommand": "npm run build",
-    "branchPrefix": "WF"
+    "branchPrefix": "WF",
+    "indexExtensions": []
   },
   "jsv": {
     "root": "C:/Users/kushp/IdeaProjects/jsv solution",
     "type": "nextjs",
     "buildCommand": "npm run build",
-    "branchPrefix": "JSV"
+    "branchPrefix": "JSV",
+    "indexExtensions": []
+  },
+  "mcp": {
+    "root": "C:/Users/kushp/IdeaProjects/mcp",
+    "type": "nodejs",
+    "buildCommand": "",
+    "branchPrefix": "MCP",
+    "indexExtensions": []
   }
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\constants.js
@@ -1676,13 +1759,14 @@ export function sanitizeCommitMessage(msg) {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\git\branch.js
 ========================================
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
+import { sanitizeCommitMessage } from "../core/validator.js";
 
 function getLatestBranchNumber(projectRoot, prefix) {
-    const output = execSync("git branch", { cwd: projectRoot }).toString();
+    const result = spawnSync("git", ["branch"], { cwd: projectRoot, encoding: "utf8" });
+    const output = result.stdout || "";
     const regex = new RegExp(`${prefix}-(\\d+)`);
     let max = 0;
-
     for (const branch of output.split("\n")) {
         const match = branch.match(regex);
         if (match) {
@@ -1690,30 +1774,29 @@ function getLatestBranchNumber(projectRoot, prefix) {
             if (num > max) max = num;
         }
     }
-
     return max;
 }
 
 export function createNextBranch(projectRoot, prefix) {
     const next = getLatestBranchNumber(projectRoot, prefix) + 1;
     const branchName = `${prefix}-${next}`;
-    execSync(`git checkout -b ${branchName}`, { cwd: projectRoot });
+    spawnSync("git", ["checkout", "-b", branchName], { cwd: projectRoot });
     return { branchName, number: next };
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\git\commit.js
 ========================================
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
+import { sanitizeCommitMessage } from "../core/validator.js";
 
 export function commitChanges(projectRoot, message) {
-
-    execSync("git add .", { cwd: projectRoot });
-
-    execSync(`git commit -m "${message}"`, {
-        cwd: projectRoot
-    });
+    const safe = sanitizeCommitMessage(message);
+    spawnSync("git", ["add", "."], { cwd: projectRoot });
+    spawnSync("git", ["commit", "-m", safe], { cwd: projectRoot });
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\indexer\languageLoader.js
@@ -1825,84 +1908,59 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\applyChanges.js
 ========================================
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 import { getProject } from "../core/projectRegistry.js";
-import { validateChangeRequest } from "../core/validator.js";
+import { validateChangeRequest, sanitizeCommitMessage } from "../core/validator.js";
 
 function getNextBranch(root, prefix) {
-
-    const branches = execSync("git branch", { cwd: root }).toString();
-
+    const result = spawnSync("git", ["branch"], { cwd: root, encoding: "utf8" });
+    const branches = result.stdout || "";
     let max = 0;
-
     const regex = new RegExp(`${prefix}-(\\d+)`);
-
     branches.split("\n").forEach(b => {
-
         const clean = b.replace("*", "").trim();
-
         const m = clean.match(regex);
-
         if (m) {
-
             const n = parseInt(m[1]);
-
             if (n > max) max = n;
-
         }
-
     });
-
     return `${prefix}-${max + 1}`;
 }
 
 export function applyChanges({ project, files, commitMessage, increment }) {
-
     const config = getProject(project);
-
     const root = config.root;
 
     validateChangeRequest(files, root);
 
     for (const file of files) {
-
         const full = path.resolve(root, file.path);
-
         fs.mkdirSync(path.dirname(full), { recursive: true });
-
         fs.writeFileSync(full, file.content, "utf8");
-
     }
 
-    execSync("git add .", { cwd: root });
+    spawnSync("git", ["add", "."], { cwd: root });
+
+    const safeMessage = sanitizeCommitMessage(commitMessage);
 
     if (increment) {
-
         const branch = getNextBranch(root, config.branchPrefix);
-
-        execSync(`git checkout -b ${branch}`, { cwd: root });
-
-        execSync(`git commit -m "${branch} ${commitMessage}"`, { cwd: root });
-
+        spawnSync("git", ["checkout", "-b", branch], { cwd: root });
+        spawnSync("git", ["commit", "-m", `${branch} ${safeMessage}`], { cwd: root });
         return {
-            content: [{
-                type: "text",
-                text: `Created branch ${branch}`
-            }]
+            content: [{ type: "text", text: `Created branch ${branch}` }]
         };
-
     }
 
-    execSync(`git commit -m "${commitMessage}"`, { cwd: root });
+    spawnSync("git", ["commit", "-m", safeMessage], { cwd: root });
 
     return {
-        content: [{
-            type: "text",
-            text: "Changes committed"
-        }]
+        content: [{ type: "text", text: "Changes committed" }]
     };
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectBuild.js
@@ -1994,7 +2052,7 @@ export async function projectIndex({ project }) {
 
     }
 
-    console.log("Building semantic index:", project);
+    console.error("Building semantic index:", project);
 
     const index = buildSemanticIndex(root);
 
@@ -2092,6 +2150,77 @@ export function searchProject({ project, query }) {
 
     }
 }
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectStrReplace.js
+========================================
+import fs from "fs";
+import { spawnSync } from "child_process";
+import { getProject } from "../core/projectRegistry.js";
+import { validatePath, sanitizeCommitMessage } from "../core/validator.js";
+
+/**
+ * project_str_replace
+ *
+ * Applies targeted search-and-replace edits to project files instead of
+ * rewriting entire files. Much safer and more token-efficient than
+ * project_apply_changes for small modifications.
+ *
+ * Each edit:
+ *   - finds the FIRST occurrence of `search` in the file
+ *   - replaces it with `replace`
+ *   - throws if `search` is not found (prevents silent no-ops)
+ */
+export function projectStrReplace({ project, edits, commitMessage }) {
+    const config = getProject(project);
+    const root = config.root;
+
+    if (!Array.isArray(edits) || edits.length === 0) {
+        throw new Error("edits must be a non-empty array");
+    }
+
+    const results = [];
+
+    for (const edit of edits) {
+        const { path: relativePath, search, replace } = edit;
+
+        if (!relativePath || typeof search !== "string" || typeof replace !== "string") {
+            throw new Error("Each edit must have path, search, and replace fields");
+        }
+
+        const fullPath = validatePath(root, relativePath);
+
+        if (!fs.existsSync(fullPath)) {
+            throw new Error(`File not found: ${relativePath}`);
+        }
+
+        const original = fs.readFileSync(fullPath, "utf8");
+
+        if (!original.includes(search)) {
+            throw new Error(
+                `Search string not found in ${relativePath}.\n` +
+                `Searched for: ${search.substring(0, 120)}`
+            );
+        }
+
+        // Replace only the first occurrence — intentional, safer than replaceAll
+        const updated = original.replace(search, replace);
+        fs.writeFileSync(fullPath, updated, "utf8");
+        results.push(`  edited: ${relativePath}`);
+    }
+
+    spawnSync("git", ["add", "."], { cwd: root });
+    const safeMessage = sanitizeCommitMessage(commitMessage || "str-replace edit");
+    spawnSync("git", ["commit", "-m", safeMessage], { cwd: root });
+
+    return {
+        content: [{
+            type: "text",
+            text: `str-replace applied:\n${results.join("\n")}`
+        }]
+    };
+}
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\readFiles.js
@@ -2258,19 +2387,83 @@ const SYSTEM_PROMPT =
 
 if (ENABLED) {
     fs.mkdirSync(DATASET_DIR, { recursive: true });
-    console.log("[collector] Training data collection ENABLED");
-    console.log("[collector] Writing to:", DATASET_FILE);
+    console.error("[collector] Training data collection ENABLED");
+    console.error("[collector] Writing to:", DATASET_FILE);
 }
 
 /**
- * Record a successful agent step as a training example.
- * Only records steps where the model produced valid JSON.
+ * TrainingCollector — class interface used by agent.js.
+ * Tracks a single agent run and persists successful steps to JSONL.
  */
+export class TrainingCollector {
+
+    constructor() {
+        this._prompt = null;
+        this._steps  = [];
+    }
+
+    /** Returns number of examples already on disk. */
+    count() {
+        if (!fs.existsSync(DATASET_FILE)) return 0;
+        return fs.readFileSync(DATASET_FILE, "utf8")
+            .split("\n")
+            .filter(Boolean)
+            .length;
+    }
+
+    /** Called at the start of a new agent run. */
+    startRun(prompt) {
+        this._prompt = prompt;
+        this._steps  = [];
+    }
+
+    /**
+     * Log a successful step.
+     * @param {string} step       - natural-language step description
+     * @param {object} toolCall   - { tool, args }
+     * @param {string} result     - text result from MCP
+     */
+    logStep(step, toolCall, result) {
+        if (!ENABLED) return;
+        const toolCallJSON = JSON.stringify(toolCall);
+        // Only record steps that produced valid JSON tool calls
+        try { JSON.parse(toolCallJSON); } catch { return; }
+        this._steps.push({ step, toolCall, result });
+    }
+
+    /**
+     * Called at the end of a run.
+     * @param {boolean} save - only persist if the run was meaningfully successful
+     */
+    endRun(save) {
+        if (!ENABLED || !save || this._steps.length === 0) return;
+
+        for (const { step, toolCall, result } of this._steps) {
+            const example = {
+                messages: [
+                    { role: "system",    content: SYSTEM_PROMPT },
+                    {
+                        role: "user",
+                        content: `Project context:\n${this._prompt.substring(0, 800)}\n\nStep:\n${step}`
+                    },
+                    { role: "assistant", content: JSON.stringify(toolCall) }
+                ]
+            };
+            try {
+                fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
+            } catch (err) {
+                console.warn("[collector] Write failed:", err.message);
+            }
+        }
+
+        console.error(`[collector] Saved ${this._steps.length} training example(s)`);
+    }
+}
+
+/** Legacy functional API — kept for any direct callers. */
 export function recordSuccess(step, context, toolCallJSON, project) {
     if (!ENABLED) return;
-
     try { JSON.parse(toolCallJSON); } catch { return; }
-
     const example = {
         messages: [
             { role: "system",    content: SYSTEM_PROMPT },
@@ -2278,7 +2471,6 @@ export function recordSuccess(step, context, toolCallJSON, project) {
             { role: "assistant", content: toolCallJSON }
         ]
     };
-
     try {
         fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
     } catch (err) {
@@ -2288,13 +2480,14 @@ export function recordSuccess(step, context, toolCallJSON, project) {
 
 export function printStats() {
     if (!fs.existsSync(DATASET_FILE)) {
-        console.log("[collector] No training data collected yet.");
+        console.error("[collector] No training data collected yet.");
         return;
     }
     const lines = fs.readFileSync(DATASET_FILE, "utf8").split("\n").filter(Boolean);
-    console.log(`[collector] Examples collected: ${lines.length}`);
-    console.log(`[collector] Dataset: ${DATASET_FILE}`);
+    console.error(`[collector] Examples collected: ${lines.length}`);
+    console.error(`[collector] Dataset: ${DATASET_FILE}`);
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\utils\fileUtils.js
@@ -2494,22 +2687,22 @@ import { getProject } from "../core/projectRegistry.js";
 import { indexProject } from "./runIndexCore.js";
 
 async function main() {
-
     const projectName = process.argv[2] || "jsv";
-
     const config = getProject(projectName);
 
-    console.log("Building vector index for:", projectName);
+    console.error("Building vector index for:", projectName);
 
-    await indexProject(config.root, projectName);
+    // Pass project-specific extra extensions from config
+    const extraExtensions = config.indexExtensions || [];
+    await indexProject(config.root, projectName, extraExtensions);
 
-    console.log("Vector index completed");
-
+    console.error("Vector index completed");
 }
 
 main().catch(err => {
     console.error("Indexing failed:", err);
 });
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\runIndexCore.js
@@ -2518,29 +2711,14 @@ import fs from "fs";
 import path from "path";
 import { getCollection } from "./indexCodebase.js";
 import { embed } from "./embedder.js";
-
-const IGNORE_FOLDERS = [
-    "node_modules",
-    ".git",
-    ".next",
-    "out",
-    "dist",
-    "build",
-    "target",
-    ".gradle",
-    ".cache"
-];
+import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 
 function chunkCode(code) {
-
     const chunks = [];
-
-    const parts = code.split(/function |export function |class /);
+    const parts = code.split(/function |export function |class |public |private |protected /);
 
     for (const part of parts) {
-
         if (part.length < 40) continue;
-
         chunks.push(part.substring(0, 2000));
     }
 
@@ -2551,65 +2729,54 @@ function chunkCode(code) {
     return chunks;
 }
 
-export async function indexProject(projectRoot, projectName) {
-
+export async function indexProject(projectRoot, projectName, extraExtensions = []) {
     const collection = await getCollection(projectName);
 
-    async function walk(dir) {
+    // Merge default indexable extensions with any project-specific extras
+    const extensions = [...new Set([...INDEXABLE_EXTENSIONS, ...extraExtensions])];
 
-        const items = fs.readdirSync(dir, { withFileTypes: true });
+    async function walk(dir) {
+        let items;
+        try {
+            items = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
 
         for (const item of items) {
-
             const full = path.join(dir, item.name);
 
             if (item.isDirectory()) {
-
                 if (IGNORE_FOLDERS.includes(item.name)) continue;
-
                 await walk(full);
                 continue;
             }
 
-            if (
-                full.endsWith(".js") ||
-                full.endsWith(".ts") ||
-                full.endsWith(".tsx") ||
-                full.endsWith(".jsx")
-            ) {
+            const ext = path.extname(item.name);
+            if (!extensions.includes(ext)) continue;
 
-                try {
+            try {
+                const code = fs.readFileSync(full, "utf8");
+                const chunks = chunkCode(code);
 
-                    const code = fs.readFileSync(full, "utf8");
-
-                    const chunks = chunkCode(code);
-
-                    for (const chunk of chunks) {
-
-                        const embedding = await embed(chunk);
-
-                        await collection.add({
-                            ids: [Buffer.from(full + chunk).toString("base64")],
-                            documents: [chunk],
-                            embeddings: [embedding]
-                        });
-
-                    }
-
-                    console.log("Indexed:", full);
-
-                } catch (err) {
-
-                    console.error("Index error:", full, err);
-
+                for (const chunk of chunks) {
+                    const embedding = await embed(chunk);
+                    await collection.add({
+                        ids: [Buffer.from(full + chunk).toString("base64").substring(0, 512)],
+                        documents: [chunk],
+                        embeddings: [embedding]
+                    });
                 }
 
+                console.error("Indexed:", path.relative(projectRoot, full));
+            } catch (err) {
+                console.error("Index error:", path.relative(projectRoot, full), err.message);
             }
         }
     }
 
     await walk(projectRoot);
-
-    console.log("Indexing completed");
+    console.error("Indexing completed for:", projectName);
 }
+
 

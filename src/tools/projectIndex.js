@@ -18,7 +18,7 @@ export async function projectIndex({ project }) {
 
     }
 
-    console.log("Building semantic index:", project);
+    console.error("Building semantic index:", project);
 
     const index = buildSemanticIndex(root);
 
