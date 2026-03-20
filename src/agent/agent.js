@@ -11,6 +11,7 @@ import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
 import { reviewChanges } from "./reviewer.js";
+import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
 import {
     COMPRESS_EVERY_N_STEPS,
     COMPRESS_MAX_CHARS,
@@ -330,16 +331,35 @@ async function runAgent(prompt) {
     collector.endRun(successfulSteps >= 2);
     if (successfulSteps >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
 
-    // ── Heuristic goal validation ────────────────────────────────────────────────
-    const validation = validateGoal(promptIntent, execState);
-    logValidation(promptIntent, validation);
+    // ── Unified validation pipeline (heuristic + build + reviewer) ──────────────
+    const finalValidation = await runValidationPipeline(
+        promptIntent, project, execState, costState, mcp, prompt, executionContext
+    );
 
-    // ── Build-based validation (system-aware) ────────────────────────────────────
-    await validateWithBuild(project, promptIntent, mcp);
-
-    // ── Reviewer agent (P2) — fires only when files were actually changed ────────
-    if (execState.filesModified.size >= 2) {
-        await reviewChanges(project, prompt, execState, costState, executionContext);
+    // ── Reviewer feedback loop (P1) ─────────────────────────────────────────
+    // If reviewer finds issues AND we have LLM budget, inject them as fix steps
+    const reviewerIssues = finalValidation.issues || [];
+    if (reviewerIssues.length > 0 && costState.llmCalls < MAX_LLM_CALLS_PER_RUN - 2) {
+        const fixSteps = issuesAsSteps(reviewerIssues);
+        console.error(`[agent] 🔄 Reviewer feedback loop: injecting ${fixSteps.length} fix step(s)`);
+        let fixStepsDone = 0;
+        for (const fixStep of fixSteps) {
+            totalStepsDone++;
+            fixStepsDone++;
+            console.error(`\n[fix-${fixStepsDone}] ${fixStep}`);
+            const stepIntent = classifyIntentFromPrompt(fixStep);
+            const stepCtx    = await retrieveContext(fixStep, project, execState);
+            const { ok, parsed } = await executeWithRetry(
+                fixStep, stepCtx, project, "", costState, execState
+            );
+            if (ok && parsed?.tool) {
+                const result = await mcp.callTool(parsed.tool, parsed.args || {});
+                const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 2000) || "";
+                execState.recordToolCall(parsed.tool, parsed.args, resultText, totalStepsDone);
+                executionContext += `\n\n[Reviewer Fix ${fixStepsDone} — ${parsed.tool}]:\n${resultText}`;
+                console.error(`  ← ${resultText.length} chars`);
+            }
+        }
     }
 
     // ── Final summary ─────────────────────────────────────────────────────────────

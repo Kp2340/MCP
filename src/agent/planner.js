@@ -7,6 +7,7 @@ import {
     CHARS_PER_TOKEN
 } from "../core/constants.js";
 import { formatStateForPrompt } from "./executionState.js";
+import { generateDirectFix, extractErrorFilePath } from "./errorFixer.js";
 
 // ─── Tool-level deterministic failure recovery ───────────────────────────────
 // Each entry maps a failure type → array of { tool, args } objects.
@@ -14,29 +15,60 @@ import { formatStateForPrompt } from "./executionState.js";
 // args with value "__ERROR_QUERY__" are resolved at call time from execState.
 
 export const DETERMINISTIC_RECOVERY_TOOLS = {
-    import_error: (project, execState) => [
-        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] || "import" } },
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
-    syntax_error: (project, _execState) => [
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
-    build_failure: (project, _execState) => [
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
+    // Deep recovery: search → read broken file → errorFixer patch → analyze → build
+    import_error: (project, execState) => {
+        const errText  = execState.lastError()?.text || "";
+        const modName  = errText.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] ||
+                         errText.match(/unresolved.*?:\s*(\S+)/i)?.[1] || "import";
+        const filePath = extractErrorFilePath(execState);
+        const directFix = generateDirectFix(project, execState);
+        const steps = [
+            { tool: "project_search", args: { project, query: modName } }
+        ];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        if (directFix) steps.push(directFix);
+        steps.push({ tool: "project_analyze",       args: { project } });
+        steps.push({ tool: "project_build_and_fix",  args: { project } });
+        return steps;
+    },
+
+    syntax_error: (project, execState) => {
+        const filePath = extractErrorFilePath(execState);
+        const steps = [{ tool: "project_analyze", args: { project } }];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        steps.push({ tool: "project_build_and_fix", args: { project } });
+        return steps;
+    },
+
+    build_failure: (project, execState) => {
+        const filePath = extractErrorFilePath(execState);
+        const steps = [{ tool: "project_analyze", args: { project } }];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        steps.push({ tool: "project_build_and_fix", args: { project } });
+        return steps;
+    },
+
     not_found: (project, execState) => [
-        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
-        { tool: "project_analyze",     args: { project } }
+        { tool: "project_search",  args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
+        { tool: "project_analyze", args: { project } }
     ],
-    runtime_error: (project, _execState) => [
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
+
+    runtime_error: (project, execState) => {
+        const filePath  = extractErrorFilePath(execState);
+        const directFix = generateDirectFix(project, execState);
+        const steps = [{ tool: "project_analyze", args: { project } }];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        if (directFix) steps.push(directFix);
+        steps.push({ tool: "project_build_and_fix", args: { project } });
+        return steps;
+    },
+
     permission_error: (project, _execState) => [
-        { tool: "project_scan",        args: { project } }
+        { tool: "project_scan", args: { project } }
     ]
 };
 
@@ -194,19 +226,31 @@ function getProjectType(project) {
  * @param {string}         [project]
  * @param {object}         [costState]        — { llmCalls } mutated in place
  * @param {string}         [retrieverIntent]  — intent label from retriever
- * @param {ExecutionState} [execState]        — active state for planning bias
+ * @param {ExecutionState} [execState]        — active state; triggers hard override
  * @returns {string}  newline-separated numbered steps
  */
 export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null, execState = null) {
-    const projectType = getProjectType(project);
+    const projectType     = getProjectType(project);
+    const activeError     = execState?.lastError();
+    const activeErrorType = activeError?.type || null;
 
-    // 1. Context-aware heuristic with ExecutionState bias (zero LLM cost)
-    //    If execState has an active error type, boost template score for matching templates
-    const activeErrorType = execState?.lastError()?.type || null;
-    const heuristicSteps  = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
+    // ── HARD OVERRIDE ──────────────────────────────────────────────────────────
+    // Active classified error → skip heuristic AND LLM entirely.
+    // Return deterministic tool steps immediately as text so the step queue
+    // and agent.js enforceAnalyzeBeforeBuild() still work correctly.
+    // agent.js re-resolves these via handleFailureDeterministically + executeToolsDirect.
+    if (activeError && activeErrorType && DETERMINISTIC_RECOVERY_TOOLS[activeErrorType]) {
+        console.error(`[planner] ⚡ HARD OVERRIDE: active ${activeErrorType} — forcing deterministic plan (no LLM)`);
+        const toolSteps = DETERMINISTIC_RECOVERY_TOOLS[activeErrorType](project || "unknown", execState);
+        return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("\n");
+    }
+
+    // 1. Context-aware heuristic (zero LLM cost)
+    const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
     if (heuristicSteps) {
         return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
     }
+
 
     // 2. Cost guard
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {

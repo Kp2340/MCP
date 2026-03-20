@@ -138,37 +138,54 @@ export async function queryMemory(project, prompt, opts = {}) {
             return parsed;
         });
 
-        // Build read-file set from execState for overlap scoring
-        const readFiles = execState ? [...execState.filesRead].map(f => f.split(/[\\/]/).pop().toLowerCase()) : [];
+        // Build read-file set from execState for overlap scoring (MCP-3.5)
+        const readFiles = execState ? [...execState.filesRead].map(f => f.split(/[\/\\]/).pop().toLowerCase()) : [];
 
-        // Smart composite scoring
+        // Deduplication helper (Jaccard on pattern tokens)
+        const tokenSet = (text) => new Set((text || '').toLowerCase().split(/\W+/).filter(t => t.length > 3));
+        const jaccard  = (a, b) => {
+            const sa = tokenSet(a), sb = tokenSet(b);
+            const inter = [...sa].filter(t => sb.has(t)).length;
+            const union = new Set([...sa, ...sb]).size;
+            return union === 0 ? 0 : inter / union;
+        };
+
+        // Composite scoring with recency, error relevance, and time-decay
+        const now = Date.now();
         const scored = entries
             .filter(e => (e.confidence || 0) >= minConfidence)
             .map(e => {
-                // 1. Semantic rank based on vector distance
-                const semanticScore = 1 - (e._distance || 0);
-
-                // 2. File overlap: boost if memory.files intersect with currently-read files
-                const fileOverlap   = readFiles.length > 0 && Array.isArray(e.files)
-                    ? e.files.filter(f => readFiles.includes(f.split(/[\\/]/).pop().toLowerCase())).length * 0.3
+                const semanticScore  = 1 - (e._distance || 0);
+                const fileOverlap    = readFiles.length > 0 && Array.isArray(e.files)
+                    ? e.files.filter(f => readFiles.includes(f.split(/[\/\\]/).pop().toLowerCase())).length * 0.3
                     : 0;
-
-                // 3. Intent match: boost if memory type matches current intent
-                const intentTypes   = { ui: "architecture", api: "architecture", fix: "fix", auth: "fix", config: "architecture" };
-                const expectedType  = intentTypes[intent] || null;
-                const intentMatch   = (expectedType && e.type === expectedType) ? 0.2 : 0;
-
-                const totalScore    = semanticScore + fileOverlap + intentMatch;
-                return { ...e, _score: totalScore };
+                const intentTypes    = { ui: 'architecture', api: 'architecture', fix: 'fix', auth: 'fix', config: 'architecture' };
+                const expectedType   = intentTypes[intent] || null;
+                const intentMatch    = (expectedType && e.type === expectedType) ? 0.2 : 0;
+                const ageMs          = now - (e.ts || e._meta?.ts || 0);
+                const recency        = ageMs < 86400000 ? 0.2 : ageMs < 604800000 ? 0.1 : 0;
+                const hasActiveError = execState && execState.errors.length > 0;
+                const errorRelevance = (hasActiveError && e.type === 'fix') ? 0.3 : 0;
+                const decayFactor    = Math.pow(0.95, ageMs / (7 * 86400000));
+                const rawScore       = semanticScore + fileOverlap + intentMatch + recency + errorRelevance;
+                return { ...e, _score: rawScore * decayFactor };
             })
-            .sort((a, b) => b._score - a._score)
-            .slice(0, MEMORY_MAX_RESULTS);
+            .sort((a, b) => b._score - a._score);
 
-        if (returnStructured) return scored;
+        // Deduplicate: keep best, drop near-duplicates (Jaccard >= 0.8)
+        const deduped = [];
+        for (const entry of scored) {
+            const pat   = entry.pattern || entry.text || '';
+            const isDup = deduped.some(k => jaccard(k.pattern || k.text || '', pat) >= 0.8);
+            if (!isDup) deduped.push(entry);
+            if (deduped.length >= MEMORY_MAX_RESULTS) break;
+        }
+
+        if (returnStructured) return deduped;
 
         // Format as injection-ready string
-        if (scored.length === 0) return "";
-        return scored
+        if (deduped.length === 0) return "";
+        return deduped
             .map(e => {
                 let line = `[${e.type}] ${e.pattern || e.text}`;
                 if (e.files?.length) line += ` (see: ${e.files.slice(0, 3).join(", ")})`;
@@ -176,6 +193,7 @@ export async function queryMemory(project, prompt, opts = {}) {
                 return line;
             })
             .join("\n- ");
+
 
     } catch {
         return returnStructured ? [] : "";

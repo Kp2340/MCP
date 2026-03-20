@@ -94,21 +94,32 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     // 1. Rule-based routing (zero LLM cost)
     const ruled = routeByRule(step, project);
     if (ruled) {
-        // Active ExecutionState gate: skip reads of already-known files
+        // Active ExecutionState gate: skip reads of already-known files,
+        // and skip str_replace on already-modified files (prevent double edits)
         if (execState) {
             try {
                 const parsed = JSON.parse(ruled);
+
+                // Skip read if file already read or modified (we have the content)
                 if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
-                    const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
-                    if (unread.length === 0) {
+                    const unstale = parsed.args.paths.filter(p => !execState.hasRead(p) && !execState.hasModified(p));
+                    if (unstale.length === 0) {
                         console.error(`[executor] ⚡ Skipping read — all files already in state: ${parsed.args.paths.join(", ")}`);
                         return JSON.stringify({ skipped: true, reason: "already_read" });
                     }
-                    // Only read the subset not yet seen
-                    if (unread.length < parsed.args.paths.length) {
-                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unread.join(", ")}`);
-                        parsed.args.paths = unread;
+                    if (unstale.length < parsed.args.paths.length) {
+                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unstale.join(", ")}`);
+                        parsed.args.paths = unstale;
                         return JSON.stringify(parsed);
+                    }
+                }
+
+                // Skip str_replace if edits target only already-modified files
+                if (parsed.tool === "project_str_replace" && Array.isArray(parsed.args?.edits)) {
+                    const newEdits = parsed.args.edits.filter(e => !execState.hasModified(e.path));
+                    if (newEdits.length === 0) {
+                        console.error(`[executor] ⚡ Skipping str_replace — all target files already modified`);
+                        return JSON.stringify({ skipped: true, reason: "already_modified" });
                     }
                 }
             } catch { /* not JSON — fall through */ }
@@ -183,17 +194,27 @@ JSON:`;
             parsed = hoistTopLevelArgs(parsed);
             parsed.args = normalizeArgs(parsed.tool, parsed.args, project);
 
-            // Active ExecutionState gate on LLM-suggested reads
-            if (execState && parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
-                const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
-                if (unread.length === 0) {
-                    console.error(`[executor] ⚡ LLM suggested reading already-known files — skipping: ${parsed.args.paths.join(", ")}`);
-                    return JSON.stringify({ skipped: true, reason: "already_read" });
+            // Active ExecutionState gate on LLM-suggested reads + edits
+            if (execState) {
+                // Skip reads of already-known (read or modified) files
+                if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
+                    const unstale = parsed.args.paths.filter(p => !execState.hasRead(p) && !execState.hasModified(p));
+                    if (unstale.length === 0) {
+                        console.error(`[executor] ⚡ LLM suggested reading already-known files — skipping: ${parsed.args.paths.join(", ")}`);
+                        return JSON.stringify({ skipped: true, reason: "already_read" });
+                    }
+                    if (unstale.length < parsed.args.paths.length) {
+                        console.error(`[executor] ⚡ Partial skip (LLM): keeping only new: ${unstale.join(", ")}`);
+                        parsed.args.paths = unstale;
+                    }
                 }
-                if (unread.length < parsed.args.paths.length) {
-                    const skipped = parsed.args.paths.filter(p => execState.hasRead(p));
-                    console.error(`[executor] ⚡ Partial skip (LLM): skipping known ${skipped.join(", ")}`);
-                    parsed.args.paths = unread;
+                // Skip str_replace on already-modified files
+                if (parsed.tool === "project_str_replace" && Array.isArray(parsed.args?.edits)) {
+                    const newEdits = parsed.args.edits.filter(e => !execState.hasModified(e.path));
+                    if (newEdits.length === 0) {
+                        console.error(`[executor] ⚡ LLM suggested str_replace on already-modified files — skipping`);
+                        return JSON.stringify({ skipped: true, reason: "already_modified" });
+                    }
                 }
             }
         }
