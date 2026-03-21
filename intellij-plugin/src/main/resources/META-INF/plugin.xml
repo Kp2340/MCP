@@ -1,0 +1,56 @@
+<idea-plugin>
+  <id>in.decorom.mcp</id>
+  <name>AI Dev MCP</name>
+  <vendor url="https://github.com/Kp2340/MCP">kush-patel</vendor>
+  <version>1.1.0</version>
+
+  <description><![CDATA[
+    <p>Connect IntelliJ IDEA to your self-hosted AI coding agent.</p>
+    <p>AI Dev MCP runs <b>Qwen2.5-Coder</b> locally via Ollama. Your code never leaves your network.</p>
+    <h3>Features</h3>
+    <ul>
+      <li>Sidebar panel — submit prompts, watch live streaming output</li>
+      <li>Auto-detects project name from open project folder</li>
+      <li>Injects selected code as context automatically</li>
+      <li>Commits all changes in a single git commit</li>
+      <li>Keyboard shortcut: <b>Ctrl+Shift+M</b></li>
+    </ul>
+    <h3>Requirements</h3>
+    <p>Run the <a href="https://github.com/Kp2340/MCP">AI Dev MCP server</a> (Node.js 20+, Ollama, ChromaDB).</p>
+  ]]></description>
+
+  <change-notes><![CDATA[
+    <h3>1.1.0</h3>
+    <ul>
+      <li>Auto-detects project root path</li>
+      <li>Live SSE step-by-step streaming</li>
+      <li>Improved settings UI</li>
+    </ul>
+  ]]></change-notes>
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="AI Dev MCP"
+                secondary="false"
+                anchor="right"
+                factoryClass="in.decorom.mcp.McpToolWindowFactory"
+                icon="/icons/mcp.svg"/>
+    <applicationConfigurable
+        parentId="tools"
+        instance="in.decorom.mcp.McpSettingsComponent"
+        id="in.decorom.mcp.settings"
+        displayName="AI Dev MCP"/>
+    <applicationService
+        serviceImplementation="in.decorom.mcp.McpSettings"/>
+  </extensions>
+
+  <actions>
+    <action id="McpRunPrompt"
+            class="in.decorom.mcp.RunPromptAction"
+            text="MCP: Run AI Prompt"
+            description="Send a prompt to your AI Dev MCP server">
+      <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift M"/>
+    </action>
+  </actions>
+</idea-plugin>
