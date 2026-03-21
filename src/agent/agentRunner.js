@@ -18,7 +18,7 @@ import { createLogger } from "../core/logger.js";
 
 const log = createLogger("agent-runner");
 
-export async function runAgent(prompt) {
+export async function runAgent(prompt, emit = null) {
     // Dynamic import to avoid circular dep issues at startup
     const { runAgent: _run } = await import("./agent.js");
 
@@ -65,7 +65,7 @@ export async function runAgent(prompt) {
     log.info(`Running agent | project=${projectName}`);
 
     try {
-        await _run(prompt);
+        await _run(prompt, emit);
     } catch (err) {
         log.error(`Agent failed | project=${projectName} | ${err.message}`);
         throw err;

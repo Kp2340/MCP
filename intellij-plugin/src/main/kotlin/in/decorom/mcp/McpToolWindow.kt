@@ -13,7 +13,6 @@ class McpToolWindow(private val project: Project) {
 
     val panel = JPanel(BorderLayout(8, 8))
 
-    private val projectField = JTextField()
     private val promptField  = JTextField()
     private val runButton    = JButton("▶  Run")
     private val clearButton  = JButton("Clear")
@@ -28,9 +27,6 @@ class McpToolWindow(private val project: Project) {
         val form = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = BorderFactory.createEmptyBorder(8, 8, 4, 8)
-            add(JLabel("Project:"))
-            add(projectField.apply { maximumSize = Dimension(Int.MAX_VALUE, 28) })
-            add(Box.createVerticalStrut(4))
             add(JLabel("Prompt:"))
             add(promptField.apply { maximumSize = Dimension(Int.MAX_VALUE, 28) })
             add(Box.createVerticalStrut(6))

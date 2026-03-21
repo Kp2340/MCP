@@ -127,12 +127,15 @@ async function executeWithRetry(step, context, project, memoryCtx, costState, ex
 }
 
 // ─── Main adaptive agent loop ────────────────────────────────────────────────
-export async function runAgent(prompt) {
+export async function runAgent(prompt, emit = null) {
     if (!mcp)       mcp       = new MCPClient();
     if (!collector) collector = new TrainingCollector();
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
     if (!projectMatch) throw new Error("Prompt must include: project: <project-name>");
     const project = projectMatch[1];
+
+    // emitStep — streams each agent step live to IDE via SSE
+    const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch {} };
 
     console.error("Project:", project);
     console.error("\nCreating plan...\n");
@@ -229,6 +232,7 @@ export async function runAgent(prompt) {
 
         console.error(`\n[${totalStepsDone}] ${step}`);
         console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
+        emitStep(totalStepsDone, step);
 
         // Intent-filtered memory for this specific step — now with execState for smart ranking
         const stepIntent  = classifyIntentFromPrompt(step);

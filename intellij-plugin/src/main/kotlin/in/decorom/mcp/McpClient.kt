@@ -15,15 +15,14 @@ class McpClient(private val baseUrl: String, private val apiKey: String) {
             connectTimeout = 10_000
         }
 
-    /** POST /run — returns job ID */
-    fun runTask(prompt: String, project: String, projectPath: String? = null): String {
+    /** POST /run — returns job ID. Only prompt + path sent — server derives project name. */
+    fun runTask(prompt: String, projectPath: String): String {
         val c = conn("/run").apply {
             requestMethod = "POST"
             doOutput      = true
             readTimeout   = 15_000
         }
-        val body = JSONObject().put("prompt", prompt).put("project", project)
-        if (projectPath != null) body.put("path", projectPath)
+        val body = JSONObject().put("prompt", prompt).put("path", projectPath)
         c.outputStream.use { it.write(body.toString().toByteArray()) }
         val resp = c.inputStream.bufferedReader().readText()
         c.disconnect()

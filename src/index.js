@@ -33,7 +33,7 @@ import express from "express";
 // ── HTTP layer imports ────────────────────────────────────────────────────────
 import { attachMcpRoutes } from "./http/mcpRouter.js";
 import { attachJobRoutes } from "./http/jobRoutes.js";
-import { authMiddleware }  from "./http/auth.js";
+import { authMiddleware, ipAllowlistMiddleware, rateLimitMiddleware } from "./http/auth.js";
 import { corsMiddleware }  from "./http/cors.js";
 
 // ── Tool imports ──────────────────────────────────────────────────────────────
@@ -228,11 +228,13 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
                 required: ["project", "prompt"]
             }
         },
-        {
+        // project_list is only exposed when EXPOSE_PROJECT_LIST=true in .env
+        // Default is false — hides all project names from connected AI IDEs
+        ...(config.EXPOSE_PROJECT_LIST ? [{
             name: "project_list",
-            description: "List all registered projects (both static from projects.json and dynamically registered this session)",
+            description: "List all registered projects",
             inputSchema: { type: "object", properties: {}, required: [] }
-        },
+        }] : []),
         {
             name: "project_diff",
             description: "Show uncommitted git changes as unified diff",
@@ -282,6 +284,9 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (tool === "project_git_log")        return projectGitLog(args);
 
     if (tool === "project_list") {
+        if (!config.EXPOSE_PROJECT_LIST) {
+            return { content: [{ type: "text", text: "project_list is disabled. Set EXPOSE_PROJECT_LIST=true in .env to enable." }] };
+        }
         const all     = listProjects();
         const dynamic = listDynamicProjects();
         return { content: [{ type: "text", text: JSON.stringify({ projects: all, dynamic }, null, 2) }] };
