@@ -9,8 +9,9 @@ import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 // On re-index we skip files whose mtime hasn't changed — up to 10x faster.
 
 function getManifestPath(projectName) {
-    // Store manifest alongside this source file so it survives across restarts
-    return path.resolve(path.dirname(new URL(import.meta.url).pathname), `../../.index_manifest_${projectName}.json`);
+    // Store manifest in cwd (project working dir) so it survives restarts
+    // and doesn't pollute the MCP source tree
+    return path.resolve(process.cwd(), `.index_manifest_${projectName}.json`);
 }
 
 function loadManifest(projectName) {
@@ -32,19 +33,32 @@ function saveManifest(projectName, manifest) {
 }
 
 // ─── Code chunker ────────────────────────────────────────────────────────────
+// Splits on function/class boundaries and respects a hard size cap.
+// Overlap (last 200 chars of prev chunk prepended to next) preserves context
+// across chunk boundaries so semantic search doesn't lose cross-boundary meaning.
+const CHUNK_MAX   = 1800;  // chars — keeps each chunk well within embed token limit
+const CHUNK_OVERLAP = 200; // chars overlap between consecutive chunks
+
 function chunkCode(code) {
-    const chunks = [];
-    const parts = code.split(/function |export function |class |public |private |protected /);
+    const chunks  = [];
+    // Split on top-level declaration boundaries
+    const boundaries = /(?=^(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var|public|private|protected|interface|type)\s)/m;
+    const parts   = code.split(boundaries).filter(p => p.trim().length >= 40);
 
+    if (parts.length === 0) {
+        // File has no recognizable boundaries (e.g. config/data files) — just window it
+        for (let i = 0; i < code.length; i += CHUNK_MAX - CHUNK_OVERLAP) {
+            chunks.push(code.substring(i, i + CHUNK_MAX));
+        }
+        return chunks;
+    }
+
+    let prev = "";
     for (const part of parts) {
-        if (part.length < 40) continue;
-        chunks.push(part.substring(0, 2000));
+        const chunk = (prev + part).substring(0, CHUNK_MAX);
+        chunks.push(chunk);
+        prev = part.length > CHUNK_OVERLAP ? part.slice(-CHUNK_OVERLAP) : part;
     }
-
-    if (chunks.length === 0) {
-        chunks.push(code.substring(0, 2000));
-    }
-
     return chunks;
 }
 
@@ -88,23 +102,27 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
                 const chunks = chunkCode(code);
                 const rel    = path.relative(projectRoot, full);
 
-                for (const chunk of chunks) {
+                for (let ci = 0; ci < chunks.length; ci++) {
+                    const chunk     = chunks[ci];
                     const embedding = await embed(chunk);
-                    const id = Buffer.from(full + chunk).toString("base64").substring(0, 512);
+                    // Include chunk index in ID so multiple chunks from same file get unique IDs
+                    const id        = Buffer.from(`${full}::${ci}`).toString("base64").substring(0, 512);
+                    const ext       = path.extname(item.name).replace(".", "");
 
-                    // Upsert so re-indexing a changed file replaces old vectors
                     try {
                         await collection.upsert({
                             ids:        [id],
                             documents:  [chunk],
-                            embeddings: [embedding]
+                            embeddings: [embedding],
+                            // Metadata enables future file-type or path filtering in queries
+                            metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
                         });
                     } catch {
-                        // Fall back to add if upsert not supported by this Chroma version
                         await collection.add({
                             ids:        [id],
                             documents:  [chunk],
-                            embeddings: [embedding]
+                            embeddings: [embedding],
+                            metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
                         });
                     }
                 }

@@ -1,8 +1,8 @@
 import { askLLM } from "./ollamaClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
-import { MAX_LLM_CALLS_PER_RUN } from "../core/constants.js";
+import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
-const MODEL = "qwen2.5-coder:7b";
+const MODEL = LLM_MODEL;
 
 // ─── Rule-based tool router ────────────────────────────────────────────────────
 // Fires BEFORE the LLM. If a step matches a confident rule the LLM call is
@@ -39,6 +39,14 @@ function routeByRule(step, project) {
     // List projects
     if (/\b(list projects|available projects|what projects)\b/.test(s))
         return JSON.stringify({ tool: "project_list", args: {} });
+
+    // Show diff / uncommitted changes
+    if (/\b(show diff|git diff|what changed|uncommitted|review changes)\b/.test(s))
+        return JSON.stringify({ tool: "project_diff", args: { project } });
+
+    // Git log / commit history
+    if (/\b(git log|commit history|recent commits|what was committed)\b/.test(s))
+        return JSON.stringify({ tool: "project_git_log", args: { project } });
 
     return null;
 }
@@ -156,6 +164,13 @@ Output ONLY a single JSON object. No explanation, no markdown, no text before or
 - ALWAYS use the SMALLEST fix possible (targeted str_replace, not full rewrites).
 - Output MUST be { "tool": "...", "args": { ... } } OR { "done": true }
 
+## EXECUTION STATE CONSTRAINTS
+You are given execution state:
+- Files already read: DO NOT read again
+- Files already modified: DO NOT modify again unless fixing a NEW error
+- Last error type: prioritize fixing it deterministically
+Violating these rules will cause redundant operations and must be avoided.
+
 ## PRIORITY ORDER (follow strictly)
 1. Deterministic recovery (if error exists: identify → fix → verify)
 2. Tool-chain execution (use matching tool directly)
@@ -168,10 +183,21 @@ Output ONLY a single JSON object. No explanation, no markdown, no text before or
 - build_failure → project_analyze → project_str_replace → project_build
 - runtime_error → project_analyze → project_read_files → project_str_replace
 
+## ERROR FIXING PRIORITY
+If an error is present:
+- Prefer deterministic fixes (like commenting/removing bad imports)
+- DO NOT attempt complex reasoning fixes
+- Use the smallest possible change to unblock the system
+
 ## TOOL USAGE STRATEGY
 - Reading code: project_search or project_find_symbol FIRST, then project_read_files
 - Editing code: ALWAYS project_str_replace (never apply_changes for small edits)
 - Fixing errors: project_analyze FIRST, then minimal str_replace, then build
+
+## FAIL FAST RULE
+If unsure what to do:
+- DO NOT guess
+- Run project_analyze instead
 
 Context:
 ${context}${memoryBlock}
@@ -202,6 +228,8 @@ project_apply_changes — {
 }
 project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
 project_analyze       — { "tool": "project_analyze",       "args": { "project": "string" } }
+project_diff          — { "tool": "project_diff",          "args": { "project": "string" } }
+project_git_log       — { "tool": "project_git_log",       "args": { "project": "string", "count": 10 } }
 
 Constraints:
 - All args MUST be inside the "args" key
@@ -210,7 +238,10 @@ Constraints:
 
 JSON:`;
 
-    const raw       = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
+    // Use larger budget only when the step involves writing full file content
+    const isApplyStep = /apply.?change|new file|create file/i.test(step);
+    const numPredict  = isApplyStep ? NUM_PREDICT.executor_apply : NUM_PREDICT.executor;
+    const raw         = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: numPredict });
     const extracted = extractJSON(raw);
 
     try {

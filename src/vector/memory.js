@@ -20,21 +20,69 @@ import { embed } from "./embedder.js";
 import {
     MEMORY_COLLECTION_PREFIX,
     MEMORY_MAX_RESULTS,
-    MEMORY_MAX_SNIPPET
+    MEMORY_MAX_SNIPPET,
+    MEMORY_MAX_ENTRIES,
+    MEMORY_EVICT_BATCH,
+    CHROMA_HOST,
+    CHROMA_PORT,
+    EMBEDDING_VERSION
 } from "../core/constants.js";
 
-const client = new ChromaClient({ host: "localhost", port: 8000 });
-const cache  = {};
+const client = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
+// cache is keyed per-project and reset if ChromaDB reconnects
+let cache  = {};
+
+// Invalidate cache entries on connection error so stale handles are dropped
+function invalidateCache(project) {
+    if (project) delete cache[project];
+    else cache = {};
+}
 
 async function getMemoryCollection(project) {
     if (cache[project]) return cache[project];
-    const name        = MEMORY_COLLECTION_PREFIX + project;
-    const collections = await client.listCollections();
-    const exists      = collections.find(c => c.name === name);
-    cache[project]    = exists
-        ? await client.getCollection({ name })
-        : await client.createCollection({ name, embeddingFunction: null });
-    return cache[project];
+    // Collection name is versioned by embedding model version to prevent stale vector reuse
+    const name        = `${MEMORY_COLLECTION_PREFIX}${project}_${EMBEDDING_VERSION}`;
+    try {
+        const collections = await client.listCollections();
+        const exists      = collections.find(c => c.name === name);
+        cache[project]    = exists
+            ? await client.getCollection({ name })
+            : await client.createCollection({ name, embeddingFunction: null });
+        return cache[project];
+    } catch (err) {
+        invalidateCache(project);
+        throw err;
+    }
+}
+
+/**
+ * Evict lowest-scoring entries when collection exceeds MEMORY_MAX_ENTRIES.
+ * Runs asynchronously after store — does not block the caller.
+ */
+async function evictIfNeeded(collection) {
+    try {
+        const count = await collection.count();
+        if (count <= MEMORY_MAX_ENTRIES) return;
+
+        // Fetch all metadatas to find lowest confidence × recency score
+        const all  = await collection.get({ include: ["metadatas"] });
+        const now  = Date.now();
+        const scored = (all.ids || []).map((id, i) => {
+            const meta  = all.metadatas?.[i] || {};
+            const conf  = meta.confidence || 0.5;
+            const ageMs = now - (meta.ts || 0);
+            const score = conf / (1 + ageMs / 86400000);  // decay by day
+            return { id, score };
+        }).sort((a, b) => a.score - b.score);
+
+        const toDelete = scored.slice(0, MEMORY_EVICT_BATCH).map(s => s.id);
+        if (toDelete.length > 0) {
+            await collection.delete({ ids: toDelete });
+            console.error(`[memory] Evicted ${toDelete.length} low-score entries`);
+        }
+    } catch (err) {
+        console.error("[memory] Eviction error:", err.message);
+    }
 }
 
 /**
@@ -77,7 +125,10 @@ export async function storeMemory(project, data, tag = "general") {
         });
 
         console.error(`[memory] Stored (${entry.type}): ${text.substring(0, 80)}`);
+        // Evict in background — do not await, never blocks the agent
+        evictIfNeeded(collection).catch(() => {});
     } catch (err) {
+        invalidateCache(project);
         console.error("[memory] storeMemory error:", err.message);
     }
 }

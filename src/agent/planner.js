@@ -89,7 +89,8 @@ export function handleFailureDeterministically(failureType, project, execState) 
     return toolSteps;
 }
 
-const MODEL = "qwen2.5-coder:7b";
+import { LLM_MODEL, NUM_PREDICT, KEYWORD_STEMS } from "../core/constants.js";
+const MODEL = LLM_MODEL;
 
 // ─── Real token estimator ────────────────────────────────────────────────────
 export function estimateTokens(...texts) {
@@ -157,7 +158,11 @@ Rules:
  * Returns template steps if confident match found, or null.
  */
 function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null, activeErrorType = null) {
-    const lower = prompt.toLowerCase();
+    // Normalize stems so "creating" matches "create", "fixing" matches "fix", etc.
+    let lower = prompt.toLowerCase();
+    for (const [stem, canonical] of Object.entries(KEYWORD_STEMS)) {
+        lower = lower.replace(new RegExp(`\\b${stem}\\b`, "g"), canonical);
+    }
     let bestTemplate = null;
     let bestScore    = 0;
 
@@ -265,24 +270,40 @@ export async function createPlan(prompt, project = null, costState = null, retri
     const planPrompt = `You are a deterministic software planning agent (MCP-3.5).
 Your goal: produce the MINIMUM steps needed to complete the task correctly.
 
+## HARD OVERRIDE
+If execution state contains ANY error:
+- DO NOT generate a full plan
+- DO NOT expand steps
+- ONLY output deterministic recovery steps
+
+Recovery rules:
+- import_error  \u2192 search \u2192 read \u2192 str_replace \u2192 analyze
+- syntax_error  \u2192 read \u2192 str_replace \u2192 analyze
+- build_failure \u2192 analyze \u2192 str_replace \u2192 build
+
 ## PLANNING RULES
 1. ALWAYS start with project_analyze if the task involves modifying code
 2. ALWAYS use project_search or project_find_symbol BEFORE project_read_files
-3. NEVER read the same file twice — list all reads in one step
+3. NEVER read the same file twice \u2014 list all reads in one step
 4. ALWAYS prefer project_str_replace for edits (not apply_changes)
 5. End with project_analyze to verify no regressions
 6. Maximum 8 steps. If you need more, you're overplanning.
 
+## EXECUTION STATE CONSTRAINTS
+- DO NOT read files already read
+- DO NOT modify files already modified unless fixing a new error
+- Prioritize fixing the latest error before doing anything else
+
 ## PRIORITY ORDER
-1. Deterministic recovery (if error) → no LLM planning needed
+1. Deterministic recovery (if error) \u2192 no LLM planning needed
 2. Tool-chain execution (direct tool match)
-3. Targeted edits (read → patch → verify)
+3. Targeted edits (read \u2192 patch \u2192 verify)
 4. LLM reasoning (last resort)
 
-## ERROR RECOVERY (never plan these — use deterministic recovery)
-- import_error  → search → read → str_replace → analyze
-- syntax_error  → read → str_replace → analyze
-- build_failure → analyze → str_replace → build
+## ERROR RECOVERY (never plan these \u2014 use deterministic recovery)
+- import_error  \u2192 search \u2192 read \u2192 str_replace \u2192 analyze
+- syntax_error  \u2192 read \u2192 str_replace \u2192 analyze
+- build_failure \u2192 analyze \u2192 str_replace \u2192 build
 
 Available projects: ${projects}
 Project type: ${projectType || "unknown"}
@@ -298,6 +319,8 @@ Return ONLY numbered steps. Each step = one tool action. No explanation.
 
     return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
 }
+
+
 
 
 

@@ -2,16 +2,23 @@ import { buildProject } from "../tools/projectBuild.js";
 import { askLLM } from "../agent/ollamaClient.js";
 import { getProject } from "../core/projectRegistry.js";
 import { applyChanges } from "../tools/applyChanges.js";
+import { projectStrReplace } from "../tools/projectStrReplace.js";
+import { validatePath } from "../core/validator.js";
 import { safeParse } from "../utils/jsonUtils.js";
 import fs from "fs";
 import path from "path";
 
-const MODEL = "qwen2.5-coder:7b";
+import { LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
+const MODEL = LLM_MODEL;
 const MAX_ATTEMPTS = 5;
 
 /**
  * Extract error lines from raw build output.
  * Handles Java (javac/gradle), TypeScript (tsc), and generic patterns.
+ */
+/**
+ * Extract true compiler/build error lines — avoids false positives from
+ * log prefixes like "[ERROR]" that appear in successful Gradle runs.
  */
 function parseErrors(output) {
     if (!output) return [];
@@ -19,10 +26,15 @@ function parseErrors(output) {
         .split("\n")
         .map(l => l.trim())
         .filter(l =>
-            l.includes("error:") ||
-            l.includes("ERROR") ||
-            l.includes("FAILED") ||
-            l.match(/^\s*at .+\(.+:\d+\)/)    // stack traces
+            // Java/Kotlin: "src/Foo.java:12: error: ..."
+            /\.(java|kt|go):\d+: error:/i.test(l) ||
+            // TypeScript/JS: "error TS1234:" or "SyntaxError:"
+            /\berror\s+TS\d+:/i.test(l) ||
+            /\bSyntaxError:/i.test(l) ||
+            // Gradle/Maven task failure
+            /TASK.*FAILED|BUILD FAILED/i.test(l) ||
+            // Node.js: standard error format
+            /^Error:/i.test(l)
         )
         .slice(0, 30);
 }
@@ -88,7 +100,7 @@ export async function runAutoFix(projectName) {
         const errorFiles = extractFilesFromErrors(errors, project.root);
         const fileContext = readFilesSafe(errorFiles, project.root);
 
-        const prompt = `Fix the following build errors. Output ONLY a JSON object, no explanation.
+        const prompt = `Fix the following build errors using TARGETED edits. Output ONLY a JSON object, no explanation.
 
 Build errors:
 ${errors.slice(0, 20).join("\n")}
@@ -96,35 +108,65 @@ ${errors.slice(0, 20).join("\n")}
 Relevant source files:
 ${fileContext || "(no source files found)"}
 
-Return this exact JSON format:
+Prefer str_replace edits over full file rewrites.
+Return this exact JSON format (choose ONE of the two styles):
+
+Style A — targeted edits (PREFERRED, use when only a few lines change):
 {
+  "mode": "str_replace",
+  "edits": [
+    { "path": "relative/path/to/file.js", "search": "exact lines to find", "replace": "replacement lines" }
+  ]
+}
+
+Style B — full rewrite (only use when the whole file is broken):
+{
+  "mode": "full_rewrite",
   "files": [
-    {
-      "path": "relative/path/to/file.js",
-      "content": "complete corrected file content here"
-    }
+    { "path": "relative/path/to/file.js", "content": "complete corrected file content" }
   ]
 }
 
 JSON:`;
 
-        const response = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 4096 });
+        const response = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: NUM_PREDICT.autofix });
         const { ok, value } = safeParse(response);
 
-        if (!ok || !Array.isArray(value?.files)) {
+        if (!ok || !value?.mode) {
             console.warn("[autofix] LLM returned invalid patch — retrying");
             continue;
         }
 
-        console.error(`[autofix] Applying ${value.files.length} file fix(es)...`);
-
         try {
-            await applyChanges({
-                project: projectName,
-                files: value.files,
-                commitMessage: `Auto-fix attempt ${attempt + 1}`,
-                increment: false
-            });
+            if (value.mode === "str_replace" && Array.isArray(value.edits)) {
+                // Validate paths before applying
+                const safeEdits = value.edits.filter(e => {
+                    try { validatePath(project.root, e.path); return true; }
+                    catch { console.warn(`[autofix] Skipping unsafe path: ${e.path}`); return false; }
+                });
+                if (safeEdits.length > 0) {
+                    console.error(`[autofix] Applying ${safeEdits.length} str_replace edit(s)...`);
+                    await projectStrReplace({
+                        project: projectName,
+                        edits: safeEdits,
+                        commitMessage: `Auto-fix attempt ${attempt + 1} (str_replace)`
+                    });
+                }
+            } else if (value.mode === "full_rewrite" && Array.isArray(value.files)) {
+                const safeFiles = value.files.filter(f => {
+                    try { validatePath(project.root, f.path); return true; }
+                    catch { console.warn(`[autofix] Skipping unsafe path: ${f.path}`); return false; }
+                });
+                if (safeFiles.length > 0) {
+                    console.error(`[autofix] Applying ${safeFiles.length} full rewrite(s)...`);
+                    await applyChanges({
+                        project: projectName,
+                        files: safeFiles,
+                        commitMessage: `Auto-fix attempt ${attempt + 1} (full_rewrite)`,
+                        increment: false
+                    });
+                }
+            }
         } catch (err) {
             console.warn("[autofix] Could not apply patch:", err.message);
         }

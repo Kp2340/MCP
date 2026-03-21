@@ -1,13 +1,20 @@
 import { ChromaClient } from "chromadb";
+import { CHROMA_HOST, CHROMA_PORT, EMBEDDING_VERSION } from "../core/constants.js";
 
-const client = new ChromaClient({ host: "localhost", port: 8000 });
-const cache  = {};
+const client = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
+let cache  = {};
 
 async function getCollection(project) {
     if (cache[project]) return cache[project];
-    const name     = "codebase_" + project;
-    cache[project] = await client.getCollection({ name });
-    return cache[project];
+    // Versioned name matches the indexer — prevents querying stale vectors after model upgrade
+    const name     = `codebase_${project}_${EMBEDDING_VERSION}`;
+    try {
+        cache[project] = await client.getCollection({ name });
+        return cache[project];
+    } catch (err) {
+        delete cache[project];
+        throw err;
+    }
 }
 
 /**

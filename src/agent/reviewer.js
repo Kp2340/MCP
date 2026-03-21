@@ -15,9 +15,9 @@
  */
 
 import { askLLM } from "./ollamaClient.js";
-import { MAX_LLM_CALLS_PER_RUN } from "../core/constants.js";
+import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
-const MODEL = "qwen2.5-coder:7b";
+const MODEL = LLM_MODEL;
 
 /**
  * Review the agent's changes for correctness.
@@ -56,15 +56,18 @@ export async function reviewChanges(project, originalPrompt, execState, costStat
         `Total steps: ${execState.stepCount}`
     ].join("\n");
 
-    // Truncated execution log for context
+    // Use last 2000 chars of execution log + full list of modified file diffs for richer signal
     const contextSnippet = executionContext.substring(executionContext.length - 2000);
+    const modifiedSummary = modifiedFiles.length > 0
+        ? `\nFiles changed this run:\n${modifiedFiles.map(f => `  - ${f}`).join("\n")}`
+        : "";
 
     const prompt = `You are a senior code reviewer. Review the following coding agent run and assess correctness.
 
 ${stateLines}
 
 Recent execution log:
-${contextSnippet}
+${contextSnippet}${modifiedSummary}
 
 Output ONLY a JSON object with these fields:
 - verdict: "correct" | "likely_correct" | "has_issues" | "needs_review"
@@ -74,7 +77,7 @@ Output ONLY a JSON object with these fields:
 JSON:`;
 
     try {
-        const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 300 });
+        const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: NUM_PREDICT.reviewer });
         costState.totalChars += prompt.length + raw.length;
 
         // Parse reviewer output

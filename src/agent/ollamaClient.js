@@ -1,6 +1,7 @@
 import fetch from "node-fetch";
+import { OLLAMA_HOST, LLM_TEMPERATURE } from "../core/constants.js";
 
-const OLLAMA_URL = "http://localhost:11434/api/generate";
+const OLLAMA_URL = `${OLLAMA_HOST}/api/generate`;
 
 /**
  * Call the local Ollama LLM.

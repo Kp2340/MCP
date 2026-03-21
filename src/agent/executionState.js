@@ -82,13 +82,22 @@ function extractPathsFromArgs(tool, args) {
 
 // ─── ExecutionState class ─────────────────────────────────────────────────────
 
+/** Normalize path separators to forward slashes for cross-platform consistency. */
+function normalizePath(p) {
+    return p ? p.replace(/\\/g, "/") : p;
+}
+
 export class ExecutionState {
     constructor() {
         this.filesRead     = new Set();  // paths passed to project_read_files
         this.filesModified = new Set();  // paths written by apply_changes / str_replace
+        this.filesCreated  = new Set();  // paths written for the first time (new files)
         this.toolsUsed     = [];         // [{ tool, stepIndex }]
         this.errors        = [];         // [{ type, text, stepIndex }]
         this.stepCount     = 0;
+        // Tool result cache: avoid re-running identical tool calls within a run
+        // Key: "toolName::JSON(args)" → Value: result text
+        this._toolCache    = new Map();
     }
 
     /**
@@ -98,17 +107,39 @@ export class ExecutionState {
      * @param {string} resultText  - tool result text
      * @param {number} stepIndex
      */
+    /**
+     * Check if an identical tool call was already made this run.
+     * Returns cached result text or null.
+     */
+    getCachedResult(tool, args) {
+        const key = `${tool}::${JSON.stringify(args)}`;
+        return this._toolCache.get(key) || null;
+    }
+
+    setCachedResult(tool, args, resultText) {
+        const key = `${tool}::${JSON.stringify(args)}`;
+        this._toolCache.set(key, resultText);
+    }
+
     recordToolCall(tool, args, resultText, stepIndex) {
         this.stepCount = stepIndex;
         this.toolsUsed.push({ tool, stepIndex });
 
-        const paths = extractPathsFromArgs(tool, args);
+        // Cache idempotent read results for dedup within a run
+        if (tool === "project_read_files" || tool === "project_scan" || tool === "project_analyze") {
+            this.setCachedResult(tool, args, resultText);
+        }
+
+        // Normalize all tracked paths to forward slashes
+        const paths = extractPathsFromArgs(tool, args).map(normalizePath);
 
         if (tool === "project_read_files") {
             paths.forEach(p => this.filesRead.add(p));
         }
         if (tool === "project_apply_changes" || tool === "project_str_replace") {
             paths.forEach(p => {
+                const isNew = !this.filesRead.has(p) && !this.filesModified.has(p);
+                if (isNew) this.filesCreated.add(p);
                 this.filesModified.add(p);
                 this.filesRead.add(p);  // modified files were implicitly read too
             });
@@ -131,12 +162,17 @@ export class ExecutionState {
 
     /** True if a given file has already been read this run. */
     hasRead(filePath) {
-        return this.filesRead.has(filePath);
+        return this.filesRead.has(normalizePath(filePath));
     }
 
     /** True if a given file has been modified this run. */
     hasModified(filePath) {
-        return this.filesModified.has(filePath);
+        return this.filesModified.has(normalizePath(filePath));
+    }
+
+    /** True if a given file was created (not just edited) this run. */
+    hasCreated(filePath) {
+        return this.filesCreated.has(normalizePath(filePath));
     }
 
     /** Most recent error, or null. */
@@ -162,6 +198,9 @@ export function formatStateForPrompt(state) {
     }
     if (state.filesModified.size > 0) {
         lines.push(`Files modified: ${[...state.filesModified].slice(0, 8).join(", ")}`);
+    }
+    if (state.filesCreated.size > 0) {
+        lines.push(`Files created: ${[...state.filesCreated].slice(0, 4).join(", ")}`);
     }
     if (state.errors.length > 0) {
         const last = state.errors[state.errors.length - 1];

@@ -69,11 +69,34 @@ export class TrainingCollector {
 
     /**
      * Called at the end of a run.
-     * @param {boolean} save - only persist if the run was meaningfully successful
+     * @param {boolean} save         - only persist if the run was meaningfully successful
+     * @param {object}  [execState]  - ExecutionState used for quality gating
      */
-    endRun(save) {
+    endRun(save, execState = null) {
         if (!ENABLED || !save || this._steps.length === 0) return;
 
+        // Quality gate: only save runs where at least one file was modified
+        // and there are no unresolved errors at the end of the run.
+        if (execState) {
+            const hasModified = execState.filesModified.size > 0;
+            const hasError    = execState.lastError() !== null;
+            if (!hasModified || hasError) {
+                console.error("[collector] Skipping — quality gate: modified=", hasModified, "error=", hasError);
+                return;
+            }
+        }
+
+        // Dedup: compute a hash of (prompt + filesModified) to avoid duplicate examples
+        const fingerprint = `${this._prompt.substring(0, 200)}|${execState ? [...execState.filesModified].sort().join(",") : ""}`;
+        const existing    = fs.existsSync(DATASET_FILE)
+            ? fs.readFileSync(DATASET_FILE, "utf8")
+            : "";
+        if (existing.includes(fingerprint)) {
+            console.error("[collector] Skipping — duplicate run detected");
+            return;
+        }
+
+        let saved = 0;
         for (const { step, toolCall, result } of this._steps) {
             const example = {
                 messages: [
@@ -83,16 +106,19 @@ export class TrainingCollector {
                         content: `Project context:\n${this._prompt.substring(0, 800)}\n\nStep:\n${step}`
                     },
                     { role: "assistant", content: JSON.stringify(toolCall) }
-                ]
+                ],
+                // Metadata for filtering/analysis — not used during training
+                _meta: { fingerprint, ts: Date.now() }
             };
             try {
                 fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
+                saved++;
             } catch (err) {
                 console.warn("[collector] Write failed:", err.message);
             }
         }
 
-        console.error(`[collector] Saved ${this._steps.length} training example(s)`);
+        if (saved > 0) console.error(`[collector] Saved ${saved} training example(s)`);
     }
 }
 

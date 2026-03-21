@@ -961,6 +961,7 @@ import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
 import { reviewChanges } from "./reviewer.js";
+import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
 import {
     COMPRESS_EVERY_N_STEPS,
     COMPRESS_MAX_CHARS,
@@ -1280,16 +1281,35 @@ async function runAgent(prompt) {
     collector.endRun(successfulSteps >= 2);
     if (successfulSteps >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
 
-    // ── Heuristic goal validation ────────────────────────────────────────────────
-    const validation = validateGoal(promptIntent, execState);
-    logValidation(promptIntent, validation);
+    // ── Unified validation pipeline (heuristic + build + reviewer) ──────────────
+    const finalValidation = await runValidationPipeline(
+        promptIntent, project, execState, costState, mcp, prompt, executionContext
+    );
 
-    // ── Build-based validation (system-aware) ────────────────────────────────────
-    await validateWithBuild(project, promptIntent, mcp);
-
-    // ── Reviewer agent (P2) — fires only when files were actually changed ────────
-    if (execState.filesModified.size >= 2) {
-        await reviewChanges(project, prompt, execState, costState, executionContext);
+    // ── Reviewer feedback loop (P1) ─────────────────────────────────────────
+    // If reviewer finds issues AND we have LLM budget, inject them as fix steps
+    const reviewerIssues = finalValidation.issues || [];
+    if (reviewerIssues.length > 0 && costState.llmCalls < MAX_LLM_CALLS_PER_RUN - 2) {
+        const fixSteps = issuesAsSteps(reviewerIssues);
+        console.error(`[agent] 🔄 Reviewer feedback loop: injecting ${fixSteps.length} fix step(s)`);
+        let fixStepsDone = 0;
+        for (const fixStep of fixSteps) {
+            totalStepsDone++;
+            fixStepsDone++;
+            console.error(`\n[fix-${fixStepsDone}] ${fixStep}`);
+            const stepIntent = classifyIntentFromPrompt(fixStep);
+            const stepCtx    = await retrieveContext(fixStep, project, execState);
+            const { ok, parsed } = await executeWithRetry(
+                fixStep, stepCtx, project, "", costState, execState
+            );
+            if (ok && parsed?.tool) {
+                const result = await mcp.callTool(parsed.tool, parsed.args || {});
+                const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 2000) || "";
+                execState.recordToolCall(parsed.tool, parsed.args, resultText, totalStepsDone);
+                executionContext += `\n\n[Reviewer Fix ${fixStepsDone} — ${parsed.tool}]:\n${resultText}`;
+                console.error(`  ← ${resultText.length} chars`);
+            }
+        }
     }
 
     // ── Final summary ─────────────────────────────────────────────────────────────
@@ -1316,6 +1336,196 @@ rl.question("Prompt: ", async (prompt) => {
     }
     process.exit();
 });
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\errorFixer.js
+========================================
+/**
+ * Error Fixer Engine — MCP-3.5 P0
+ *
+ * Parses a classified error from ExecutionState and attempts to generate
+ * a direct project_str_replace edit — WITHOUT calling the LLM.
+ *
+ * Pipeline:
+ *   1. Parse error text → extract file path + bad symbol/import
+ *   2. Locate file in project (via mcpClient.project_search or known filesRead)
+ *   3. Generate a targeted str_replace edit
+ *   4. Return { tool: "project_str_replace", args: { edits, commitMessage } } or null
+ *
+ * Returns null if the error is too complex for deterministic fix → falls back LLM.
+ */
+
+// ─── Error text parsers (one per failure type) ────────────────────────────────
+
+/**
+ * Extract module name from import_error text.
+ * Handles Node.js, Java, Python, TypeScript patterns.
+ *
+ * @param {string} errorText
+ * @returns {{ moduleName: string|null, filePath: string|null }}
+ */
+function parseImportError(errorText) {
+    // Node.js: Cannot find module 'express'
+    const nodeMatch = errorText.match(/cannot find module ['"]([^'"]+)['"]/i);
+    if (nodeMatch) return { moduleName: nodeMatch[1], filePath: extractFilePath(errorText) };
+
+    // TypeScript: Module '"./foo"' has no exported member
+    const tsMatch = errorText.match(/module ['"]([^'"]+)['"] has no/i);
+    if (tsMatch) return { moduleName: tsMatch[1], filePath: extractFilePath(errorText) };
+
+    // Java / Kotlin: unresolved reference: Foo
+    const javaMatch = errorText.match(/unresolved (?:reference|import):?\s*([A-Za-z.]+)/i);
+    if (javaMatch) return { moduleName: javaMatch[1], filePath: extractFilePath(errorText) };
+
+    // Python: ImportError: No module named 'foo'
+    const pyMatch = errorText.match(/no module named ['"]([^'"]+)['"]/i);
+    if (pyMatch) return { moduleName: pyMatch[1], filePath: extractFilePath(errorText) };
+
+    return { moduleName: null, filePath: extractFilePath(errorText) };
+}
+
+/**
+ * Extract file path from error text (best-effort).
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractFilePath(text) {
+    // e.g. "src/agent/foo.js:12:5" or "at /full/path/to/file.js:10"
+    const pathMatch =
+        text.match(/(?:at|in|file)\s+([^\s:]+\.[a-z]{1,5}):\d+/i) ||
+        text.match(/(src\/[^\s:]+\.[a-z]{2,5})/i) ||
+        text.match(/([\w/\\.-]+\.[a-z]{2,5}):\d+/i);
+    return pathMatch ? pathMatch[1].trim() : null;
+}
+
+/**
+ * Parse a syntax error to find the file and rough location.
+ */
+function parseSyntaxError(errorText) {
+    return {
+        filePath: extractFilePath(errorText),
+        line: extractLineNumber(errorText)
+    };
+}
+
+function extractLineNumber(text) {
+    const m = text.match(/:(\d+)(?::\d+)?/);
+    return m ? parseInt(m[1]) : null;
+}
+
+// ─── Fix generators ───────────────────────────────────────────────────────────
+
+/**
+ * Try to generate a deterministic fix for import_error.
+ *
+ * Strategy:
+ *  - If moduleName looks like a relative path → possibly wrong casing or typo
+ *  - If moduleName looks like a package → add to imports / check spelling
+ *  - Generate a str_replace that removes or comments the bad import line
+ *
+ * @param {{ moduleName, filePath }} parsed
+ * @param {string} project
+ * @param {ExecutionState} execState
+ * @returns {{ tool, args }|null}
+ */
+function buildImportFix(parsed, project, execState) {
+    const { moduleName, filePath } = parsed;
+    if (!filePath || !moduleName) return null;
+
+    // Only attempt fix if we've read the file (we have its content)
+    if (!execState.hasRead(filePath)) return null;
+
+    // Generate a conservative fix: comment out the bad import line
+    // (safer than deletion — LLM or human can clean up later)
+    const isRelative = moduleName.startsWith(".");
+    const searchLine = isRelative
+        ? `from '${moduleName}'`   // ESM
+        : `require('${moduleName}')`; // CJS fallback
+
+    const replaceLine = `/* [errorFixer] unresolved: ${searchLine} */`;
+
+    return {
+        tool: "project_str_replace",
+        args: {
+            project,
+            edits: [{
+                path:    filePath,
+                search:  searchLine,
+                replace: replaceLine
+            }],
+            commitMessage: `[errorFixer] Comment out unresolved import: ${moduleName}`
+        }
+    };
+}
+
+/**
+ * For build/syntax errors: just emit project_analyze so we get fresh error info.
+ * Deterministic fix for these requires reading the exact file — handled in recovery chain.
+ */
+function buildAnalyzeFix(project) {
+    return { tool: "project_analyze", args: { project } };
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Attempt to generate a direct deterministic fix for the last error.
+ *
+ * @param {string}         project
+ * @param {ExecutionState} execState
+ * @returns {{ tool: string, args: object }|null}
+ */
+export function generateDirectFix(project, execState) {
+    const lastErr = execState.lastError();
+    if (!lastErr) return null;
+
+    const { type, text } = lastErr;
+
+    try {
+        switch (type) {
+            case "import_error": {
+                const parsed = parseImportError(text);
+                const fix    = buildImportFix(parsed, project, execState);
+                if (fix) {
+                    console.error(`[errorFixer] ⚡ Direct import fix: ${parsed.moduleName} in ${parsed.filePath}`);
+                }
+                return fix;
+            }
+
+            case "syntax_error": {
+                // Can't fix syntax blindly — return analyze so we get updated info
+                const { filePath } = parseSyntaxError(text);
+                console.error(`[errorFixer] Syntax error in ${filePath || "unknown"} — emitting project_analyze`);
+                return buildAnalyzeFix(project);
+            }
+
+            case "build_failure":
+            case "runtime_error":
+                // Emit analyze to refresh error context
+                return buildAnalyzeFix(project);
+
+            default:
+                return null;
+        }
+    } catch (err) {
+        console.error("[errorFixer] Parse error:", err.message);
+        return null;
+    }
+}
+
+/**
+ * Extract the file path involved in the last error.
+ * Used by recovery chain to know which file to read.
+ *
+ * @param {ExecutionState} execState
+ * @returns {string|null}
+ */
+export function extractErrorFilePath(execState) {
+    const lastErr = execState.lastError();
+    if (!lastErr) return null;
+    return extractFilePath(lastErr.text);
+}
 
 
 ========================================
@@ -1599,21 +1809,32 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     // 1. Rule-based routing (zero LLM cost)
     const ruled = routeByRule(step, project);
     if (ruled) {
-        // Active ExecutionState gate: skip reads of already-known files
+        // Active ExecutionState gate: skip reads of already-known files,
+        // and skip str_replace on already-modified files (prevent double edits)
         if (execState) {
             try {
                 const parsed = JSON.parse(ruled);
+
+                // Skip read if file already read or modified (we have the content)
                 if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
-                    const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
-                    if (unread.length === 0) {
+                    const unstale = parsed.args.paths.filter(p => !execState.hasRead(p) && !execState.hasModified(p));
+                    if (unstale.length === 0) {
                         console.error(`[executor] ⚡ Skipping read — all files already in state: ${parsed.args.paths.join(", ")}`);
                         return JSON.stringify({ skipped: true, reason: "already_read" });
                     }
-                    // Only read the subset not yet seen
-                    if (unread.length < parsed.args.paths.length) {
-                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unread.join(", ")}`);
-                        parsed.args.paths = unread;
+                    if (unstale.length < parsed.args.paths.length) {
+                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unstale.join(", ")}`);
+                        parsed.args.paths = unstale;
                         return JSON.stringify(parsed);
+                    }
+                }
+
+                // Skip str_replace if edits target only already-modified files
+                if (parsed.tool === "project_str_replace" && Array.isArray(parsed.args?.edits)) {
+                    const newEdits = parsed.args.edits.filter(e => !execState.hasModified(e.path));
+                    if (newEdits.length === 0) {
+                        console.error(`[executor] ⚡ Skipping str_replace — all target files already modified`);
+                        return JSON.stringify({ skipped: true, reason: "already_modified" });
                     }
                 }
             } catch { /* not JSON — fall through */ }
@@ -1639,7 +1860,51 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     // 4. LLM call for ambiguous steps
     if (costState) costState.llmCalls++;
 
-    const prompt = `You are an AI coding agent. Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
+    const prompt = `You are a deterministic coding executor operating via MCP (Model Context Protocol).
+Output ONLY a single JSON object. No explanation, no markdown, no text before or after.
+
+## CORE RULES
+- NEVER explain. ONLY output a JSON tool call.
+- ALWAYS prefer project_str_replace over project_apply_changes for edits.
+- NEVER read the same file twice.
+- NEVER modify the same file twice unless fixing a new error.
+- ALWAYS use the SMALLEST fix possible (targeted str_replace, not full rewrites).
+- Output MUST be { "tool": "...", "args": { ... } } OR { "done": true }
+
+## EXECUTION STATE CONSTRAINTS
+You are given execution state:
+- Files already read: DO NOT read again
+- Files already modified: DO NOT modify again unless fixing a NEW error
+- Last error type: prioritize fixing it deterministically
+Violating these rules will cause redundant operations and must be avoided.
+
+## PRIORITY ORDER (follow strictly)
+1. Deterministic recovery (if error exists: identify → fix → verify)
+2. Tool-chain execution (use matching tool directly)
+3. Pattern-matched action (from memory/context)
+4. LLM reasoning (LAST resort only)
+
+## ERROR RECOVERY (deterministic, no planning)
+- import_error  → project_search → project_read_files → project_str_replace → project_analyze
+- syntax_error  → project_read_files → project_str_replace → project_analyze
+- build_failure → project_analyze → project_str_replace → project_build
+- runtime_error → project_analyze → project_read_files → project_str_replace
+
+## ERROR FIXING PRIORITY
+If an error is present:
+- Prefer deterministic fixes (like commenting/removing bad imports)
+- DO NOT attempt complex reasoning fixes
+- Use the smallest possible change to unblock the system
+
+## TOOL USAGE STRATEGY
+- Reading code: project_search or project_find_symbol FIRST, then project_read_files
+- Editing code: ALWAYS project_str_replace (never apply_changes for small edits)
+- Fixing errors: project_analyze FIRST, then minimal str_replace, then build
+
+## FAIL FAST RULE
+If unsure what to do:
+- DO NOT guess
+- Run project_analyze instead
 
 Context:
 ${context}${memoryBlock}
@@ -1671,11 +1936,10 @@ project_apply_changes — {
 project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
 project_analyze       — { "tool": "project_analyze",       "args": { "project": "string" } }
 
-Rules:
-- Prefer project_str_replace over project_apply_changes for small edits
-- Output ONLY the JSON object, nothing else
+Constraints:
 - All args MUST be inside the "args" key
 - project is always: ${project}
+- Output ONLY the JSON object
 
 JSON:`;
 
@@ -1688,17 +1952,27 @@ JSON:`;
             parsed = hoistTopLevelArgs(parsed);
             parsed.args = normalizeArgs(parsed.tool, parsed.args, project);
 
-            // Active ExecutionState gate on LLM-suggested reads
-            if (execState && parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
-                const unread = parsed.args.paths.filter(p => !execState.hasRead(p));
-                if (unread.length === 0) {
-                    console.error(`[executor] ⚡ LLM suggested reading already-known files — skipping: ${parsed.args.paths.join(", ")}`);
-                    return JSON.stringify({ skipped: true, reason: "already_read" });
+            // Active ExecutionState gate on LLM-suggested reads + edits
+            if (execState) {
+                // Skip reads of already-known (read or modified) files
+                if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
+                    const unstale = parsed.args.paths.filter(p => !execState.hasRead(p) && !execState.hasModified(p));
+                    if (unstale.length === 0) {
+                        console.error(`[executor] ⚡ LLM suggested reading already-known files — skipping: ${parsed.args.paths.join(", ")}`);
+                        return JSON.stringify({ skipped: true, reason: "already_read" });
+                    }
+                    if (unstale.length < parsed.args.paths.length) {
+                        console.error(`[executor] ⚡ Partial skip (LLM): keeping only new: ${unstale.join(", ")}`);
+                        parsed.args.paths = unstale;
+                    }
                 }
-                if (unread.length < parsed.args.paths.length) {
-                    const skipped = parsed.args.paths.filter(p => execState.hasRead(p));
-                    console.error(`[executor] ⚡ Partial skip (LLM): skipping known ${skipped.join(", ")}`);
-                    parsed.args.paths = unread;
+                // Skip str_replace on already-modified files
+                if (parsed.tool === "project_str_replace" && Array.isArray(parsed.args?.edits)) {
+                    const newEdits = parsed.args.edits.filter(e => !execState.hasModified(e.path));
+                    if (newEdits.length === 0) {
+                        console.error(`[executor] ⚡ LLM suggested str_replace on already-modified files — skipping`);
+                        return JSON.stringify({ skipped: true, reason: "already_modified" });
+                    }
                 }
             }
         }
@@ -1987,6 +2261,7 @@ import {
     CHARS_PER_TOKEN
 } from "../core/constants.js";
 import { formatStateForPrompt } from "./executionState.js";
+import { generateDirectFix, extractErrorFilePath } from "./errorFixer.js";
 
 // ─── Tool-level deterministic failure recovery ───────────────────────────────
 // Each entry maps a failure type → array of { tool, args } objects.
@@ -1994,29 +2269,60 @@ import { formatStateForPrompt } from "./executionState.js";
 // args with value "__ERROR_QUERY__" are resolved at call time from execState.
 
 export const DETERMINISTIC_RECOVERY_TOOLS = {
-    import_error: (project, execState) => [
-        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] || "import" } },
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
-    syntax_error: (project, _execState) => [
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
-    build_failure: (project, _execState) => [
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
+    // Deep recovery: search → read broken file → errorFixer patch → analyze → build
+    import_error: (project, execState) => {
+        const errText  = execState.lastError()?.text || "";
+        const modName  = errText.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] ||
+                         errText.match(/unresolved.*?:\s*(\S+)/i)?.[1] || "import";
+        const filePath = extractErrorFilePath(execState);
+        const directFix = generateDirectFix(project, execState);
+        const steps = [
+            { tool: "project_search", args: { project, query: modName } }
+        ];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        if (directFix) steps.push(directFix);
+        steps.push({ tool: "project_analyze",       args: { project } });
+        steps.push({ tool: "project_build_and_fix",  args: { project } });
+        return steps;
+    },
+
+    syntax_error: (project, execState) => {
+        const filePath = extractErrorFilePath(execState);
+        const steps = [{ tool: "project_analyze", args: { project } }];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        steps.push({ tool: "project_build_and_fix", args: { project } });
+        return steps;
+    },
+
+    build_failure: (project, execState) => {
+        const filePath = extractErrorFilePath(execState);
+        const steps = [{ tool: "project_analyze", args: { project } }];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        steps.push({ tool: "project_build_and_fix", args: { project } });
+        return steps;
+    },
+
     not_found: (project, execState) => [
-        { tool: "project_search",      args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
-        { tool: "project_analyze",     args: { project } }
+        { tool: "project_search",  args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
+        { tool: "project_analyze", args: { project } }
     ],
-    runtime_error: (project, _execState) => [
-        { tool: "project_analyze",     args: { project } },
-        { tool: "project_build_and_fix", args: { project } }
-    ],
+
+    runtime_error: (project, execState) => {
+        const filePath  = extractErrorFilePath(execState);
+        const directFix = generateDirectFix(project, execState);
+        const steps = [{ tool: "project_analyze", args: { project } }];
+        if (filePath && !execState.hasRead(filePath))
+            steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
+        if (directFix) steps.push(directFix);
+        steps.push({ tool: "project_build_and_fix", args: { project } });
+        return steps;
+    },
+
     permission_error: (project, _execState) => [
-        { tool: "project_scan",        args: { project } }
+        { tool: "project_scan", args: { project } }
     ]
 };
 
@@ -2174,19 +2480,31 @@ function getProjectType(project) {
  * @param {string}         [project]
  * @param {object}         [costState]        — { llmCalls } mutated in place
  * @param {string}         [retrieverIntent]  — intent label from retriever
- * @param {ExecutionState} [execState]        — active state for planning bias
+ * @param {ExecutionState} [execState]        — active state; triggers hard override
  * @returns {string}  newline-separated numbered steps
  */
 export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null, execState = null) {
-    const projectType = getProjectType(project);
+    const projectType     = getProjectType(project);
+    const activeError     = execState?.lastError();
+    const activeErrorType = activeError?.type || null;
 
-    // 1. Context-aware heuristic with ExecutionState bias (zero LLM cost)
-    //    If execState has an active error type, boost template score for matching templates
-    const activeErrorType = execState?.lastError()?.type || null;
-    const heuristicSteps  = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
+    // ── HARD OVERRIDE ──────────────────────────────────────────────────────────
+    // Active classified error → skip heuristic AND LLM entirely.
+    // Return deterministic tool steps immediately as text so the step queue
+    // and agent.js enforceAnalyzeBeforeBuild() still work correctly.
+    // agent.js re-resolves these via handleFailureDeterministically + executeToolsDirect.
+    if (activeError && activeErrorType && DETERMINISTIC_RECOVERY_TOOLS[activeErrorType]) {
+        console.error(`[planner] ⚡ HARD OVERRIDE: active ${activeErrorType} — forcing deterministic plan (no LLM)`);
+        const toolSteps = DETERMINISTIC_RECOVERY_TOOLS[activeErrorType](project || "unknown", execState);
+        return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("\n");
+    }
+
+    // 1. Context-aware heuristic (zero LLM cost)
+    const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
     if (heuristicSteps) {
         return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
     }
+
 
     // 2. Cost guard
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
@@ -2198,7 +2516,43 @@ export async function createPlan(prompt, project = null, costState = null, retri
     const { projects, memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
 
-    const planPrompt = `You are a senior software planning agent.
+    const planPrompt = `You are a deterministic software planning agent (MCP-3.5).
+Your goal: produce the MINIMUM steps needed to complete the task correctly.
+
+## HARD OVERRIDE
+If execution state contains ANY error:
+- DO NOT generate a full plan
+- DO NOT expand steps
+- ONLY output deterministic recovery steps
+
+Recovery rules:
+- import_error  \u2192 search \u2192 read \u2192 str_replace \u2192 analyze
+- syntax_error  \u2192 read \u2192 str_replace \u2192 analyze
+- build_failure \u2192 analyze \u2192 str_replace \u2192 build
+
+## PLANNING RULES
+1. ALWAYS start with project_analyze if the task involves modifying code
+2. ALWAYS use project_search or project_find_symbol BEFORE project_read_files
+3. NEVER read the same file twice \u2014 list all reads in one step
+4. ALWAYS prefer project_str_replace for edits (not apply_changes)
+5. End with project_analyze to verify no regressions
+6. Maximum 8 steps. If you need more, you're overplanning.
+
+## EXECUTION STATE CONSTRAINTS
+- DO NOT read files already read
+- DO NOT modify files already modified unless fixing a new error
+- Prioritize fixing the latest error before doing anything else
+
+## PRIORITY ORDER
+1. Deterministic recovery (if error) \u2192 no LLM planning needed
+2. Tool-chain execution (direct tool match)
+3. Targeted edits (read \u2192 patch \u2192 verify)
+4. LLM reasoning (last resort)
+
+## ERROR RECOVERY (never plan these \u2014 use deterministic recovery)
+- import_error  \u2192 search \u2192 read \u2192 str_replace \u2192 analyze
+- syntax_error  \u2192 read \u2192 str_replace \u2192 analyze
+- build_failure \u2192 analyze \u2192 str_replace \u2192 build
 
 Available projects: ${projects}
 Project type: ${projectType || "unknown"}
@@ -2207,10 +2561,17 @@ ${TOOL_REFERENCE}
 
 Task:
 ${prompt}
-`;
+
+Return ONLY numbered steps. Each step = one tool action. No explanation.
+- After applying code changes ALWAYS run project_build_and_fix
+- Return ONLY numbered steps, one per line, no explanation`;
 
     return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
 }
+
+
+
+
 
 /**
  * Adaptive replanning.
@@ -2762,6 +3123,89 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
     const success = !anyFailed && stepsRun > 0;
     console.error(`[toolChain] Template "${templateName}" done — ${stepsRun} steps, success=${success}`);
     return { results, success, stepsRun };
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\validationPipeline.js
+========================================
+/**
+ * Unified Validation Pipeline — MCP-3.5 P1
+ *
+ * Combines three validation sources into a single structured verdict:
+ *   1. heuristic  — fast, zero I/O (validateGoal)
+ *   2. build      — real system check (project_analyze via mcpClient)
+ *   3. reviewer   — LLM post-review (only when budget permits + files changed)
+ *
+ * Output:
+ *   {
+ *     heuristic:  { passed, reason },
+ *     build:      { passed, reason },
+ *     reviewer:   { verdict, issues, confident } | null,
+ *     passed:     boolean,   // true only if heuristic && build both pass
+ *     issues:     string[]   // collected issues from reviewer for feedback loop
+ *   }
+ *
+ * Reviewer feedback loop:
+ *   If reviewer.verdict === "has_issues" → caller injects issues as extra steps
+ */
+
+import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
+import { reviewChanges } from "./reviewer.js";
+
+/**
+ * Run the full validation pipeline.
+ *
+ * @param {string}         intent
+ * @param {string}         project
+ * @param {ExecutionState} execState
+ * @param {object}         costState
+ * @param {MCPClient}      mcpClient
+ * @param {string}         prompt
+ * @param {string}         executionContext
+ * @returns {Promise<{heuristic, build, reviewer, passed, issues}>}
+ */
+export async function runValidationPipeline(
+    intent, project, execState, costState, mcpClient, prompt, executionContext
+) {
+    // 1. Heuristic (fast, zero I/O)
+    const heuristic = validateGoal(intent, execState);
+    logValidation(intent, heuristic);
+
+    // 2. Build-based (system-aware)
+    const build = await validateWithBuild(project, intent, mcpClient);
+
+    // 3. Reviewer (LLM, gated by budget + file modification count)
+    let reviewer = null;
+    if (execState.filesModified.size >= 2) {
+        reviewer = await reviewChanges(project, prompt, execState, costState, executionContext);
+    }
+
+    // Compute unified verdict
+    const passed = heuristic.passed && build.passed;
+    const issues = reviewer?.issues || [];
+
+    // Log unified summary
+    const icon = passed ? "✅" : "❌";
+    console.error(`\n[pipeline] ${icon} Final validation: heuristic=${heuristic.passed}, build=${build.passed}${reviewer ? `, reviewer=${reviewer.verdict}` : ""}`);
+    if (issues.length > 0) {
+        console.error(`[pipeline] ⚠ Reviewer issues (${issues.length}): ${issues.slice(0, 3).join(" | ")}`);
+    }
+
+    return { heuristic, build, reviewer, passed, issues };
+}
+
+/**
+ * Convert reviewer issues into injectable recovery steps.
+ * Used by the reviewer feedback loop in agent.js.
+ *
+ * @param {string[]} issues   — from reviewer.issues
+ * @returns {string[]}        — step descriptions to inject into remainingSteps
+ */
+export function issuesAsSteps(issues) {
+    return issues.slice(0, 3).map(issue =>
+        `Fix reviewer issue: ${issue.substring(0, 120)}`
+    );
 }
 
 
@@ -4398,37 +4842,54 @@ export async function queryMemory(project, prompt, opts = {}) {
             return parsed;
         });
 
-        // Build read-file set from execState for overlap scoring
-        const readFiles = execState ? [...execState.filesRead].map(f => f.split(/[\\/]/).pop().toLowerCase()) : [];
+        // Build read-file set from execState for overlap scoring (MCP-3.5)
+        const readFiles = execState ? [...execState.filesRead].map(f => f.split(/[\/\\]/).pop().toLowerCase()) : [];
 
-        // Smart composite scoring
+        // Deduplication helper (Jaccard on pattern tokens)
+        const tokenSet = (text) => new Set((text || '').toLowerCase().split(/\W+/).filter(t => t.length > 3));
+        const jaccard  = (a, b) => {
+            const sa = tokenSet(a), sb = tokenSet(b);
+            const inter = [...sa].filter(t => sb.has(t)).length;
+            const union = new Set([...sa, ...sb]).size;
+            return union === 0 ? 0 : inter / union;
+        };
+
+        // Composite scoring with recency, error relevance, and time-decay
+        const now = Date.now();
         const scored = entries
             .filter(e => (e.confidence || 0) >= minConfidence)
             .map(e => {
-                // 1. Semantic rank based on vector distance
-                const semanticScore = 1 - (e._distance || 0);
-
-                // 2. File overlap: boost if memory.files intersect with currently-read files
-                const fileOverlap   = readFiles.length > 0 && Array.isArray(e.files)
-                    ? e.files.filter(f => readFiles.includes(f.split(/[\\/]/).pop().toLowerCase())).length * 0.3
+                const semanticScore  = 1 - (e._distance || 0);
+                const fileOverlap    = readFiles.length > 0 && Array.isArray(e.files)
+                    ? e.files.filter(f => readFiles.includes(f.split(/[\/\\]/).pop().toLowerCase())).length * 0.3
                     : 0;
-
-                // 3. Intent match: boost if memory type matches current intent
-                const intentTypes   = { ui: "architecture", api: "architecture", fix: "fix", auth: "fix", config: "architecture" };
-                const expectedType  = intentTypes[intent] || null;
-                const intentMatch   = (expectedType && e.type === expectedType) ? 0.2 : 0;
-
-                const totalScore    = semanticScore + fileOverlap + intentMatch;
-                return { ...e, _score: totalScore };
+                const intentTypes    = { ui: 'architecture', api: 'architecture', fix: 'fix', auth: 'fix', config: 'architecture' };
+                const expectedType   = intentTypes[intent] || null;
+                const intentMatch    = (expectedType && e.type === expectedType) ? 0.2 : 0;
+                const ageMs          = now - (e.ts || e._meta?.ts || 0);
+                const recency        = ageMs < 86400000 ? 0.2 : ageMs < 604800000 ? 0.1 : 0;
+                const hasActiveError = execState && execState.errors.length > 0;
+                const errorRelevance = (hasActiveError && e.type === 'fix') ? 0.3 : 0;
+                const decayFactor    = Math.pow(0.95, ageMs / (7 * 86400000));
+                const rawScore       = semanticScore + fileOverlap + intentMatch + recency + errorRelevance;
+                return { ...e, _score: rawScore * decayFactor };
             })
-            .sort((a, b) => b._score - a._score)
-            .slice(0, MEMORY_MAX_RESULTS);
+            .sort((a, b) => b._score - a._score);
 
-        if (returnStructured) return scored;
+        // Deduplicate: keep best, drop near-duplicates (Jaccard >= 0.8)
+        const deduped = [];
+        for (const entry of scored) {
+            const pat   = entry.pattern || entry.text || '';
+            const isDup = deduped.some(k => jaccard(k.pattern || k.text || '', pat) >= 0.8);
+            if (!isDup) deduped.push(entry);
+            if (deduped.length >= MEMORY_MAX_RESULTS) break;
+        }
+
+        if (returnStructured) return deduped;
 
         // Format as injection-ready string
-        if (scored.length === 0) return "";
-        return scored
+        if (deduped.length === 0) return "";
+        return deduped
             .map(e => {
                 let line = `[${e.type}] ${e.pattern || e.text}`;
                 if (e.files?.length) line += ` (see: ${e.files.slice(0, 3).join(", ")})`;
@@ -4436,6 +4897,7 @@ export async function queryMemory(project, prompt, opts = {}) {
                 return line;
             })
             .join("\n- ");
+
 
     } catch {
         return returnStructured ? [] : "";

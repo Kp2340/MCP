@@ -16,6 +16,8 @@ import { projectIndex }      from "./tools/projectIndex.js";
 import { projectStrReplace } from "./tools/projectStrReplace.js";
 import { analyzeProject }    from "./tools/staticAnalyzer.js";
 import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
+import { projectDiff }       from "./tools/projectDiff.js";
+import { projectGitLog }     from "./tools/projectGitLog.js";
 
 import { getProject, listProjects } from "./core/projectRegistry.js";
 import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
@@ -24,7 +26,7 @@ import { embed }                    from "./vector/embedder.js";
 import { storeMemory, queryMemory } from "./vector/memory.js";
 
 const server = new Server(
-    { name: "ai-dev-mcp", version: "3.0.0" },
+    { name: "ai-dev-mcp", version: "4.0.0" },
     { capabilities: { tools: {} } }
 );
 
@@ -88,10 +90,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_search",
-            description: "Search code using ripgrep",
+            description: "Search code using ripgrep. Optional fileType filter (e.g. 'js', 'ts', 'java').",
             inputSchema: {
                 type: "object",
-                properties: { project: { type: "string" }, query: { type: "string" } },
+                properties: {
+                    project:  { type: "string" },
+                    query:    { type: "string" },
+                    fileType: { type: "string", description: "Optional ripgrep file type filter" }
+                },
                 required: ["project", "query"]
             }
         },
@@ -173,6 +179,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             name: "project_list",
             description: "List all available projects registered in this MCP server",
             inputSchema: { type: "object", properties: {}, required: [] }
+        },
+        {
+            name: "project_diff",
+            description: "Show uncommitted git changes as a unified diff. Use before committing to review what the agent changed.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    staged:  { type: "boolean", description: "If true, show staged changes only" }
+                },
+                required: ["project"]
+            }
+        },
+        {
+            name: "project_git_log",
+            description: "Show recent git commit history. Helps agent avoid duplicate commits.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    count:   { type: "number", description: "Number of commits to show (default 10, max 30)" }
+                },
+                required: ["project"]
+            }
         }
     ]
 }));
@@ -197,6 +227,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (tool === "project_index")          return projectIndex(args);
     if (tool === "project_find_symbol")    return projectFindSymbol(args);
     if (tool === "project_analyze")        return analyzeProject(args);
+    if (tool === "project_diff")           return projectDiff(args);
+    if (tool === "project_git_log")        return projectGitLog(args);
 
     if (tool === "project_list") {
         return {

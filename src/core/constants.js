@@ -1,3 +1,25 @@
+// ── Model config (single source of truth — change here to swap models) ─────────
+export const LLM_MODEL          = "qwen2.5-coder:7b";
+export const LLM_TEMPERATURE    = 0.1;
+export const OLLAMA_HOST        = process.env.OLLAMA_HOST || "http://localhost:11434";
+export const CHROMA_HOST        = process.env.CHROMA_HOST || "localhost";
+export const CHROMA_PORT        = parseInt(process.env.CHROMA_PORT || "8000", 10);
+
+// ── Embedding model versioning — bump when swapping models to avoid stale vectors
+export const EMBEDDING_MODEL    = "Xenova/all-MiniLM-L6-v2";
+export const EMBEDDING_VERSION  = "v1";  // appended to collection names
+
+// ── Dynamic num_predict budgets per call type ────────────────────────────────
+export const NUM_PREDICT = {
+    planner:    600,   // step list only — never needs 2048
+    executor:   512,   // single JSON tool call
+    executor_apply: 2048, // apply_changes needs full file content
+    compressor: 400,   // summary bullets
+    reviewer:   300,   // verdict JSON
+    memory:     120,   // single pattern JSON
+    autofix:    4096   // full file correction
+};
+
 export const IGNORE_FOLDERS = [
     ".git",
     "node_modules",
@@ -37,6 +59,16 @@ export const MAX_REPLANS              = 3;
 
 // Real token estimation: 1 token ≈ 4 chars (GPT/Qwen convention)
 export const CHARS_PER_TOKEN = 4;
+
+// ── Memory eviction ───────────────────────────────────────────────────────────
+export const MEMORY_MAX_ENTRIES       = 200;  // per-project cap before eviction
+export const MEMORY_EVICT_BATCH       = 20;   // how many low-score entries to drop
+
+// ── Syntax batch check ────────────────────────────────────────────────────────
+export const SYNTAX_BATCH_SIZE        = 50;   // files per node --check invocation
+
+// ── Incremental index ─────────────────────────────────────────────────────────
+export const INDEX_CACHE_FILE         = ".ai-dev-index-cache.json";
 
 // ── Tool-chain templates ──────────────────────────────────────────────────────
 export const TOOL_CHAIN_TEMPLATES = [
@@ -100,5 +132,62 @@ export const TOOL_CHAIN_TEMPLATES = [
             "Find the relevant symbol in the project",
             "Read the relevant files"
         ]
+    },
+    {
+        name:        "refactor",
+        keywords:    ["refactor", "rename", "restructure", "move", "extract", "clean up"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Run static analysis to identify issues",
+            "Find the relevant symbol in the project",
+            "Read the relevant files",
+            "Apply targeted refactor using project_str_replace",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "add_test",
+        keywords:    ["add test", "write test", "create test", "unit test", "test for"],
+        projectTypes: null,
+        intent:      "general",
+        steps: [
+            "Find the relevant symbol in the project",
+            "Read the relevant files",
+            "Read similar existing test for reference",
+            "Create the new test file using project_apply_changes",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "add_db_migration",
+        keywords:    ["add migration", "create migration", "add column", "add table", "alter table"],
+        projectTypes: ["spring-boot", "liferay-backend", "nodejs"],
+        intent:      "api",
+        steps: [
+            "Scan project structure to find migrations folder",
+            "Read similar existing migration for reference",
+            "Create the new migration file using project_apply_changes",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
     }
 ];
+
+// ── Keyword synonyms for heuristic planner (stem → canonical) ────────────────
+// Allows single-word prompts like "creating" to match "create" keywords.
+export const KEYWORD_STEMS = {
+    "creating": "create",
+    "adding":   "add",
+    "fixing":   "fix",
+    "building": "build",
+    "updating": "update",
+    "deleting": "delete",
+    "removing": "remove",
+    "refactoring": "refactor",
+    "renaming":  "rename",
+    "testing":   "test",
+    "analyzing": "analyze"
+};
