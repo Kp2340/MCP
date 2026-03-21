@@ -11,13 +11,13 @@ export const EMBEDDING_VERSION  = "v1";  // appended to collection names
 
 // ── Dynamic num_predict budgets per call type ──────────────────────────────
 export const NUM_PREDICT = {
-    planner:    600,   // step list only — never needs 2048
-    executor:   512,   // single JSON tool call
-    executor_apply: 2048, // apply_changes needs full file content
-    compressor: 400,   // summary bullets
-    reviewer:   300,   // verdict JSON
-    memory:     120,   // single pattern JSON
-    autofix:    4096   // full file correction
+    planner:    600,
+    executor:   512,
+    executor_apply: 2048,
+    compressor: 400,
+    reviewer:   300,
+    memory:     120,
+    autofix:    4096
 };
 
 export const IGNORE_FOLDERS = [
@@ -37,7 +37,9 @@ export const IGNORE_FOLDERS = [
 ];
 
 export const INDEXABLE_EXTENSIONS = [
-    ".js", ".jsx", ".ts", ".tsx", ".java", ".py", ".kt", ".go"
+    ".js", ".jsx", ".ts", ".tsx",
+    ".java", ".py", ".kt", ".go",
+    ".rb", ".rs", ".xml"
 ];
 
 export const MAX_FILE_SIZE     = 12000;
@@ -54,23 +56,23 @@ export const COMPRESS_MAX_CHARS     = 6000;
 
 // ── Cost-aware agent ──────────────────────────────────────────────────
 export const MAX_LLM_CALLS_PER_RUN   = 30;
-export const MAX_TOTAL_TOKENS_PER_RUN = 60000;  // soft budget — triggers warning
+export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
 
-// Real token estimation: 1 token ≈ 4 chars (GPT/Qwen convention)
 export const CHARS_PER_TOKEN = 4;
 
 // ── Memory eviction ─────────────────────────────────────────────────────
-export const MEMORY_MAX_ENTRIES       = 200;  // per-project cap before eviction
-export const MEMORY_EVICT_BATCH       = 20;   // how many low-score entries to drop
+export const MEMORY_MAX_ENTRIES       = 200;
+export const MEMORY_EVICT_BATCH       = 20;
 
 // ── Syntax batch check ──────────────────────────────────────────────────
-export const SYNTAX_BATCH_SIZE        = 50;   // files per node --check invocation
+export const SYNTAX_BATCH_SIZE        = 50;
 
 // ── Incremental index ────────────────────────────────────────────────────
 export const INDEX_CACHE_FILE         = ".ai-dev-index-cache.json";
 
 // ── Tool-chain templates ────────────────────────────────────────────────
+// projectTypes: null = works for ANY project type
 export const TOOL_CHAIN_TEMPLATES = [
     {
         name:        "fix_error",
@@ -86,8 +88,8 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "add_api",
-        keywords:    ["add api", "new endpoint", "add route", "create endpoint", "add service method"],
-        projectTypes: ["spring-boot", "liferay-backend", "nodejs"],
+        keywords:    ["add api", "new endpoint", "add route", "create endpoint", "add service method", "implement api", "similar api"],
+        projectTypes: null,   // was spring-boot/liferay/nodejs — now works for ALL
         intent:      "api",
         steps: [
             "Find the relevant controller or service symbol",
@@ -98,8 +100,6 @@ export const TOOL_CHAIN_TEMPLATES = [
         ]
     },
     {
-        // Handles: "Add X to footer", "Add text to header", "Change button color",
-        // "Update navbar", "Add made by X", "Add copyright", etc.
         name:        "ui_edit",
         keywords:    [
             "add", "update", "change", "modify", "insert", "put", "place",
@@ -145,8 +145,7 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "read_only",
-        // Intentionally narrow — only pure read/explain requests
-        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze", "tell me", "describe", "list all"],
+        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze", "tell me", "describe", "list all", "find api"],
         projectTypes: null,
         intent:      "general",
         steps: [
@@ -185,7 +184,7 @@ export const TOOL_CHAIN_TEMPLATES = [
     {
         name:        "add_db_migration",
         keywords:    ["add migration", "create migration", "add column", "add table", "alter table"],
-        projectTypes: ["spring-boot", "liferay-backend", "nodejs"],
+        projectTypes: null,
         intent:      "api",
         steps: [
             "Scan project structure to find migrations folder",

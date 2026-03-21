@@ -1,27 +1,40 @@
 /**
- * src/index.js — AI Dev MCP Server v5.0.0
+ * src/index.js — AI Dev MCP Server v5.1.0
  *
- * Dual-transport server:
- *   TRANSPORT=http   → HTTP + SSE  (multi-IDE, production)
- *   TRANSPORT=stdio  → Stdio        (Claude Desktop, local)
+ * ONE command starts everything: node src/index.js
  *
- * HTTP mode exposes:
- *   GET  /sse          MCP SSE endpoint (IDE connects here)
- *   POST /message      MCP tool calls
- *   POST /run          Enqueue agent job
- *   GET  /status/:id   Job status
- *   GET  /stream/:id   Live SSE job updates
- *   GET  /jobs         List jobs
- *   GET  /queue        Queue status
- *   GET  /health       Health check
+ * Default mode (HTTP) — serves BOTH use cases simultaneously on one port:
+ *
+ *   USE CASE 1 — Agentic IDE (VS Code extension / IntelliJ plugin)
+ *     POST /run          Submit a natural-language task → Qwen2.5-7B agent loop
+ *     GET  /status/:id   Poll job result
+ *     GET  /stream/:id   Live SSE progress stream
+ *     GET  /jobs         List all jobs
+ *     GET  /queue        Queue status
+ *
+ *   USE CASE 2 — MCP tool provider (Claude Desktop / Cursor / Windsurf / any MCP IDE)
+ *     GET  /sse          MCP SSE endpoint — connect your IDE here
+ *     POST /message      MCP tool calls routed to all 19 project tools
+ *
+ *   SHARED
+ *     GET  /health       Health check (no auth)
+ *
+ * Optional: set TRANSPORT=stdio in .env to run as a stdio server instead.
  */
 
-import { Server }             from "@modelcontextprotocol/sdk/server/index.js";
+import { Server }               from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
     ListToolsRequestSchema,
     CallToolRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
+import express from "express";
+
+// ── HTTP layer imports ────────────────────────────────────────────────────────
+import { attachMcpRoutes } from "./http/mcpRouter.js";
+import { attachJobRoutes } from "./http/jobRoutes.js";
+import { authMiddleware }  from "./http/auth.js";
+import { corsMiddleware }  from "./http/cors.js";
 
 // ── Tool imports ──────────────────────────────────────────────────────────────
 import { scanProject }       from "./tools/scanProject.js";
@@ -37,9 +50,10 @@ import { analyzeProject }    from "./tools/staticAnalyzer.js";
 import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
 import { projectDiff }       from "./tools/projectDiff.js";
 import { projectGitLog }     from "./tools/projectGitLog.js";
+import { registerProject }   from "./tools/projectRegister.js";
 
 // ── Core imports ──────────────────────────────────────────────────────────────
-import { getProject, listProjects } from "./core/projectRegistry.js";
+import { getProject, listProjects, listDynamicProjects } from "./core/projectRegistry.js";
 import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
 import { queryCodebase }            from "./vector/queryCodebase.js";
 import { embed }                    from "./vector/embedder.js";
@@ -51,7 +65,7 @@ const log = createLogger("server");
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 const mcpServer = new Server(
-    { name: "ai-dev-mcp", version: "5.0.0" },
+    { name: "ai-dev-mcp", version: "5.1.0" },
     { capabilities: { tools: {} } }
 );
 
@@ -59,8 +73,22 @@ const mcpServer = new Server(
 mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
         {
+            name: "project_register",
+            description: "Register a new project by name and path. Call this FIRST for any project not already known to the server. Auto-detects project type (React, Spring Boot, Django, Odoo, Go, etc.) and starts background indexing. After calling this, use the name in all other project_* tools.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    name:    { type: "string", description: "Friendly short name, e.g. 'odoo' or 'my-project'" },
+                    path:    { type: "string", description: "Absolute path to the project root, e.g. 'C:/Projects/odoo-addons'" },
+                    type:    { type: "string", description: "Optional type override. Auto-detected if omitted. Options: nextjs, react-vite, nodejs, spring-boot, django, odoo, python, go, rust, rails" },
+                    persist: { type: "boolean", description: "If true, saves to projects.json so the project survives server restart" }
+                },
+                required: ["name", "path"]
+            }
+        },
+        {
             name: "project_scan",
-            description: "Scan project structure",
+            description: "Scan project structure. The 'project' field accepts either a registered project name OR an absolute path to auto-register on the fly.",
             inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
@@ -115,7 +143,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_search",
-            description: "Search code using ripgrep. Optional fileType filter (e.g. 'js', 'ts', 'java').",
+            description: "Search code using ripgrep. Optional fileType filter (e.g. 'js', 'ts', 'java', 'py').",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -202,7 +230,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_list",
-            description: "List all registered projects",
+            description: "List all registered projects (both static from projects.json and dynamically registered this session)",
             inputSchema: { type: "object", properties: {}, required: [] }
         },
         {
@@ -239,6 +267,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     log.info(`Tool call: ${tool} | args: ${JSON.stringify(args).substring(0, 150)}`);
 
+    if (tool === "project_register")      return registerProject(args);
     if (tool === "project_scan")           return scanProject(args);
     if (tool === "project_read_files")     return readFiles(args);
     if (tool === "project_apply_changes")  return applyChanges(args);
@@ -253,7 +282,9 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (tool === "project_git_log")        return projectGitLog(args);
 
     if (tool === "project_list") {
-        return { content: [{ type: "text", text: JSON.stringify(listProjects(), null, 2) }] };
+        const all     = listProjects();
+        const dynamic = listDynamicProjects();
+        return { content: [{ type: "text", text: JSON.stringify({ projects: all, dynamic }, null, 2) }] };
     }
     if (tool === "project_dependency_graph") {
         const root  = getProject(args.project).root;
@@ -281,65 +312,39 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
     throw new Error(`Unknown tool: ${tool}`);
 });
 
-// ── Transport selection ───────────────────────────────────────────────────────
+// ── Transport startup ─────────────────────────────────────────────────────────
 if (config.TRANSPORT === "stdio") {
-    // ── Stdio mode: Claude Desktop / direct local use ─────────────────────────
-    log.info("Starting in STDIO transport mode");
+    log.info("Starting in STDIO mode (MCP over stdin/stdout)");
     await mcpServer.connect(new StdioServerTransport());
 
 } else {
-    // ── HTTP + SSE mode: multi-IDE, remote access ─────────────────────────────
-    const { default: express }  = await import("express");
-    const { corsMiddleware }     = await import("./http/cors.js");
-    const { authMiddleware }     = await import("./http/auth.js");
-    const { attachMcpRoutes }   = await import("./http/mcpRouter.js");
-    const { attachJobRoutes }   = await import("./http/jobRoutes.js");
-
     const app = express();
+    app.use(corsMiddleware);
+    app.use(express.json());
+    app.use(authMiddleware);
 
-    // Trust proxy headers (Cloudflare / ngrok set X-Forwarded-*)
-    app.set("trust proxy", 1);
+    app.get("/health", (_req, res) => res.json({
+        status:    "ok",
+        version:   "5.1.0",
+        transport: "http",
+        uptime:    Math.floor(process.uptime())
+    }));
 
-    // ── Health check — no auth, no middleware, always responds ────────────────
-    app.get("/health", (_req, res) => {
-        res.json({ status: "ok", version: "5.0.0" });
-    });
+    attachMcpRoutes(app, mcpServer);
+    attachJobRoutes(app);
 
-    // ── Middleware stack ──────────────────────────────────────────────────────
-    app.use(corsMiddleware);                      // CORS + proxy headers
-    app.use(express.json({ limit: "2mb" }));      // parse JSON bodies
-    app.use(authMiddleware);                      // API key validation
-
-    // ── Request logger ────────────────────────────────────────────────────────
-    app.use((req, _res, next) => {
-        const ip = req.headers["x-forwarded-for"] || req.ip;
-        log.info(`${req.method} ${req.path} | ip=${ip}`);
-        next();
-    });
-
-    // ── Routes ────────────────────────────────────────────────────────────────
-    attachMcpRoutes(app, mcpServer);  // /sse  /message
-    attachJobRoutes(app);             // /run  /status/:id  /stream/:id  /jobs  /queue  /health
-
-    // ── 404 handler ───────────────────────────────────────────────────────────
-    app.use((req, res) => {
-        res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
-    });
-
-    // ── Error handler ─────────────────────────────────────────────────────────
-    app.use((err, _req, res, _next) => {
-        log.error("Unhandled error:", err.message);
-        res.status(500).json({ error: err.message || "Internal server error" });
-    });
-
-    // ── Start ─────────────────────────────────────────────────────────────────
-    app.listen(config.PORT, "0.0.0.0", () => {
-        log.info(`AI Dev MCP Server v5.0.0 running`);
-        log.info(`Base URL:  ${config.BASE_URL}`);
-        log.info(`SSE:       ${config.BASE_URL}/sse`);
-        log.info(`Message:   ${config.BASE_URL}/message`);
-        log.info(`Run job:   ${config.BASE_URL}/run`);
-        log.info(`Health:    ${config.BASE_URL}/health`);
-        log.info(`Auth:      ${config.API_KEY ? "ENABLED" : "DISABLED (set API_KEY env var)"}`);
+    app.listen(config.PORT, () => {
+        log.info("═".repeat(51));
+        log.info(`  AI Dev MCP Server v5.1.0  —  port ${config.PORT}`);
+        log.info("═".repeat(51));
+        log.info("  Use case 1 — Agentic IDE:");
+        log.info(`    POST ${config.BASE_URL}/run           submit task`);
+        log.info(`    GET  ${config.BASE_URL}/stream/:id    live progress`);
+        log.info(`    GET  ${config.BASE_URL}/status/:id    poll result`);
+        log.info("  Use case 2 — MCP tool provider:");
+        log.info(`    GET  ${config.BASE_URL}/sse           IDE connects here`);
+        log.info(`    POST ${config.BASE_URL}/message       tool call endpoint`);
+        log.info("  Auth: x-api-key header required" + (config.API_KEY ? " ✓" : " — DISABLED (set API_KEY)"));
+        log.info("═".repeat(51));
     });
 }

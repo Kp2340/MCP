@@ -1,25 +1,226 @@
-import fs from "fs";
+/**
+ * src/core/projectRegistry.js
+ *
+ * Two-tier project registry:
+ *
+ *   Tier 1 — Static (projects.json)
+ *     Pre-configured projects with known roots, types, build commands.
+ *     Hot-reloaded on every call — no restart needed after editing.
+ *
+ *   Tier 2 — Dynamic (in-memory, runtime only)
+ *     Projects registered on-the-fly when an unknown project name is passed.
+ *     Two ways a dynamic project gets created:
+ *
+ *       a) The "project" value IS a filesystem path (absolute, or starts with ./ or ../)
+ *          → used directly as root, type auto-detected
+ *
+ *       b) The "project" value is a short name but NOT in projects.json
+ *          → registerProject() must be called explicitly first
+ *          → OR: tool calls pass a special "path" hint via registerDynamicProject()
+ *
+ *     Dynamic entries are never written to disk. They live as long as the server process.
+ *     They CAN be persisted to projects.json via saveProject().
+ *
+ * Project shape:
+ *   {
+ *     root:            string   absolute filesystem path
+ *     type:            string   auto-detected or provided
+ *     buildCommand:    string   auto-detected or ""
+ *     branchPrefix:    string   derived from name
+ *     indexExtensions: string[] based on type
+ *   }
+ */
+
+import fs   from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { detectProjectType } from "./projectDetector.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectsPath = path.join(__dirname, "../config/projects.json");
+const __dirname     = path.dirname(fileURLToPath(import.meta.url));
+const projectsPath  = path.join(__dirname, "../config/projects.json");
 
-function loadProjects() {
-    return JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
-}
+// ── In-memory dynamic registry ────────────────────────────────────────────────
+const dynamicProjects = new Map();   // name → project config
 
-export function getProject(name) {
-    // Hot-reload: re-read on every call so adding a project doesn't need restart
-    const projects = loadProjects();
-    if (!projects[name]) {
-        throw new Error(
-            `Project not found: "${name}". Available: ${Object.keys(projects).join(", ")}`
-        );
+// ── Static loader (hot-reload) ────────────────────────────────────────────────
+function loadStatic() {
+    try {
+        return JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
+    } catch {
+        return {};
     }
-    return projects[name];
 }
 
+// ── Project type → sensible defaults ─────────────────────────────────────────
+const TYPE_DEFAULTS = {
+    "nextjs":           { buildCommand: "npm run build",    indexExtensions: [] },
+    "react-vite":       { buildCommand: "npm run build",    indexExtensions: [] },
+    "nodejs":           { buildCommand: "",                 indexExtensions: [] },
+    "spring-boot":      { buildCommand: "mvn clean install",indexExtensions: [".java"] },
+    "liferay-backend":  { buildCommand: "gradlew build",    indexExtensions: [".java"] },
+    "gradle":           { buildCommand: "gradlew build",    indexExtensions: [".java", ".kt"] },
+    "django":           { buildCommand: "",                 indexExtensions: [".py"] },
+    "odoo":             { buildCommand: "",                 indexExtensions: [".py", ".xml"] },
+    "python":           { buildCommand: "",                 indexExtensions: [".py"] },
+    "rails":            { buildCommand: "",                 indexExtensions: [".rb"] },
+    "go":               { buildCommand: "go build ./...",   indexExtensions: [".go"] },
+    "rust":             { buildCommand: "cargo build",      indexExtensions: [".rs"] },
+    "unknown":          { buildCommand: "",                 indexExtensions: [] },
+};
+
+function defaultsForType(type) {
+    return TYPE_DEFAULTS[type] || TYPE_DEFAULTS["unknown"];
+}
+
+// ── Branch prefix from project name ──────────────────────────────────────────
+function makeBranchPrefix(name) {
+    // e.g. "my-odoo-project" → "MOP", "decorom-backend" → "DB"
+    return name
+        .split(/[-_\s]+/)
+        .map(w => w[0]?.toUpperCase() || "")
+        .join("")
+        .substring(0, 5) || "AI";
+}
+
+// ── Core: resolve a project by name (or path) ─────────────────────────────────
+/**
+ * Returns the project config for `name`.
+ *
+ * Resolution order:
+ *   1. Static projects.json
+ *   2. Dynamic in-memory registry
+ *   3. If `name` looks like a filesystem path → auto-register and return
+ *   4. Throw with helpful message
+ *
+ * @param {string} name  project name OR absolute path
+ * @returns {object}     project config
+ */
+export function getProject(name) {
+    // 1. Static
+    const statics = loadStatic();
+    if (statics[name]) return statics[name];
+
+    // 2. Dynamic
+    if (dynamicProjects.has(name)) return dynamicProjects.get(name);
+
+    // 3. Looks like a path? Auto-register
+    const looksLikePath =
+        path.isAbsolute(name) ||
+        name.startsWith("./") ||
+        name.startsWith("../") ||
+        (process.platform === "win32" && /^[A-Za-z]:[/\\]/.test(name));
+
+    if (looksLikePath) {
+        if (!fs.existsSync(name)) {
+            throw new Error(`Path does not exist: "${name}"`);
+        }
+        return _autoRegister(name, path.basename(name));
+    }
+
+    // 4. Not found anywhere
+    const known = [
+        ...Object.keys(statics),
+        ...Array.from(dynamicProjects.keys())
+    ];
+    throw new Error(
+        `Project not found: "${name}".\n` +
+        `Known projects: ${known.join(", ")}\n` +
+        `Tip: pass the absolute path as the project name to auto-register it,\n` +
+        `     e.g. project: "C:/Projects/my-odoo" — or call project_register first.`
+    );
+}
+
+// ── Auto-register from a filesystem path ─────────────────────────────────────
+function _autoRegister(rootPath, suggestedName) {
+    const detected  = detectProjectType(rootPath);
+    const defaults  = defaultsForType(detected.type);
+    const safeName  = suggestedName.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase();
+
+    const config = {
+        root:            rootPath,
+        type:            detected.type,
+        buildCommand:    detected.buildCommand || defaults.buildCommand,
+        branchPrefix:    makeBranchPrefix(safeName),
+        indexExtensions: defaults.indexExtensions,
+        _dynamic:        true,     // flag so tools know this was auto-registered
+        _detectedAt:     Date.now()
+    };
+
+    dynamicProjects.set(safeName, config);
+    // Also register under the original path so both keys work
+    dynamicProjects.set(rootPath, config);
+
+    console.error(
+        `[registry] Auto-registered dynamic project: "${safeName}"\n` +
+        `  root: ${rootPath}\n` +
+        `  type: ${detected.type}  build: "${config.buildCommand}"`
+    );
+
+    return config;
+}
+
+// ── Explicit registration (from project_register tool) ────────────────────────
+/**
+ * Register a project explicitly with a friendly name and root path.
+ * Type is auto-detected if not provided.
+ *
+ * @param {string} name       friendly project name
+ * @param {string} rootPath   absolute path to project root
+ * @param {object} [overrides] optional: { type, buildCommand, branchPrefix }
+ */
+export function registerDynamicProject(name, rootPath, overrides = {}) {
+    if (!fs.existsSync(rootPath)) {
+        throw new Error(`Cannot register project: path does not exist: "${rootPath}"`);
+    }
+
+    const detected = detectProjectType(rootPath);
+    const type     = overrides.type || detected.type;
+    const defaults = defaultsForType(type);
+
+    const config = {
+        root:            path.resolve(rootPath),
+        type,
+        buildCommand:    overrides.buildCommand ?? detected.buildCommand ?? defaults.buildCommand,
+        branchPrefix:    overrides.branchPrefix ?? makeBranchPrefix(name),
+        indexExtensions: defaults.indexExtensions,
+        _dynamic:        true,
+        _detectedAt:     Date.now()
+    };
+
+    dynamicProjects.set(name, config);
+    console.error(`[registry] Registered dynamic project: "${name}" → ${rootPath} (${type})`);
+    return config;
+}
+
+// ── Save dynamic project to projects.json ─────────────────────────────────────
+/**
+ * Persist a dynamic project to projects.json so it survives server restart.
+ */
+export function saveProject(name) {
+    const config = dynamicProjects.get(name);
+    if (!config) throw new Error(`No dynamic project named "${name}" to save`);
+
+    const { _dynamic, _detectedAt, ...clean } = config;
+    const statics = loadStatic();
+    statics[name]  = clean;
+    fs.writeFileSync(projectsPath, JSON.stringify(statics, null, 2), "utf-8");
+    console.error(`[registry] Saved project "${name}" to projects.json`);
+}
+
+// ── List all known projects ───────────────────────────────────────────────────
 export function listProjects() {
-    return Object.keys(loadProjects());
+    const statics = Object.keys(loadStatic());
+    const dynamic = Array.from(dynamicProjects.keys())
+        .filter(k => !path.isAbsolute(k))  // skip the path-keyed duplicates
+        .filter(k => !statics.includes(k));  // skip if already in static
+    return [...statics, ...dynamic];
+}
+
+// ── List dynamic projects with metadata ──────────────────────────────────────
+export function listDynamicProjects() {
+    const result = [];
+    for (const [k, v] of dynamicProjects.entries()) {
+        if (!path.isAbsolute(k)) result.push({ name: k, ...v });
+    }
+    return result;
 }
