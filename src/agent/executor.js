@@ -14,11 +14,28 @@ function routeByRule(step, project) {
     if (/\b(scan|list files|folder structure|project structure)\b/.test(s))
         return JSON.stringify({ tool: "project_scan", args: { project } });
 
-    // Symbol lookup — handles "find symbol Foo", "locate class Bar", "find component Login"
+    // Symbol lookup — handles various phrasings:
+    // "Find the relevant component symbol in the project index"
+    // "find symbol Foo", "locate class Bar", "Find the Footer component"
+    // Strategy: extract the last PascalCase word in the step as the symbol name.
+    // Fall back to explicit keyword+name patterns.
+    if (/\b(find|locate|look up)\b.*(symbol|class|function|component|service|controller)/i.test(s)) {
+        // Extract all PascalCase words from the original step
+        const pascalWords = step.match(/\b[A-Z][a-z][\w]{1,}\b/g) || [];
+        // Filter out generic English words
+        const genericWords = new Set(["Find", "Read", "Run", "Apply", "Create", "Check", "Build", "Use",
+            "The", "This", "That", "With", "From", "Into", "After", "Before"]);
+        const symbolName = pascalWords.filter(w => !genericWords.has(w)).pop();
+        if (symbolName) {
+            return JSON.stringify({ tool: "project_find_symbol", args: { project, name: symbolName } });
+        }
+        // No PascalCase found — let LLM handle it instead of guessing
+        return null;
+    }
+    // Explicit: "find symbol Foo" or "locate Foo"
     const symbolMatch =
-        s.match(/\b(?:find|locate|look up)\b.+\b(?:class|function|component|service|controller|symbol)\b[:\s]+([\w]+)/i) ||
-        s.match(/\bfind symbol[:\s]+([\w]+)/i) ||
-        s.match(/\b(?:find|locate)\b\s+([A-Z][\w]+)/);  // capitalised name heuristic
+        s.match(/\bfind symbol[:\s]+([\w]{3,})/i) ||
+        step.match(/\blocate\b\s+([A-Z][a-z][\w]{2,})/);
     if (symbolMatch) {
         const name = symbolMatch[symbolMatch.length - 1];
         return JSON.stringify({ tool: "project_find_symbol", args: { project, name } });

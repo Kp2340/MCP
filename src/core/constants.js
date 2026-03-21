@@ -9,7 +9,7 @@ export const CHROMA_PORT        = parseInt(process.env.CHROMA_PORT || "8000", 10
 export const EMBEDDING_MODEL    = "Xenova/all-MiniLM-L6-v2";
 export const EMBEDDING_VERSION  = "v1";  // appended to collection names
 
-// ── Dynamic num_predict budgets per call type ────────────────────────────────
+// ── Dynamic num_predict budgets per call type ──────────────────────────────
 export const NUM_PREDICT = {
     planner:    600,   // step list only — never needs 2048
     executor:   512,   // single JSON tool call
@@ -43,16 +43,16 @@ export const INDEXABLE_EXTENSIONS = [
 export const MAX_FILE_SIZE     = 12000;
 export const BUILD_TIMEOUT_MS  = 120000;
 
-// ── Memory layer ──────────────────────────────────────────────────────────────
+// ── Memory layer ───────────────────────────────────────────────────────
 export const MEMORY_COLLECTION_PREFIX = "memory_";
 export const MEMORY_MAX_RESULTS       = 3;
 export const MEMORY_MAX_SNIPPET       = 400;
 
-// ── Context compression ───────────────────────────────────────────────────────
+// ── Context compression ───────────────────────────────────────────────
 export const COMPRESS_EVERY_N_STEPS = 3;
 export const COMPRESS_MAX_CHARS     = 6000;
 
-// ── Cost-aware agent ──────────────────────────────────────────────────────────
+// ── Cost-aware agent ──────────────────────────────────────────────────
 export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;  // soft budget — triggers warning
 export const MAX_REPLANS              = 3;
@@ -60,22 +60,22 @@ export const MAX_REPLANS              = 3;
 // Real token estimation: 1 token ≈ 4 chars (GPT/Qwen convention)
 export const CHARS_PER_TOKEN = 4;
 
-// ── Memory eviction ───────────────────────────────────────────────────────────
+// ── Memory eviction ─────────────────────────────────────────────────────
 export const MEMORY_MAX_ENTRIES       = 200;  // per-project cap before eviction
 export const MEMORY_EVICT_BATCH       = 20;   // how many low-score entries to drop
 
-// ── Syntax batch check ────────────────────────────────────────────────────────
+// ── Syntax batch check ──────────────────────────────────────────────────
 export const SYNTAX_BATCH_SIZE        = 50;   // files per node --check invocation
 
-// ── Incremental index ─────────────────────────────────────────────────────────
+// ── Incremental index ────────────────────────────────────────────────────
 export const INDEX_CACHE_FILE         = ".ai-dev-index-cache.json";
 
-// ── Tool-chain templates ──────────────────────────────────────────────────────
+// ── Tool-chain templates ────────────────────────────────────────────────
 export const TOOL_CHAIN_TEMPLATES = [
     {
         name:        "fix_error",
         keywords:    ["fix", "error", "bug", "crash", "exception", "broken", "failing"],
-        projectTypes: null,   // applies to all project types
+        projectTypes: null,
         intent:      "fix",
         steps: [
             "Run static analysis to identify issues",
@@ -98,8 +98,28 @@ export const TOOL_CHAIN_TEMPLATES = [
         ]
     },
     {
+        // Handles: "Add X to footer", "Add text to header", "Change button color",
+        // "Update navbar", "Add made by X", "Add copyright", etc.
+        name:        "ui_edit",
+        keywords:    [
+            "add", "update", "change", "modify", "insert", "put", "place",
+            "footer", "header", "navbar", "sidebar", "banner", "button",
+            "text", "label", "link", "color", "style", "class", "section",
+            "made by", "copyright", "bottom", "top", "page"
+        ],
+        projectTypes: ["react-vite", "nextjs"],
+        intent:      "ui",
+        steps: [
+            "Find the relevant component symbol in the project index",
+            "Read the relevant component file",
+            "Apply targeted changes using project_str_replace",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
         name:        "add_ui_component",
-        keywords:    ["add component", "create page", "add form", "create ui", "add screen"],
+        keywords:    ["add component", "create page", "add form", "create ui", "add screen", "new page", "new component"],
         projectTypes: ["react-vite", "nextjs"],
         intent:      "ui",
         steps: [
@@ -125,7 +145,8 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "read_only",
-        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze"],
+        // Intentionally narrow — only pure read/explain requests
+        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze", "tell me", "describe", "list all"],
         projectTypes: null,
         intent:      "general",
         steps: [
@@ -177,7 +198,6 @@ export const TOOL_CHAIN_TEMPLATES = [
 ];
 
 // ── Keyword synonyms for heuristic planner (stem → canonical) ────────────────
-// Allows single-word prompts like "creating" to match "create" keywords.
 export const KEYWORD_STEMS = {
     "creating": "create",
     "adding":   "add",

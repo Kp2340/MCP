@@ -9,6 +9,7 @@ import { storeMemory, queryMemory } from "../vector/memory.js";
 import { askLLM } from "./ollamaClient.js";
 import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
+import { executeUiEdit } from "./uiEditExecutor.js";
 import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
 import { reviewChanges } from "./reviewer.js";
 import { fileURLToPath } from "url";
@@ -153,15 +154,22 @@ export async function runAgent(prompt) {
     const matchedTemplate = TOOL_CHAIN_TEMPLATES.find(t => {
         const lower = prompt.toLowerCase();
         const hits  = t.keywords.filter(kw => lower.includes(kw)).length;
-        const intentOk = !t.intent || t.intent === promptIntent || t.intent === "general";
+        // ui_edit matches regardless of classified intent — the prompt content is enough
+        const intentOk = t.name === "ui_edit" || !t.intent || t.intent === promptIntent || t.intent === "general";
         return hits >= 2 && intentOk;
     });
 
     if (matchedTemplate) {
-        console.error(`\n[agent] ⚡ Template "${matchedTemplate.name}" matched — executing directly (0 LLM steps)`);
-        const { results, success, stepsRun } = await executeToolChain(
-            matchedTemplate.name, project, mcp, execState, costState
-        );
+        console.error(`\n[agent] ⚡ Template "${matchedTemplate.name}" matched — executing directly`);
+
+        // ui_edit uses smart executor that reads file first then applies precise str_replace
+        let chainResult;
+        if (matchedTemplate.name === "ui_edit") {
+            chainResult = await executeUiEdit(prompt, project, mcp, execState, costState);
+        } else {
+            chainResult = await executeToolChain(matchedTemplate.name, project, mcp, execState, costState);
+        }
+        const { results, success, stepsRun } = chainResult;
         if (success || stepsRun > 0) {
             // Sufficient work done via direct chain — validate and finish
             const executionContext = results.join("\n");

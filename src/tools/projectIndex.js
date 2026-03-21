@@ -8,7 +8,13 @@ export async function projectIndex({ project }) {
 
     // Always rebuild on explicit call — ensures fresh symbols after code changes
     console.error("[index] Building semantic index:", project);
-    const index = buildSemanticIndex(root);
+    let index;
+    try {
+        index = buildSemanticIndex(root);
+    } catch (err) {
+        console.error("[index] CRASH in buildSemanticIndex:", err.stack || err.message);
+        throw err;
+    }
     cachedIndexes[project] = index;
 
     const classCount    = (index.classes ?? []).length;

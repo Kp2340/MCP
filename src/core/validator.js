@@ -1,6 +1,8 @@
 import path from "path";
 
 export function validatePath(projectRoot, relativePath) {
+    // Strip Next.js / Vite path aliases (e.g. @/components/Foo → components/Foo)
+    relativePath = relativePath.replace(/^@\//, "").replace(/^~\//, "");
     // Block absolute paths, traversal, and null bytes
     if (
         path.isAbsolute(relativePath) ||

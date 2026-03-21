@@ -14,10 +14,6 @@ export function extractJSON(text) {
         .replace(/```/g, "")
         .trim();
 
-    // Fix invalid JSON escape sequences produced by LLM (e.g. regex /\S+@\S+/)
-    // Replaces bare \S \w \d etc. with escaped versions so JSON.parse doesn't throw
-    text = text.replace(/\\([^"\\/bfnrtu0-9])/g, "\\\\$1");
-
     // Find the first '{' and balance-match to its closing '}'
     const start = text.indexOf("{");
     if (start === -1) return text;
@@ -37,7 +33,14 @@ export function extractJSON(text) {
         if (ch === "{") depth++;
         if (ch === "}") {
             depth--;
-            if (depth === 0) return text.slice(start, i + 1);
+            if (depth === 0) {
+                const extracted = text.slice(start, i + 1);
+                // Fix invalid JSON escape sequences AFTER extraction.
+                // LLM sometimes outputs regex like /\S+@\S+/ inside JSON strings,
+                // which produces invalid \S escape that breaks JSON.parse.
+                // Only fix bare escapes that are NOT valid JSON escapes.
+                return extracted.replace(/\\([^"\\/bfnrtu0-9])/g, "\\\\$1");
+            }
         }
     }
 

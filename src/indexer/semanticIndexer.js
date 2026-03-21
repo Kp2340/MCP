@@ -1,75 +1,53 @@
 import fs from "fs";
 import path from "path";
-import { getParser } from "./languageLoader.js";
-import { IGNORE_FOLDERS, INDEX_CACHE_FILE } from "../core/constants.js";
+import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS, INDEX_CACHE_FILE } from "../core/constants.js";
 
 /**
- * Build a semantic index of all classes, functions, and exported arrow
- * functions in the project.
- *
- * Improvements over v1:
- *   - Arrow functions: detects `export const Foo = () => ...` and
- *     `const Foo = function() {}` patterns (dominant React pattern)
- *   - Line numbers: each entry now includes { name, file, line }
- *   - Persistent cache: writes .ai-dev-index-cache.json so project_find_symbol
- *     works instantly after MCP server restarts without a full rebuild
+ * Regex-based semantic indexer.
+ * Replaces tree-sitter to avoid native module version conflicts.
+ * Detects: classes, functions, arrow functions, React components.
  */
 export function buildSemanticIndex(projectRoot) {
     const index = { classes: [], functions: [] };
 
-    function scanNode(node, file) {
-        const type = node.type;
+    // Patterns to detect symbols
+    const patterns = [
+        // class Foo  /  class Foo extends Bar
+        { kind: "class",    re: /^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Z][\w]*)/ },
+        // function foo(  /  export function Foo(
+        { kind: "function", re: /^\s*(?:export\s+)?(?:async\s+)?function\s+([\w]+)\s*\(/ },
+        // export default function Foo(
+        { kind: "function", re: /^\s*export\s+default\s+(?:async\s+)?function\s+([\w]+)\s*\(/ },
+        // const Foo = () =>  /  const foo = async () =>
+        { kind: "function", re: /^\s*(?:export\s+)?const\s+([\w]+)\s*=\s*(?:async\s+)?\(/ },
+        // const Foo = function(
+        { kind: "function", re: /^\s*(?:export\s+)?const\s+([\w]+)\s*=\s*(?:async\s+)?function/ },
+        // Java/Kotlin: public class Foo
+        { kind: "class",    re: /^\s*(?:public|private|protected|internal)?\s*(?:data\s+)?class\s+([A-Z][\w]*)/ },
+        // Java: public void foo(  /  public String getFoo(
+        { kind: "function", re: /^\s*(?:public|private|protected|static|async|override|suspend)[\w\s]*\s+([\w]+)\s*\([^)]*\)\s*(?::\s*[\w<>\[\]?]+)?\s*\{/ },
+    ];
 
-        // ─ Class declarations ───────────────────────────────────────────────
-        if (type === "class_declaration" || type === "class_definition") {
-            const nameNode = node.childForFieldName("name");
-            if (nameNode) {
-                index.classes.push({
-                    name: nameNode.text,
-                    file,
-                    line: node.startPosition.row + 1
-                });
+    function scanFile(fullPath, relPath) {
+        let source;
+        try {
+            source = fs.readFileSync(fullPath, "utf8");
+        } catch {
+            return;
+        }
+
+        const lines = source.split(/\r?\n/);
+        lines.forEach((line, i) => {
+            for (const { kind, re } of patterns) {
+                const m = line.match(re);
+                if (m && m[1] && m[1].length > 1) {
+                    const entry = { name: m[1], file: relPath, line: i + 1 };
+                    if (kind === "class") index.classes.push(entry);
+                    else                  index.functions.push(entry);
+                    break; // one match per line
+                }
             }
-        }
-
-        // ─ Named function declarations and method definitions ───────────────
-        if (
-            type === "function_declaration" ||
-            type === "method_definition" ||
-            type === "function_expression"
-        ) {
-            const nameNode = node.childForFieldName("name");
-            if (nameNode) {
-                index.functions.push({
-                    name: nameNode.text,
-                    file,
-                    line: node.startPosition.row + 1
-                });
-            }
-        }
-
-        // ─ Arrow functions and function expressions assigned to variables ─────
-        // Covers: export const Foo = () => ...  AND  const bar = function() {}
-        // This is the dominant pattern in React/Next.js and was missing in v1.
-        if (type === "variable_declarator") {
-            const nameNode  = node.childForFieldName("name");
-            const valueNode = node.childForFieldName("value");
-            if (
-                nameNode &&
-                valueNode &&
-                (valueNode.type === "arrow_function" || valueNode.type === "function_expression")
-            ) {
-                index.functions.push({
-                    name: nameNode.text,
-                    file,
-                    line: node.startPosition.row + 1
-                });
-            }
-        }
-
-        for (const child of node.children) {
-            scanNode(child, file);
-        }
+        });
     }
 
     function walk(dir) {
@@ -88,29 +66,22 @@ export function buildSemanticIndex(projectRoot) {
             }
 
             const ext = path.extname(item.name);
-            const parser = getParser(ext);
-            if (!parser) continue;
+            if (!INDEXABLE_EXTENSIONS.includes(ext)) continue;
 
-            const full = path.join(dir, item.name);
-            try {
-                const source  = fs.readFileSync(full, "utf8");
-                const tree    = parser.parse(source);
-                const relPath = path.relative(projectRoot, full);
-                scanNode(tree.rootNode, relPath);
-            } catch {
-                // Parse error on this file — skip silently
-            }
+            const full    = path.join(dir, item.name);
+            const relPath = path.relative(projectRoot, full);
+            scanFile(full, relPath);
         }
     }
 
     walk(projectRoot);
 
-    // Persist to disk so MCP server restarts don't need a full rebuild
+    // Persist to disk
     const cachePath = path.join(projectRoot, INDEX_CACHE_FILE);
     try {
         fs.writeFileSync(cachePath, JSON.stringify(index), "utf8");
     } catch {
-        // Non-fatal — in-memory index still works
+        // Non-fatal
     }
 
     return index;
@@ -118,7 +89,6 @@ export function buildSemanticIndex(projectRoot) {
 
 /**
  * Load the persisted index from disk if available.
- * Returns null if cache is missing or corrupt.
  */
 export function loadCachedIndex(projectRoot) {
     const cachePath = path.join(projectRoot, INDEX_CACHE_FILE);

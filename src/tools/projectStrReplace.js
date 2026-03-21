@@ -3,18 +3,6 @@ import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
 import { validatePath, sanitizeCommitMessage } from "../core/validator.js";
 
-/**
- * project_str_replace
- *
- * Applies targeted search-and-replace edits to project files instead of
- * rewriting entire files. Much safer and more token-efficient than
- * project_apply_changes for small modifications.
- *
- * Each edit:
- *   - finds the FIRST occurrence of `search` in the file
- *   - replaces it with `replace`
- *   - throws if `search` is not found (prevents silent no-ops)
- */
 export function projectStrReplace({ project, edits, commitMessage }) {
     const config = getProject(project);
     const root = config.root;
@@ -32,23 +20,40 @@ export function projectStrReplace({ project, edits, commitMessage }) {
             throw new Error("Each edit must have path, search, and replace fields");
         }
 
-        const fullPath = validatePath(root, relativePath);
+        let fullPath = validatePath(root, relativePath);
 
         if (!fs.existsSync(fullPath)) {
-            throw new Error(`File not found: ${relativePath}`);
+            const searchDirs = ["src/components", "src/app", "src", "app", "components"];
+            let found = false;
+            for (const dir of searchDirs) {
+                try {
+                    const candidate = validatePath(root, `${dir}/${relativePath}`);
+                    if (fs.existsSync(candidate)) {
+                        fullPath = candidate;
+                        found = true;
+                        break;
+                    }
+                } catch { /* invalid path - skip */ }
+            }
+            if (!found) throw new Error(`File not found: ${relativePath}`);
         }
 
         const original = fs.readFileSync(fullPath, "utf8");
 
-        if (!original.includes(search)) {
+        // Normalize line endings for comparison — LLM returns LF, files may have CRLF
+        const normalizedOriginal = original.replace(/\r\n/g, "\n");
+        const normalizedSearch   = search.replace(/\r\n/g, "\n").trim();
+        const normalizedReplace  = replace.replace(/\r\n/g, "\n");
+
+        if (!normalizedOriginal.includes(normalizedSearch)) {
             throw new Error(
                 `Search string not found in ${relativePath}.\n` +
                 `Searched for: ${search.substring(0, 120)}`
             );
         }
 
-        // Replace only the first occurrence — intentional, safer than replaceAll
-        const updated = original.replace(search, replace);
+        // Replace in normalized content
+        const updated = normalizedOriginal.replace(normalizedSearch, normalizedReplace);
         fs.writeFileSync(fullPath, updated, "utf8");
         results.push(`  edited: ${relativePath}`);
     }
