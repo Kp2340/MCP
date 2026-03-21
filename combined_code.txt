@@ -723,6 +723,8 @@ import { projectIndex }      from "./tools/projectIndex.js";
 import { projectStrReplace } from "./tools/projectStrReplace.js";
 import { analyzeProject }    from "./tools/staticAnalyzer.js";
 import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
+import { projectDiff }       from "./tools/projectDiff.js";
+import { projectGitLog }     from "./tools/projectGitLog.js";
 
 import { getProject, listProjects } from "./core/projectRegistry.js";
 import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
@@ -731,7 +733,7 @@ import { embed }                    from "./vector/embedder.js";
 import { storeMemory, queryMemory } from "./vector/memory.js";
 
 const server = new Server(
-    { name: "ai-dev-mcp", version: "3.0.0" },
+    { name: "ai-dev-mcp", version: "4.0.0" },
     { capabilities: { tools: {} } }
 );
 
@@ -795,10 +797,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_search",
-            description: "Search code using ripgrep",
+            description: "Search code using ripgrep. Optional fileType filter (e.g. 'js', 'ts', 'java').",
             inputSchema: {
                 type: "object",
-                properties: { project: { type: "string" }, query: { type: "string" } },
+                properties: {
+                    project:  { type: "string" },
+                    query:    { type: "string" },
+                    fileType: { type: "string", description: "Optional ripgrep file type filter" }
+                },
                 required: ["project", "query"]
             }
         },
@@ -880,6 +886,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             name: "project_list",
             description: "List all available projects registered in this MCP server",
             inputSchema: { type: "object", properties: {}, required: [] }
+        },
+        {
+            name: "project_diff",
+            description: "Show uncommitted git changes as a unified diff. Use before committing to review what the agent changed.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    staged:  { type: "boolean", description: "If true, show staged changes only" }
+                },
+                required: ["project"]
+            }
+        },
+        {
+            name: "project_git_log",
+            description: "Show recent git commit history. Helps agent avoid duplicate commits.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project: { type: "string" },
+                    count:   { type: "number", description: "Number of commits to show (default 10, max 30)" }
+                },
+                required: ["project"]
+            }
         }
     ]
 }));
@@ -904,6 +934,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (tool === "project_index")          return projectIndex(args);
     if (tool === "project_find_symbol")    return projectFindSymbol(args);
     if (tool === "project_analyze")        return analyzeProject(args);
+    if (tool === "project_diff")           return projectDiff(args);
+    if (tool === "project_git_log")        return projectGitLog(args);
 
     if (tool === "project_list") {
         return {
@@ -1615,13 +1647,22 @@ function extractPathsFromArgs(tool, args) {
 
 // ─── ExecutionState class ─────────────────────────────────────────────────────
 
+/** Normalize path separators to forward slashes for cross-platform consistency. */
+function normalizePath(p) {
+    return p ? p.replace(/\\/g, "/") : p;
+}
+
 export class ExecutionState {
     constructor() {
         this.filesRead     = new Set();  // paths passed to project_read_files
         this.filesModified = new Set();  // paths written by apply_changes / str_replace
+        this.filesCreated  = new Set();  // paths written for the first time (new files)
         this.toolsUsed     = [];         // [{ tool, stepIndex }]
         this.errors        = [];         // [{ type, text, stepIndex }]
         this.stepCount     = 0;
+        // Tool result cache: avoid re-running identical tool calls within a run
+        // Key: "toolName::JSON(args)" → Value: result text
+        this._toolCache    = new Map();
     }
 
     /**
@@ -1631,17 +1672,39 @@ export class ExecutionState {
      * @param {string} resultText  - tool result text
      * @param {number} stepIndex
      */
+    /**
+     * Check if an identical tool call was already made this run.
+     * Returns cached result text or null.
+     */
+    getCachedResult(tool, args) {
+        const key = `${tool}::${JSON.stringify(args)}`;
+        return this._toolCache.get(key) || null;
+    }
+
+    setCachedResult(tool, args, resultText) {
+        const key = `${tool}::${JSON.stringify(args)}`;
+        this._toolCache.set(key, resultText);
+    }
+
     recordToolCall(tool, args, resultText, stepIndex) {
         this.stepCount = stepIndex;
         this.toolsUsed.push({ tool, stepIndex });
 
-        const paths = extractPathsFromArgs(tool, args);
+        // Cache idempotent read results for dedup within a run
+        if (tool === "project_read_files" || tool === "project_scan" || tool === "project_analyze") {
+            this.setCachedResult(tool, args, resultText);
+        }
+
+        // Normalize all tracked paths to forward slashes
+        const paths = extractPathsFromArgs(tool, args).map(normalizePath);
 
         if (tool === "project_read_files") {
             paths.forEach(p => this.filesRead.add(p));
         }
         if (tool === "project_apply_changes" || tool === "project_str_replace") {
             paths.forEach(p => {
+                const isNew = !this.filesRead.has(p) && !this.filesModified.has(p);
+                if (isNew) this.filesCreated.add(p);
                 this.filesModified.add(p);
                 this.filesRead.add(p);  // modified files were implicitly read too
             });
@@ -1664,12 +1727,17 @@ export class ExecutionState {
 
     /** True if a given file has already been read this run. */
     hasRead(filePath) {
-        return this.filesRead.has(filePath);
+        return this.filesRead.has(normalizePath(filePath));
     }
 
     /** True if a given file has been modified this run. */
     hasModified(filePath) {
-        return this.filesModified.has(filePath);
+        return this.filesModified.has(normalizePath(filePath));
+    }
+
+    /** True if a given file was created (not just edited) this run. */
+    hasCreated(filePath) {
+        return this.filesCreated.has(normalizePath(filePath));
     }
 
     /** Most recent error, or null. */
@@ -1696,6 +1764,9 @@ export function formatStateForPrompt(state) {
     if (state.filesModified.size > 0) {
         lines.push(`Files modified: ${[...state.filesModified].slice(0, 8).join(", ")}`);
     }
+    if (state.filesCreated.size > 0) {
+        lines.push(`Files created: ${[...state.filesCreated].slice(0, 4).join(", ")}`);
+    }
     if (state.errors.length > 0) {
         const last = state.errors[state.errors.length - 1];
         lines.push(`Last error type: ${last.type}`);
@@ -1715,9 +1786,9 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executor.js
 ========================================
 import { askLLM } from "./ollamaClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
-import { MAX_LLM_CALLS_PER_RUN } from "../core/constants.js";
+import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
-const MODEL = "qwen2.5-coder:7b";
+const MODEL = LLM_MODEL;
 
 // ─── Rule-based tool router ────────────────────────────────────────────────────
 // Fires BEFORE the LLM. If a step matches a confident rule the LLM call is
@@ -1754,6 +1825,14 @@ function routeByRule(step, project) {
     // List projects
     if (/\b(list projects|available projects|what projects)\b/.test(s))
         return JSON.stringify({ tool: "project_list", args: {} });
+
+    // Show diff / uncommitted changes
+    if (/\b(show diff|git diff|what changed|uncommitted|review changes)\b/.test(s))
+        return JSON.stringify({ tool: "project_diff", args: { project } });
+
+    // Git log / commit history
+    if (/\b(git log|commit history|recent commits|what was committed)\b/.test(s))
+        return JSON.stringify({ tool: "project_git_log", args: { project } });
 
     return null;
 }
@@ -1935,6 +2014,8 @@ project_apply_changes — {
 }
 project_build_and_fix — { "tool": "project_build_and_fix", "args": { "project": "string" } }
 project_analyze       — { "tool": "project_analyze",       "args": { "project": "string" } }
+project_diff          — { "tool": "project_diff",          "args": { "project": "string" } }
+project_git_log       — { "tool": "project_git_log",       "args": { "project": "string", "count": 10 } }
 
 Constraints:
 - All args MUST be inside the "args" key
@@ -1943,7 +2024,10 @@ Constraints:
 
 JSON:`;
 
-    const raw       = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 2048 });
+    // Use larger budget only when the step involves writing full file content
+    const isApplyStep = /apply.?change|new file|create file/i.test(step);
+    const numPredict  = isApplyStep ? NUM_PREDICT.executor_apply : NUM_PREDICT.executor;
+    const raw         = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: numPredict });
     const extracted = extractJSON(raw);
 
     try {
@@ -2204,8 +2288,9 @@ export class MCPClient {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\ollamaClient.js
 ========================================
 import fetch from "node-fetch";
+import { OLLAMA_HOST, LLM_TEMPERATURE } from "../core/constants.js";
 
-const OLLAMA_URL = "http://localhost:11434/api/generate";
+const OLLAMA_URL = `${OLLAMA_HOST}/api/generate`;
 
 /**
  * Call the local Ollama LLM.
@@ -2343,7 +2428,8 @@ export function handleFailureDeterministically(failureType, project, execState) 
     return toolSteps;
 }
 
-const MODEL = "qwen2.5-coder:7b";
+import { LLM_MODEL, NUM_PREDICT, KEYWORD_STEMS } from "../core/constants.js";
+const MODEL = LLM_MODEL;
 
 // ─── Real token estimator ────────────────────────────────────────────────────
 export function estimateTokens(...texts) {
@@ -2411,7 +2497,11 @@ Rules:
  * Returns template steps if confident match found, or null.
  */
 function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null, activeErrorType = null) {
-    const lower = prompt.toLowerCase();
+    // Normalize stems so "creating" matches "create", "fixing" matches "fix", etc.
+    let lower = prompt.toLowerCase();
+    for (const [stem, canonical] of Object.entries(KEYWORD_STEMS)) {
+        lower = lower.replace(new RegExp(`\\b${stem}\\b`, "g"), canonical);
+    }
     let bestTemplate = null;
     let bestScore    = 0;
 
@@ -2854,9 +2944,9 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\reviewer.js
  */
 
 import { askLLM } from "./ollamaClient.js";
-import { MAX_LLM_CALLS_PER_RUN } from "../core/constants.js";
+import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
-const MODEL = "qwen2.5-coder:7b";
+const MODEL = LLM_MODEL;
 
 /**
  * Review the agent's changes for correctness.
@@ -2895,15 +2985,18 @@ export async function reviewChanges(project, originalPrompt, execState, costStat
         `Total steps: ${execState.stepCount}`
     ].join("\n");
 
-    // Truncated execution log for context
+    // Use last 2000 chars of execution log + full list of modified file diffs for richer signal
     const contextSnippet = executionContext.substring(executionContext.length - 2000);
+    const modifiedSummary = modifiedFiles.length > 0
+        ? `\nFiles changed this run:\n${modifiedFiles.map(f => `  - ${f}`).join("\n")}`
+        : "";
 
     const prompt = `You are a senior code reviewer. Review the following coding agent run and assess correctness.
 
 ${stateLines}
 
 Recent execution log:
-${contextSnippet}
+${contextSnippet}${modifiedSummary}
 
 Output ONLY a JSON object with these fields:
 - verdict: "correct" | "likely_correct" | "has_issues" | "needs_review"
@@ -2913,7 +3006,7 @@ Output ONLY a JSON object with these fields:
 JSON:`;
 
     try {
-        const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 300 });
+        const raw = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: NUM_PREDICT.reviewer });
         costState.totalChars += prompt.length + raw.length;
 
         // Parse reviewer output
@@ -3268,16 +3361,23 @@ import { buildProject } from "../tools/projectBuild.js";
 import { askLLM } from "../agent/ollamaClient.js";
 import { getProject } from "../core/projectRegistry.js";
 import { applyChanges } from "../tools/applyChanges.js";
+import { projectStrReplace } from "../tools/projectStrReplace.js";
+import { validatePath } from "../core/validator.js";
 import { safeParse } from "../utils/jsonUtils.js";
 import fs from "fs";
 import path from "path";
 
-const MODEL = "qwen2.5-coder:7b";
+import { LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
+const MODEL = LLM_MODEL;
 const MAX_ATTEMPTS = 5;
 
 /**
  * Extract error lines from raw build output.
  * Handles Java (javac/gradle), TypeScript (tsc), and generic patterns.
+ */
+/**
+ * Extract true compiler/build error lines — avoids false positives from
+ * log prefixes like "[ERROR]" that appear in successful Gradle runs.
  */
 function parseErrors(output) {
     if (!output) return [];
@@ -3285,10 +3385,15 @@ function parseErrors(output) {
         .split("\n")
         .map(l => l.trim())
         .filter(l =>
-            l.includes("error:") ||
-            l.includes("ERROR") ||
-            l.includes("FAILED") ||
-            l.match(/^\s*at .+\(.+:\d+\)/)    // stack traces
+            // Java/Kotlin: "src/Foo.java:12: error: ..."
+            /\.(java|kt|go):\d+: error:/i.test(l) ||
+            // TypeScript/JS: "error TS1234:" or "SyntaxError:"
+            /\berror\s+TS\d+:/i.test(l) ||
+            /\bSyntaxError:/i.test(l) ||
+            // Gradle/Maven task failure
+            /TASK.*FAILED|BUILD FAILED/i.test(l) ||
+            // Node.js: standard error format
+            /^Error:/i.test(l)
         )
         .slice(0, 30);
 }
@@ -3354,7 +3459,7 @@ export async function runAutoFix(projectName) {
         const errorFiles = extractFilesFromErrors(errors, project.root);
         const fileContext = readFilesSafe(errorFiles, project.root);
 
-        const prompt = `Fix the following build errors. Output ONLY a JSON object, no explanation.
+        const prompt = `Fix the following build errors using TARGETED edits. Output ONLY a JSON object, no explanation.
 
 Build errors:
 ${errors.slice(0, 20).join("\n")}
@@ -3362,35 +3467,65 @@ ${errors.slice(0, 20).join("\n")}
 Relevant source files:
 ${fileContext || "(no source files found)"}
 
-Return this exact JSON format:
+Prefer str_replace edits over full file rewrites.
+Return this exact JSON format (choose ONE of the two styles):
+
+Style A — targeted edits (PREFERRED, use when only a few lines change):
 {
+  "mode": "str_replace",
+  "edits": [
+    { "path": "relative/path/to/file.js", "search": "exact lines to find", "replace": "replacement lines" }
+  ]
+}
+
+Style B — full rewrite (only use when the whole file is broken):
+{
+  "mode": "full_rewrite",
   "files": [
-    {
-      "path": "relative/path/to/file.js",
-      "content": "complete corrected file content here"
-    }
+    { "path": "relative/path/to/file.js", "content": "complete corrected file content" }
   ]
 }
 
 JSON:`;
 
-        const response = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: 4096 });
+        const response = await askLLM(MODEL, prompt, { temperature: 0.1, num_predict: NUM_PREDICT.autofix });
         const { ok, value } = safeParse(response);
 
-        if (!ok || !Array.isArray(value?.files)) {
+        if (!ok || !value?.mode) {
             console.warn("[autofix] LLM returned invalid patch — retrying");
             continue;
         }
 
-        console.error(`[autofix] Applying ${value.files.length} file fix(es)...`);
-
         try {
-            await applyChanges({
-                project: projectName,
-                files: value.files,
-                commitMessage: `Auto-fix attempt ${attempt + 1}`,
-                increment: false
-            });
+            if (value.mode === "str_replace" && Array.isArray(value.edits)) {
+                // Validate paths before applying
+                const safeEdits = value.edits.filter(e => {
+                    try { validatePath(project.root, e.path); return true; }
+                    catch { console.warn(`[autofix] Skipping unsafe path: ${e.path}`); return false; }
+                });
+                if (safeEdits.length > 0) {
+                    console.error(`[autofix] Applying ${safeEdits.length} str_replace edit(s)...`);
+                    await projectStrReplace({
+                        project: projectName,
+                        edits: safeEdits,
+                        commitMessage: `Auto-fix attempt ${attempt + 1} (str_replace)`
+                    });
+                }
+            } else if (value.mode === "full_rewrite" && Array.isArray(value.files)) {
+                const safeFiles = value.files.filter(f => {
+                    try { validatePath(project.root, f.path); return true; }
+                    catch { console.warn(`[autofix] Skipping unsafe path: ${f.path}`); return false; }
+                });
+                if (safeFiles.length > 0) {
+                    console.error(`[autofix] Applying ${safeFiles.length} full rewrite(s)...`);
+                    await applyChanges({
+                        project: projectName,
+                        files: safeFiles,
+                        commitMessage: `Auto-fix attempt ${attempt + 1} (full_rewrite)`,
+                        increment: false
+                    });
+                }
+            }
         } catch (err) {
             console.warn("[autofix] Could not apply patch:", err.message);
         }
@@ -3467,6 +3602,28 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\constants.js
 ========================================
+// ── Model config (single source of truth — change here to swap models) ─────────
+export const LLM_MODEL          = "qwen2.5-coder:7b";
+export const LLM_TEMPERATURE    = 0.1;
+export const OLLAMA_HOST        = process.env.OLLAMA_HOST || "http://localhost:11434";
+export const CHROMA_HOST        = process.env.CHROMA_HOST || "localhost";
+export const CHROMA_PORT        = parseInt(process.env.CHROMA_PORT || "8000", 10);
+
+// ── Embedding model versioning — bump when swapping models to avoid stale vectors
+export const EMBEDDING_MODEL    = "Xenova/all-MiniLM-L6-v2";
+export const EMBEDDING_VERSION  = "v1";  // appended to collection names
+
+// ── Dynamic num_predict budgets per call type ────────────────────────────────
+export const NUM_PREDICT = {
+    planner:    600,   // step list only — never needs 2048
+    executor:   512,   // single JSON tool call
+    executor_apply: 2048, // apply_changes needs full file content
+    compressor: 400,   // summary bullets
+    reviewer:   300,   // verdict JSON
+    memory:     120,   // single pattern JSON
+    autofix:    4096   // full file correction
+};
+
 export const IGNORE_FOLDERS = [
     ".git",
     "node_modules",
@@ -3506,6 +3663,16 @@ export const MAX_REPLANS              = 3;
 
 // Real token estimation: 1 token ≈ 4 chars (GPT/Qwen convention)
 export const CHARS_PER_TOKEN = 4;
+
+// ── Memory eviction ───────────────────────────────────────────────────────────
+export const MEMORY_MAX_ENTRIES       = 200;  // per-project cap before eviction
+export const MEMORY_EVICT_BATCH       = 20;   // how many low-score entries to drop
+
+// ── Syntax batch check ────────────────────────────────────────────────────────
+export const SYNTAX_BATCH_SIZE        = 50;   // files per node --check invocation
+
+// ── Incremental index ─────────────────────────────────────────────────────────
+export const INDEX_CACHE_FILE         = ".ai-dev-index-cache.json";
 
 // ── Tool-chain templates ──────────────────────────────────────────────────────
 export const TOOL_CHAIN_TEMPLATES = [
@@ -3569,8 +3736,65 @@ export const TOOL_CHAIN_TEMPLATES = [
             "Find the relevant symbol in the project",
             "Read the relevant files"
         ]
+    },
+    {
+        name:        "refactor",
+        keywords:    ["refactor", "rename", "restructure", "move", "extract", "clean up"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Run static analysis to identify issues",
+            "Find the relevant symbol in the project",
+            "Read the relevant files",
+            "Apply targeted refactor using project_str_replace",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "add_test",
+        keywords:    ["add test", "write test", "create test", "unit test", "test for"],
+        projectTypes: null,
+        intent:      "general",
+        steps: [
+            "Find the relevant symbol in the project",
+            "Read the relevant files",
+            "Read similar existing test for reference",
+            "Create the new test file using project_apply_changes",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "add_db_migration",
+        keywords:    ["add migration", "create migration", "add column", "add table", "alter table"],
+        projectTypes: ["spring-boot", "liferay-backend", "nodejs"],
+        intent:      "api",
+        steps: [
+            "Scan project structure to find migrations folder",
+            "Read similar existing migration for reference",
+            "Create the new migration file using project_apply_changes",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
     }
 ];
+
+// ── Keyword synonyms for heuristic planner (stem → canonical) ────────────────
+// Allows single-word prompts like "creating" to match "create" keywords.
+export const KEYWORD_STEMS = {
+    "creating": "create",
+    "adding":   "add",
+    "fixing":   "fix",
+    "building": "build",
+    "updating": "update",
+    "deleting": "delete",
+    "removing": "remove",
+    "refactoring": "refactor",
+    "renaming":  "rename",
+    "testing":   "test",
+    "analyzing": "analyze"
+};
 
 
 ========================================
@@ -3734,29 +3958,69 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\indexer\semanticIndexer.js
 import fs from "fs";
 import path from "path";
 import { getParser } from "./languageLoader.js";
-import { IGNORE_FOLDERS } from "../core/constants.js";
+import { IGNORE_FOLDERS, INDEX_CACHE_FILE } from "../core/constants.js";
 
+/**
+ * Build a semantic index of all classes, functions, and exported arrow
+ * functions in the project.
+ *
+ * Improvements over v1:
+ *   - Arrow functions: detects `export const Foo = () => ...` and
+ *     `const Foo = function() {}` patterns (dominant React pattern)
+ *   - Line numbers: each entry now includes { name, file, line }
+ *   - Persistent cache: writes .ai-dev-index-cache.json so project_find_symbol
+ *     works instantly after MCP server restarts without a full rebuild
+ */
 export function buildSemanticIndex(projectRoot) {
     const index = { classes: [], functions: [] };
 
     function scanNode(node, file) {
-        // FIX: use childForFieldName('name') — not firstChild which is the keyword
-        if (node.type === "class_declaration" || node.type === "class_definition") {
+        const type = node.type;
+
+        // ─ Class declarations ───────────────────────────────────────────────
+        if (type === "class_declaration" || type === "class_definition") {
             const nameNode = node.childForFieldName("name");
             if (nameNode) {
-                index.classes.push({ name: nameNode.text, file });
+                index.classes.push({
+                    name: nameNode.text,
+                    file,
+                    line: node.startPosition.row + 1
+                });
             }
         }
 
+        // ─ Named function declarations and method definitions ───────────────
         if (
-            node.type === "function_declaration" ||
-            node.type === "method_definition" ||
-            node.type === "arrow_function" ||
-            node.type === "function_expression"
+            type === "function_declaration" ||
+            type === "method_definition" ||
+            type === "function_expression"
         ) {
             const nameNode = node.childForFieldName("name");
             if (nameNode) {
-                index.functions.push({ name: nameNode.text, file });
+                index.functions.push({
+                    name: nameNode.text,
+                    file,
+                    line: node.startPosition.row + 1
+                });
+            }
+        }
+
+        // ─ Arrow functions and function expressions assigned to variables ─────
+        // Covers: export const Foo = () => ...  AND  const bar = function() {}
+        // This is the dominant pattern in React/Next.js and was missing in v1.
+        if (type === "variable_declarator") {
+            const nameNode  = node.childForFieldName("name");
+            const valueNode = node.childForFieldName("value");
+            if (
+                nameNode &&
+                valueNode &&
+                (valueNode.type === "arrow_function" || valueNode.type === "function_expression")
+            ) {
+                index.functions.push({
+                    name: nameNode.text,
+                    file,
+                    line: node.startPosition.row + 1
+                });
             }
         }
 
@@ -3774,7 +4038,6 @@ export function buildSemanticIndex(projectRoot) {
         }
 
         for (const item of items) {
-            // FIX: skip ignored folders — was missing before (indexed node_modules)
             if (item.isDirectory()) {
                 if (IGNORE_FOLDERS.includes(item.name)) continue;
                 walk(path.join(dir, item.name));
@@ -3787,19 +4050,43 @@ export function buildSemanticIndex(projectRoot) {
 
             const full = path.join(dir, item.name);
             try {
-                const source = fs.readFileSync(full, "utf8");
-                const tree = parser.parse(source);
+                const source  = fs.readFileSync(full, "utf8");
+                const tree    = parser.parse(source);
                 const relPath = path.relative(projectRoot, full);
                 scanNode(tree.rootNode, relPath);
             } catch {
-                // Parse error on this file — skip
+                // Parse error on this file — skip silently
             }
         }
     }
 
     walk(projectRoot);
+
+    // Persist to disk so MCP server restarts don't need a full rebuild
+    const cachePath = path.join(projectRoot, INDEX_CACHE_FILE);
+    try {
+        fs.writeFileSync(cachePath, JSON.stringify(index), "utf8");
+    } catch {
+        // Non-fatal — in-memory index still works
+    }
+
     return index;
 }
+
+/**
+ * Load the persisted index from disk if available.
+ * Returns null if cache is missing or corrupt.
+ */
+export function loadCachedIndex(projectRoot) {
+    const cachePath = path.join(projectRoot, INDEX_CACHE_FILE);
+    try {
+        if (!fs.existsSync(cachePath)) return null;
+        return JSON.parse(fs.readFileSync(cachePath, "utf8"));
+    } catch {
+        return null;
+    }
+}
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\applyChanges.js
@@ -3865,110 +4152,245 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectBuild.js
 ========================================
 import { exec } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
+import { BUILD_TIMEOUT_MS } from "../core/constants.js";
 
+/**
+ * project_build — Run the project build command.
+ *
+ * Improvements:
+ *   - Enforces BUILD_TIMEOUT_MS (120s) — prevents infinite hangs
+ *   - Returns structured { success, exitCode, output } for better error parsing
+ *   - Caps output at 8000 chars to avoid flooding the agent context
+ */
 export function buildProject({ project }) {
-
     const config = getProject(project);
 
     return new Promise((resolve) => {
-
-        exec(
+        const proc = exec(
             config.buildCommand,
-            { cwd: config.root },
+            { cwd: config.root, timeout: BUILD_TIMEOUT_MS },
             (error, stdout, stderr) => {
+                const output   = ((stdout || "") + "\n" + (stderr || "")).trim();
+                const success  = !error;
+                const exitCode = error?.code ?? 0;
+
+                // Prefix with status so the agent can detect success/failure in one glance
+                const prefix   = success
+                    ? "BUILD SUCCESS\n"
+                    : `BUILD FAILED (exit ${exitCode})\n`;
 
                 resolve({
-                    content: [
-                        {
-                            type: "text",
-                            text: stdout + "\n" + stderr
-                        }
-                    ],
-                    success: !error
+                    content: [{
+                        type: "text",
+                        text: (prefix + output).substring(0, 8000)
+                    }],
+                    success
                 });
-
             }
         );
 
+        // Belt-and-suspenders timeout kill
+        setTimeout(() => {
+            try { proc.kill(); } catch { /* already exited */ }
+            resolve({
+                content: [{ type: "text", text: `BUILD TIMEOUT after ${BUILD_TIMEOUT_MS / 1000}s` }],
+                success: false
+            });
+        }, BUILD_TIMEOUT_MS + 5000);
     });
-
 }
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectDiff.js
+========================================
+/**
+ * project_diff — Show uncommitted changes as a git diff.
+ *
+ * New tool: lets the agent inspect exactly what it has changed
+ * before committing, enabling pre-commit review and targeted fixes.
+ *
+ * Returns:
+ *   - Unified diff of all unstaged + staged changes
+ *   - Summary line counts (files changed, insertions, deletions)
+ *   - Capped at 6000 chars to avoid flooding agent context
+ */
+
+import { spawnSync } from "child_process";
+import { getProject } from "../core/projectRegistry.js";
+
+export function projectDiff({ project, staged = false }) {
+    const config = getProject(project);
+    const root   = config.root;
+
+    // Get unified diff
+    const diffArgs = staged
+        ? ["diff", "--cached", "--unified=3"]
+        : ["diff", "HEAD", "--unified=3"];
+
+    const diffResult = spawnSync("git", diffArgs, { cwd: root, encoding: "utf8" });
+    const diff       = (diffResult.stdout || "").trim();
+
+    // Get short stat summary
+    const statArgs   = staged
+        ? ["diff", "--cached", "--stat"]
+        : ["diff", "HEAD", "--stat"];
+    const statResult = spawnSync("git", statArgs, { cwd: root, encoding: "utf8" });
+    const stat       = (statResult.stdout || "").trim();
+
+    if (!diff && !stat) {
+        return {
+            content: [{ type: "text", text: "No changes detected (working tree is clean)." }]
+        };
+    }
+
+    const output = [
+        stat ? `Summary:\n${stat}` : "",
+        diff ? `\nDiff:\n${diff.substring(0, 5500)}` : ""
+    ].filter(Boolean).join("\n");
+
+    return {
+        content: [{ type: "text", text: output }]
+    };
+}
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectFindSymbol.js
 ========================================
 import { getIndex } from "./projectIndex.js";
 
+/**
+ * Find a symbol (class, function, or exported arrow function) by name.
+ * Returns file path + line number for direct navigation.
+ * Falls back to cached index on disk if in-memory index is missing.
+ */
 export function projectFindSymbol({ project, name }) {
-
     const index = getIndex(project);
 
     if (!index) {
-        throw new Error("Project index not built");
+        throw new Error("Project index not built. Run project_index first.");
     }
 
-    const matches = [];
+    const lowerName = name.toLowerCase();
+    const matches   = [];
 
-    index.classes.forEach(c => {
-        if (c.name.includes(name)) matches.push(c);
-    });
+    // Case-insensitive partial match on both classes and functions
+    for (const c of index.classes) {
+        if (c.name.toLowerCase().includes(lowerName)) {
+            matches.push({ kind: "class", name: c.name, file: c.file, line: c.line || null });
+        }
+    }
+    for (const f of index.functions) {
+        if (f.name.toLowerCase().includes(lowerName)) {
+            matches.push({ kind: "function", name: f.name, file: f.file, line: f.line || null });
+        }
+    }
 
-    index.functions.forEach(f => {
-        if (f.name.includes(name)) matches.push(f);
-    });
+    if (matches.length === 0) {
+        return {
+            content: [{ type: "text", text: `No symbol matching "${name}" found in index.` }]
+        };
+    }
+
+    // Format as human-readable lines for easy LLM consumption
+    const lines = matches.map(m =>
+        `${m.kind.padEnd(8)} ${m.name}  →  ${m.file}${m.line ? `:${m.line}` : ""}`
+    );
 
     return {
-        content: [
-            {
-                type: "text",
-                text: JSON.stringify(matches, null, 2)
-            }
-        ]
+        content: [{ type: "text", text: lines.join("\n") }]
     };
 }
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectGitLog.js
+========================================
+/**
+ * project_git_log — Show recent git commit history.
+ *
+ * New tool: gives the agent awareness of what has already been committed
+ * in this session, preventing duplicate commits and helping it understand
+ * what state the codebase is currently in.
+ *
+ * Returns last N commits (default 10) with:
+ *   - Short hash
+ *   - Author date
+ *   - Commit message
+ */
+
+import { spawnSync } from "child_process";
+import { getProject } from "../core/projectRegistry.js";
+
+export function projectGitLog({ project, count = 10 }) {
+    const config = getProject(project);
+    const root   = config.root;
+
+    const result = spawnSync(
+        "git",
+        ["log", `--max-count=${Math.min(count, 30)}`, "--oneline", "--no-decorate"],
+        { cwd: root, encoding: "utf8" }
+    );
+
+    const log = (result.stdout || "").trim();
+
+    if (!log) {
+        return {
+            content: [{ type: "text", text: "No commits found." }]
+        };
+    }
+
+    return {
+        content: [{ type: "text", text: log }]
+    };
+}
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectIndex.js
 ========================================
 import { getProject } from "../core/projectRegistry.js";
-import { buildSemanticIndex } from "../indexer/semanticIndexer.js";
+import { buildSemanticIndex, loadCachedIndex } from "../indexer/semanticIndexer.js";
 
-let cachedIndexes = {};
+const cachedIndexes = {};
 
 export async function projectIndex({ project }) {
-
     const root = getProject(project).root;
 
-    if (cachedIndexes[project]) {
-
-        return {
-            content: [{
-                type: "text",
-                text: "Index already exists"
-            }]
-        };
-
-    }
-
-    console.error("Building semantic index:", project);
-
+    // Always rebuild on explicit call — ensures fresh symbols after code changes
+    console.error("[index] Building semantic index:", project);
     const index = buildSemanticIndex(root);
-
     cachedIndexes[project] = index;
 
-    return {
-        content: [
-            {
-                type: "text",
-                text: "Index built successfully"
-            }
-        ]
-    };
+    const classCount    = index.classes.length;
+    const functionCount = index.functions.length;
 
+    return {
+        content: [{
+            type: "text",
+            text: `Index built: ${classCount} classes, ${functionCount} functions/components indexed.`
+        }]
+    };
 }
 
+/**
+ * Get the in-memory index, auto-loading from disk cache if not yet built.
+ * This ensures project_find_symbol works immediately after MCP server restart.
+ */
 export function getIndex(project) {
-    return cachedIndexes[project];
+    if (cachedIndexes[project]) return cachedIndexes[project];
+
+    // Attempt to load from persisted cache (written by buildSemanticIndex)
+    try {
+        const root   = getProject(project).root;
+        const cached = loadCachedIndex(root);
+        if (cached) {
+            cachedIndexes[project] = cached;
+            console.error(`[index] Loaded cached index for "${project}" from disk`);
+            return cached;
+        }
+    } catch { /* project not registered — fall through */ }
+
+    return null;
 }
 
 ========================================
@@ -4005,47 +4427,50 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectSearch.js
 ========================================
 import { execFileSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
+import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 
-export function searchProject({ project, query }) {
-
+/**
+ * project_search — ripgrep-based code search.
+ *
+ * Improvements:
+ *   - Always ignores IGNORE_FOLDERS (node_modules, .git, dist, etc.)
+ *   - Accepts optional `fileType` filter (e.g. "js", "ts", "java")
+ *   - Returns structured output: file, line, match text
+ *   - Caps at 30 matches with 300-char column limit
+ */
+export function searchProject({ project, query, fileType = null }) {
     const root = getProject(project).root;
 
+    // Build rg ignore flags from IGNORE_FOLDERS
+    const ignoreArgs = IGNORE_FOLDERS.flatMap(f => ["--glob", `!${f}/**`]);
+
+    const typeArgs = fileType ? ["--type", fileType] : [];
+
+    const args = [
+        query,
+        "-n",
+        "--max-count",   "30",
+        "--max-columns", "300",
+        "--no-heading",
+        "--with-filename",
+        ...ignoreArgs,
+        ...typeArgs
+    ];
+
     try {
+        const raw    = execFileSync("rg", args, { cwd: root }).toString();
+        const lines  = raw.trim().split("\n").filter(Boolean);
 
-        const result = execFileSync(
-            "rg",
-            [
-                query,
-                "-n",
-                "--max-count",
-                "20",
-                "--max-columns",
-                "200",
-                "--no-heading"
-            ],
-            { cwd: root }
-        ).toString();
+        // Format: "file:line:match" — keep as-is, trim each line
+        const output = lines.map(l => l.trim()).join("\n");
 
         return {
-            content: [
-                {
-                    type: "text",
-                    text: result.substring(0, 4000)
-                }
-            ]
+            content: [{ type: "text", text: output.substring(0, 5000) }]
         };
-
     } catch {
-
         return {
-            content: [
-                {
-                    type: "text",
-                    text: "No results found"
-                }
-            ]
+            content: [{ type: "text", text: `No results found for: ${query}` }]
         };
-
     }
 }
 
@@ -4264,26 +4689,68 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\staticAnalyzer.js
  * project_analyze — Pre-build static analyzer
  *
  * Runs BEFORE a full build to catch cheap-to-detect issues:
- *   1. Broken relative imports / require() paths
+ *   1. Broken relative imports / require() paths — including tsconfig.json alias resolution
  *   2. Files referenced in imports that don't exist on disk
- *   3. Basic syntax check via Node --check (JS/TS only)
+ *   3. Batched syntax check via Node --check (JS/JSX — SYNTAX_BATCH_SIZE files per spawn)
+ *   4. TypeScript type-check via tsc --noEmit (nextjs / react-vite only)
  *
- * This avoids spinning up a full Gradle/Maven/Vite build just to discover
- * a typo in an import path — saving 30–120 seconds per autofix attempt.
+ * Improvements over v1:
+ *   - Alias resolution: @/components/... resolved via tsconfig.json/jsconfig.json paths
+ *   - Batched syntax: one node --check per 50 files instead of one per file
+ *   - TypeScript: tsc --noEmit surfaces TS type errors before full build
  */
 
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
-import { IGNORE_FOLDERS } from "../core/constants.js";
+import { IGNORE_FOLDERS, SYNTAX_BATCH_SIZE } from "../core/constants.js";
 
 const JS_EXTENSIONS  = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs"]);
 const RESOLVABLE_EXT = ["", ".js", ".jsx", ".ts", ".tsx", "/index.js", "/index.ts"];
 
-/** Try to resolve a relative import path to an actual file. */
-function resolveImport(fromFile, importPath) {
-    if (!importPath.startsWith(".")) return true;  // non-relative = skip
+/**
+ * Load path aliases from tsconfig.json or jsconfig.json if present.
+ * Returns a map of alias prefix -> array of resolved base paths.
+ * Example: { "@/": ["/abs/path/to/src/"] }
+ */
+function loadAliases(projectRoot) {
+    const aliases = {};
+    for (const cfgFile of ["tsconfig.json", "jsconfig.json"]) {
+        const cfgPath = path.join(projectRoot, cfgFile);
+        if (!fs.existsSync(cfgPath)) continue;
+        try {
+            const cfg    = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+            const paths  = cfg.compilerOptions?.paths || {};
+            const base   = cfg.compilerOptions?.baseUrl || ".";
+            for (const [alias, targets] of Object.entries(paths)) {
+                const prefix   = alias.replace("*", "");
+                const resolved = targets.map(t =>
+                    path.resolve(projectRoot, base, t.replace("*", ""))
+                );
+                aliases[prefix] = resolved;
+            }
+        } catch { /* malformed config — skip */ }
+        break;
+    }
+    return aliases;
+}
+
+/** Try to resolve an import path to an actual file, including aliases. */
+function resolveImport(fromFile, importPath, aliases = {}) {
+    // Alias resolution first
+    for (const [prefix, bases] of Object.entries(aliases)) {
+        if (importPath.startsWith(prefix)) {
+            const suffix = importPath.slice(prefix.length);
+            for (const base of bases) {
+                const candidate = path.join(base, suffix);
+                if (RESOLVABLE_EXT.some(ext => fs.existsSync(candidate + ext))) return true;
+            }
+            return false;  // alias matched but file not found
+        }
+    }
+    // Non-relative, non-alias = node_modules package = skip
+    if (!importPath.startsWith(".")) return true;
     const base = path.resolve(path.dirname(fromFile), importPath);
     return RESOLVABLE_EXT.some(ext => fs.existsSync(base + ext));
 }
@@ -4305,7 +4772,8 @@ function extractImports(content) {
 
 /** Walk the project and collect broken imports. */
 function checkBrokenImports(projectRoot) {
-    const issues = [];
+    const issues  = [];
+    const aliases = loadAliases(projectRoot);
 
     function walk(dir) {
         let items;
@@ -4329,7 +4797,7 @@ function checkBrokenImports(projectRoot) {
 
             const imports = extractImports(content);
             for (const imp of imports) {
-                if (!resolveImport(full, imp)) {
+                if (!resolveImport(full, imp, aliases)) {
                     issues.push({
                         file:   path.relative(projectRoot, full),
                         import: imp,
@@ -4344,52 +4812,93 @@ function checkBrokenImports(projectRoot) {
     return issues;
 }
 
-/** Quick Node syntax check on JS/JSX files (skips TS — needs tsc). */
-function checkSyntax(projectRoot) {
-    const issues = [];
-
+/** Collect all JS/JSX/MJS files for batched syntax checking. */
+function collectJsFiles(projectRoot) {
+    const files = [];
     function walk(dir) {
         let items;
         try { items = fs.readdirSync(dir, { withFileTypes: true }); }
         catch { return; }
-
         for (const item of items) {
             if (item.isDirectory()) {
                 if (IGNORE_FOLDERS.includes(item.name)) continue;
                 walk(path.join(dir, item.name));
                 continue;
             }
-
             const ext = path.extname(item.name);
-            if (ext !== ".js" && ext !== ".jsx" && ext !== ".mjs") continue;
-
-            const full = path.join(dir, item.name);
-            const result = spawnSync("node", ["--check", full], { encoding: "utf8" });
-
-            if (result.status !== 0 && result.stderr) {
-                issues.push({
-                    file:  path.relative(projectRoot, full),
-                    issue: result.stderr.trim().split("\n")[0]  // first line only
-                });
-            }
+            if (ext === ".js" || ext === ".jsx" || ext === ".mjs") files.push(path.join(dir, item.name));
         }
     }
-
     walk(projectRoot);
+    return files;
+}
+
+/**
+ * Batched Node syntax check — spawns node --check on SYNTAX_BATCH_SIZE files at once.
+ * Dramatically faster than one subprocess per file on large projects.
+ */
+function checkSyntax(projectRoot) {
+    const issues = [];
+    const files  = collectJsFiles(projectRoot);
+
+    for (let i = 0; i < files.length; i += SYNTAX_BATCH_SIZE) {
+        const batch  = files.slice(i, i + SYNTAX_BATCH_SIZE);
+        const result = spawnSync("node", ["--check", ...batch], { encoding: "utf8" });
+        if (result.status !== 0 && result.stderr) {
+            result.stderr.trim().split("\n").forEach(line => {
+                // node --check prints: /abs/path/file.js:line:col: SyntaxError: ...
+                const m = line.match(/^(.+?):(\d+):\d+:(.+)$/);
+                if (m) {
+                    issues.push({
+                        file:  path.relative(projectRoot, m[1]),
+                        issue: `line ${m[2]}:${m[3].trim()}`
+                    });
+                }
+            });
+        }
+    }
     return issues;
+}
+
+/**
+ * TypeScript type-check via tsc --noEmit.
+ * Only fires for nextjs / react-vite projects with a tsconfig.json.
+ */
+function checkTypeScript(projectRoot, projectType) {
+    if (projectType !== "nextjs" && projectType !== "react-vite") return [];
+    const tsconfigPath = path.join(projectRoot, "tsconfig.json");
+    if (!fs.existsSync(tsconfigPath)) return [];
+
+    const result = spawnSync(
+        "npx", ["tsc", "--noEmit", "--pretty", "false"],
+        { cwd: projectRoot, encoding: "utf8", timeout: 60000 }
+    );
+
+    const output = ((result.stdout || "") + (result.stderr || "")).trim();
+    if (!output) return [];
+
+    return output.split("\n")
+        .filter(l => l.includes("error TS"))
+        .slice(0, 20)
+        .map(l => {
+            const m = l.match(/^(.+?)\((\d+),\d+\):\s*(.+)$/);
+            return m
+                ? { file: path.relative(projectRoot, m[1].trim()), issue: `line ${m[2]}: ${m[3].trim()}` }
+                : { file: "unknown", issue: l.trim() };
+        });
 }
 
 /** MCP tool handler */
 export function analyzeProject({ project }) {
     const config = getProject(project);
     const root   = config.root;
+    const isJava = config.type === "liferay-backend" || config.type === "spring-boot";
 
-    const brokenImports = checkBrokenImports(root);
-    const syntaxErrors  = config.type !== "liferay-backend" && config.type !== "spring-boot"
-        ? checkSyntax(root)
-        : [];  // Node --check doesn't apply to Java projects
+    const brokenImports = isJava ? [] : checkBrokenImports(root);
+    const syntaxErrors  = isJava ? [] : checkSyntax(root);
+    const tsErrors      = isJava ? [] : checkTypeScript(root, config.type);
 
-    const total = brokenImports.length + syntaxErrors.length;
+    const total = brokenImports.length + syntaxErrors.length + tsErrors.length;
 
     if (total === 0) {
         return {
@@ -4409,6 +4918,13 @@ export function analyzeProject({ project }) {
     if (syntaxErrors.length > 0) {
         lines.push(`Syntax errors (${syntaxErrors.length}):`);
         for (const e of syntaxErrors) {
+            lines.push(`  ${e.file}: ${e.issue}`);
+        }
+    }
+
+    if (tsErrors.length > 0) {
+        lines.push(`TypeScript errors (${tsErrors.length}):`);
+        for (const e of tsErrors) {
             lines.push(`  ${e.file}: ${e.issue}`);
         }
     }
@@ -4493,11 +5009,34 @@ export class TrainingCollector {
 
     /**
      * Called at the end of a run.
-     * @param {boolean} save - only persist if the run was meaningfully successful
+     * @param {boolean} save         - only persist if the run was meaningfully successful
+     * @param {object}  [execState]  - ExecutionState used for quality gating
      */
-    endRun(save) {
+    endRun(save, execState = null) {
         if (!ENABLED || !save || this._steps.length === 0) return;
 
+        // Quality gate: only save runs where at least one file was modified
+        // and there are no unresolved errors at the end of the run.
+        if (execState) {
+            const hasModified = execState.filesModified.size > 0;
+            const hasError    = execState.lastError() !== null;
+            if (!hasModified || hasError) {
+                console.error("[collector] Skipping — quality gate: modified=", hasModified, "error=", hasError);
+                return;
+            }
+        }
+
+        // Dedup: compute a hash of (prompt + filesModified) to avoid duplicate examples
+        const fingerprint = `${this._prompt.substring(0, 200)}|${execState ? [...execState.filesModified].sort().join(",") : ""}`;
+        const existing    = fs.existsSync(DATASET_FILE)
+            ? fs.readFileSync(DATASET_FILE, "utf8")
+            : "";
+        if (existing.includes(fingerprint)) {
+            console.error("[collector] Skipping — duplicate run detected");
+            return;
+        }
+
+        let saved = 0;
         for (const { step, toolCall, result } of this._steps) {
             const example = {
                 messages: [
@@ -4507,16 +5046,19 @@ export class TrainingCollector {
                         content: `Project context:\n${this._prompt.substring(0, 800)}\n\nStep:\n${step}`
                     },
                     { role: "assistant", content: JSON.stringify(toolCall) }
-                ]
+                ],
+                // Metadata for filtering/analysis — not used during training
+                _meta: { fingerprint, ts: Date.now() }
             };
             try {
                 fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");
+                saved++;
             } catch (err) {
                 console.warn("[collector] Write failed:", err.message);
             }
         }
 
-        console.error(`[collector] Saved ${this._steps.length} training example(s)`);
+        if (saved > 0) console.error(`[collector] Saved ${saved} training example(s)`);
     }
 }
 
@@ -4633,70 +5175,88 @@ export function safeParse(text) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\embedder.js
 ========================================
 import { pipeline } from "@xenova/transformers";
+import { EMBEDDING_MODEL } from "../core/constants.js";
 
 let embedder = null;
 
+// ─── Batch embed queue ───────────────────────────────────────────────────────
+// Coalesces multiple embed() calls that arrive in the same tick into one
+// model invocation — cuts latency when memory + retriever both embed in parallel.
+let batchQueue   = [];
+let batchTimer   = null;
+const BATCH_DELAY = 8;  // ms — collect calls within this window
+
+function flushBatch() {
+    batchTimer = null;
+    const items = batchQueue.splice(0);
+    if (items.length === 0) return;
+
+    // Fire one combined embed call for all queued texts
+    getEmbedder().then(model => {
+        const texts = items.map(i => i.text);
+        return model(texts, { pooling: "mean", normalize: true });
+    }).then(output => {
+        // output.data is flat [n_items × dim] — split per item
+        const dim = output.data.length / items.length;
+        items.forEach((item, i) => {
+            item.resolve(Array.from(output.data.slice(i * dim, (i + 1) * dim)));
+        });
+    }).catch(err => {
+        items.forEach(item => item.reject(err));
+    });
+}
+
 export async function getEmbedder() {
-
     if (!embedder) {
-
-        embedder = await pipeline(
-            "feature-extraction",
-            "Xenova/all-MiniLM-L6-v2"
-        );
+        embedder = await pipeline("feature-extraction", EMBEDDING_MODEL);
     }
-
     return embedder;
 }
 
-export async function embed(text) {
-
-    const model = await getEmbedder();
-
-    const output = await model(text, {
-        pooling: "mean",
-        normalize: true
+/**
+ * Embed a single text. Calls are automatically batched within an 8ms window.
+ * @param {string} text
+ * @returns {Promise<number[]>}
+ */
+export function embed(text) {
+    return new Promise((resolve, reject) => {
+        batchQueue.push({ text, resolve, reject });
+        if (!batchTimer) batchTimer = setTimeout(flushBatch, BATCH_DELAY);
     });
-
-    return Array.from(output.data);
 }
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\indexCodebase.js
 ========================================
 import { ChromaClient } from "chromadb";
+import { CHROMA_HOST, CHROMA_PORT, EMBEDDING_VERSION } from "../core/constants.js";
 
-const client = new ChromaClient({
-    host: "localhost",
-    port: 8000
-});
+const client = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
+let cache = {};
 
-const cache = {};
-
+/**
+ * Get or create the versioned codebase vector collection.
+ * Name includes EMBEDDING_VERSION so model upgrades auto-create a fresh collection
+ * instead of querying incompatible stale vectors.
+ */
 export async function getCollection(project) {
-
     if (cache[project]) return cache[project];
 
-    const name = "codebase_" + project;
-
+    const name        = `codebase_${project}_${EMBEDDING_VERSION}`;
     const collections = await client.listCollections();
+    const exists      = collections.find(c => c.name === name);
 
-    const exists = collections.find(c => c.name === name);
-
-    if (exists) {
-
-        cache[project] = await client.getCollection({ name });
-
-    } else {
-
-        cache[project] = await client.createCollection({
-            name,
-            embeddingFunction: null
-        });
-
-    }
+    cache[project] = exists
+        ? await client.getCollection({ name })
+        : await client.createCollection({ name, embeddingFunction: null });
 
     return cache[project];
+}
+
+/** Invalidate a cached handle — call after ChromaDB reconnect. */
+export function invalidateCollectionCache(project) {
+    if (project) delete cache[project];
+    else cache = {};
 }
 
 ========================================
@@ -4724,21 +5284,69 @@ import { embed } from "./embedder.js";
 import {
     MEMORY_COLLECTION_PREFIX,
     MEMORY_MAX_RESULTS,
-    MEMORY_MAX_SNIPPET
+    MEMORY_MAX_SNIPPET,
+    MEMORY_MAX_ENTRIES,
+    MEMORY_EVICT_BATCH,
+    CHROMA_HOST,
+    CHROMA_PORT,
+    EMBEDDING_VERSION
 } from "../core/constants.js";
 
-const client = new ChromaClient({ host: "localhost", port: 8000 });
-const cache  = {};
+const client = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
+// cache is keyed per-project and reset if ChromaDB reconnects
+let cache  = {};
+
+// Invalidate cache entries on connection error so stale handles are dropped
+function invalidateCache(project) {
+    if (project) delete cache[project];
+    else cache = {};
+}
 
 async function getMemoryCollection(project) {
     if (cache[project]) return cache[project];
-    const name        = MEMORY_COLLECTION_PREFIX + project;
-    const collections = await client.listCollections();
-    const exists      = collections.find(c => c.name === name);
-    cache[project]    = exists
-        ? await client.getCollection({ name })
-        : await client.createCollection({ name, embeddingFunction: null });
-    return cache[project];
+    // Collection name is versioned by embedding model version to prevent stale vector reuse
+    const name        = `${MEMORY_COLLECTION_PREFIX}${project}_${EMBEDDING_VERSION}`;
+    try {
+        const collections = await client.listCollections();
+        const exists      = collections.find(c => c.name === name);
+        cache[project]    = exists
+            ? await client.getCollection({ name })
+            : await client.createCollection({ name, embeddingFunction: null });
+        return cache[project];
+    } catch (err) {
+        invalidateCache(project);
+        throw err;
+    }
+}
+
+/**
+ * Evict lowest-scoring entries when collection exceeds MEMORY_MAX_ENTRIES.
+ * Runs asynchronously after store — does not block the caller.
+ */
+async function evictIfNeeded(collection) {
+    try {
+        const count = await collection.count();
+        if (count <= MEMORY_MAX_ENTRIES) return;
+
+        // Fetch all metadatas to find lowest confidence × recency score
+        const all  = await collection.get({ include: ["metadatas"] });
+        const now  = Date.now();
+        const scored = (all.ids || []).map((id, i) => {
+            const meta  = all.metadatas?.[i] || {};
+            const conf  = meta.confidence || 0.5;
+            const ageMs = now - (meta.ts || 0);
+            const score = conf / (1 + ageMs / 86400000);  // decay by day
+            return { id, score };
+        }).sort((a, b) => a.score - b.score);
+
+        const toDelete = scored.slice(0, MEMORY_EVICT_BATCH).map(s => s.id);
+        if (toDelete.length > 0) {
+            await collection.delete({ ids: toDelete });
+            console.error(`[memory] Evicted ${toDelete.length} low-score entries`);
+        }
+    } catch (err) {
+        console.error("[memory] Eviction error:", err.message);
+    }
 }
 
 /**
@@ -4781,7 +5389,10 @@ export async function storeMemory(project, data, tag = "general") {
         });
 
         console.error(`[memory] Stored (${entry.type}): ${text.substring(0, 80)}`);
+        // Evict in background — do not await, never blocks the agent
+        evictIfNeeded(collection).catch(() => {});
     } catch (err) {
+        invalidateCache(project);
         console.error("[memory] storeMemory error:", err.message);
     }
 }
@@ -4911,15 +5522,22 @@ export async function queryMemory(project, prompt, opts = {}) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\queryCodebase.js
 ========================================
 import { ChromaClient } from "chromadb";
+import { CHROMA_HOST, CHROMA_PORT, EMBEDDING_VERSION } from "../core/constants.js";
 
-const client = new ChromaClient({ host: "localhost", port: 8000 });
-const cache  = {};
+const client = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
+let cache  = {};
 
 async function getCollection(project) {
     if (cache[project]) return cache[project];
-    const name     = "codebase_" + project;
-    cache[project] = await client.getCollection({ name });
-    return cache[project];
+    // Versioned name matches the indexer — prevents querying stale vectors after model upgrade
+    const name     = `codebase_${project}_${EMBEDDING_VERSION}`;
+    try {
+        cache[project] = await client.getCollection({ name });
+        return cache[project];
+    } catch (err) {
+        delete cache[project];
+        throw err;
+    }
 }
 
 /**
@@ -4977,8 +5595,9 @@ import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 // On re-index we skip files whose mtime hasn't changed — up to 10x faster.
 
 function getManifestPath(projectName) {
-    // Store manifest alongside this source file so it survives across restarts
-    return path.resolve(path.dirname(new URL(import.meta.url).pathname), `../../.index_manifest_${projectName}.json`);
+    // Store manifest in cwd (project working dir) so it survives restarts
+    // and doesn't pollute the MCP source tree
+    return path.resolve(process.cwd(), `.index_manifest_${projectName}.json`);
 }
 
 function loadManifest(projectName) {
@@ -5000,19 +5619,32 @@ function saveManifest(projectName, manifest) {
 }
 
 // ─── Code chunker ────────────────────────────────────────────────────────────
+// Splits on function/class boundaries and respects a hard size cap.
+// Overlap (last 200 chars of prev chunk prepended to next) preserves context
+// across chunk boundaries so semantic search doesn't lose cross-boundary meaning.
+const CHUNK_MAX   = 1800;  // chars — keeps each chunk well within embed token limit
+const CHUNK_OVERLAP = 200; // chars overlap between consecutive chunks
+
 function chunkCode(code) {
-    const chunks = [];
-    const parts = code.split(/function |export function |class |public |private |protected /);
+    const chunks  = [];
+    // Split on top-level declaration boundaries
+    const boundaries = /(?=^(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var|public|private|protected|interface|type)\s)/m;
+    const parts   = code.split(boundaries).filter(p => p.trim().length >= 40);
 
+    if (parts.length === 0) {
+        // File has no recognizable boundaries (e.g. config/data files) — just window it
+        for (let i = 0; i < code.length; i += CHUNK_MAX - CHUNK_OVERLAP) {
+            chunks.push(code.substring(i, i + CHUNK_MAX));
+        }
+        return chunks;
+    }
+
+    let prev = "";
     for (const part of parts) {
-        if (part.length < 40) continue;
-        chunks.push(part.substring(0, 2000));
+        const chunk = (prev + part).substring(0, CHUNK_MAX);
+        chunks.push(chunk);
+        prev = part.length > CHUNK_OVERLAP ? part.slice(-CHUNK_OVERLAP) : part;
     }
-
-    if (chunks.length === 0) {
-        chunks.push(code.substring(0, 2000));
-    }
-
     return chunks;
 }
 
@@ -5056,23 +5688,27 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
                 const chunks = chunkCode(code);
                 const rel    = path.relative(projectRoot, full);
 
-                for (const chunk of chunks) {
+                for (let ci = 0; ci < chunks.length; ci++) {
+                    const chunk     = chunks[ci];
                     const embedding = await embed(chunk);
-                    const id = Buffer.from(full + chunk).toString("base64").substring(0, 512);
+                    // Include chunk index in ID so multiple chunks from same file get unique IDs
+                    const id        = Buffer.from(`${full}::${ci}`).toString("base64").substring(0, 512);
+                    const ext       = path.extname(item.name).replace(".", "");
 
-                    // Upsert so re-indexing a changed file replaces old vectors
                     try {
                         await collection.upsert({
                             ids:        [id],
                             documents:  [chunk],
-                            embeddings: [embedding]
+                            embeddings: [embedding],
+                            // Metadata enables future file-type or path filtering in queries
+                            metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
                         });
                     } catch {
-                        // Fall back to add if upsert not supported by this Chroma version
                         await collection.add({
                             ids:        [id],
                             documents:  [chunk],
-                            embeddings: [embedding]
+                            embeddings: [embedding],
+                            metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
                         });
                     }
                 }

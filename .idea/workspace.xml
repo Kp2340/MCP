@@ -4,12 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-3.4">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/combined_code.txt" beforeDir="false" afterPath="$PROJECT_DIR$/combined_code.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent/executor.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/executor.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent/planner.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/planner.js" afterDir="false" />
-    </list>
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-3.4" />
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,12 +45,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="P0: Active ExecutionState skip-gate in executor.js" />
-        <option name="rewordedMessage" value="MCP-3.3" />
+        <option name="originalMessage" value="feat: centralize MODEL constant, add dynamic num_predict, embed batch queue, collection versioning, path normalization" />
+        <option name="rewordedMessage" value="MCP-3.6" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="b9aa7b83e14f4e9b48d3bb059a3c3dd1cfdc1aaa" />
+    <option name="onto" value="fafed6e3437ecd9cb67004235e32ed40375ac547" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -170,7 +165,7 @@
       <workItem from="1773637927965" duration="83000" />
       <workItem from="1773920188449" duration="1927000" />
       <workItem from="1774025528375" duration="9231000" />
-      <workItem from="1774079215812" duration="309000" />
+      <workItem from="1774079215812" duration="1385000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -305,7 +300,8 @@
     <MESSAGE value="MCP-3.3" />
     <MESSAGE value="MCP-3.3" />
     <MESSAGE value="MCP-3.4" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-3.4" />
+    <MESSAGE value="MCP-3.6" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-3.6" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
