@@ -8,6 +8,10 @@ AI Dev MCP connects VS Code to a self-hosted coding agent powered by [Qwen2.5-Co
 
 ## How it works
 
+1. You run the [AI Dev MCP server](https://github.com/Kp2340/MCP) on any machine on your network (or locally)
+2. The server indexes your codebase, runs the AI agent, and executes code changes
+3. This extension connects to that server and streams live progress as the agent works
+
 ```
 You type a prompt in VS Code
         ↓
@@ -80,7 +84,7 @@ After installing this extension, open VS Code Settings (`Ctrl+,`) and search **a
 **Select code for context:**
 Highlight any code before running a prompt — it gets injected automatically.
 
-**Commands** (`Ctrl+Shift+P`):
+**Commands** (Command Palette `Ctrl+Shift+P`):
 - `MCP: Run AI Prompt` — run a task
 - `MCP: Check Job Status` — check a running job by ID
 - `MCP: List All Jobs` — see job history
@@ -89,6 +93,8 @@ Highlight any code before running a prompt — it gets injected automatically.
 ---
 
 ## Supported project types
+
+The server auto-detects your project from signature files:
 
 | Project type | Detected from |
 |---|---|
@@ -115,5 +121,5 @@ Your code is processed entirely on your own machine or your team’s private ser
 
 - [GitHub — server source code](https://github.com/Kp2340/MCP)
 - [Issues and feature requests](https://github.com/Kp2340/MCP/issues)
-- [Ollama](https://ollama.com)
-- [Qwen2.5-Coder](https://ollama.com/library/qwen2.5-coder)
+- [Ollama](https://ollama.com) — local LLM runtime
+- [Qwen2.5-Coder](https://ollama.com/library/qwen2.5-coder) — the AI model used

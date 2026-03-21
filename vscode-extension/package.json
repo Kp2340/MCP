@@ -1,23 +1,33 @@
 {
   "name": "aidev-mcp",
   "displayName": "AI Dev MCP",
-  "description": "Agentic AI coding via your private MCP server. Uses POST /run — Qwen2.5 agent does the work.",
+  "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access.",
   "version": "1.1.0",
-  "publisher": "kp2340",
+  "publisher": "kush-patel",
   "license": "MIT",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
   "repository": { "type": "git", "url": "https://github.com/Kp2340/MCP" },
+  "homepage": "https://github.com/Kp2340/MCP#readme",
+  "bugs": { "url": "https://github.com/Kp2340/MCP/issues" },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],
-  "keywords": ["mcp", "ai", "coding assistant", "ollama", "automation"],
+  "keywords": [
+    "mcp", "ai", "coding assistant", "ollama", "qwen",
+    "local ai", "private ai", "automation", "agent", "self-hosted"
+  ],
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "contributes": {
     "commands": [
-      { "command": "aidevmcp.runPrompt",   "title": "MCP: Run AI Prompt",    "category": "AI Dev MCP", "icon": "$(robot)" },
-      { "command": "aidevmcp.checkStatus", "title": "MCP: Check Job Status", "category": "AI Dev MCP" },
-      { "command": "aidevmcp.listJobs",    "title": "MCP: List All Jobs",    "category": "AI Dev MCP" },
-      { "command": "aidevmcp.queueStatus", "title": "MCP: Queue Status",     "category": "AI Dev MCP" },
-      { "command": "aidevmcp.openSettings","title": "MCP: Open Settings",    "category": "AI Dev MCP" }
+      { "command": "aidevmcp.runPrompt",    "title": "MCP: Run AI Prompt",    "category": "AI Dev MCP", "icon": "$(robot)" },
+      { "command": "aidevmcp.checkStatus",  "title": "MCP: Check Job Status", "category": "AI Dev MCP" },
+      { "command": "aidevmcp.listJobs",     "title": "MCP: List All Jobs",    "category": "AI Dev MCP" },
+      { "command": "aidevmcp.queueStatus",  "title": "MCP: Queue Status",     "category": "AI Dev MCP" },
+      { "command": "aidevmcp.openSettings", "title": "MCP: Open Settings",    "category": "AI Dev MCP" }
     ],
     "configuration": {
       "title": "AI Dev MCP",
@@ -25,19 +35,19 @@
         "aidevmcp.baseUrl": {
           "type": "string",
           "default": "",
-          "description": "Base URL of your MCP server, e.g. http://192.168.1.x:3001",
+          "markdownDescription": "Base URL of your AI Dev MCP server. Example: `http://192.168.1.50:3001` or your ngrok/Tailscale URL. See the [setup guide](https://github.com/Kp2340/MCP#readme) to run the server.",
           "order": 1
         },
         "aidevmcp.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key (x-api-key header). Same key as in your server .env file.",
+          "markdownDescription": "API key for your server (`API_KEY` in your server `.env` file). All requests are authenticated with this key.",
           "order": 2
         },
         "aidevmcp.defaultProject": {
           "type": "string",
           "default": "",
-          "description": "Override project name. Leave empty to auto-detect from workspace folder name. The server path is sent automatically for auto-registration.",
+          "markdownDescription": "Optional project name override. Leave **empty** to auto-detect from the workspace folder name. The workspace path is sent automatically so the server can register and index your project.",
           "order": 3
         }
       }
@@ -65,8 +75,8 @@
   },
   "scripts": {
     "vscode:prepublish": "echo 'No build step required'",
-    "package": "vsce package",
-    "publish": "vsce publish"
+    "package": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies"
   },
   "devDependencies": {
     "@vscode/vsce": "^2.24.0"
