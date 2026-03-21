@@ -117,15 +117,11 @@ export function attachJobRoutes(app) {
         });
     });
 
-    // ── GET /health ────────────────────────────────────────────────────────────
-    // No auth — used by Cloudflare / ngrok / load balancers
-    app.get("/health", (_req, res) => {
-        res.json({
-            status:  "ok",
-            version: "5.0.0",
-            queue:   getQueueStatus()
-        });
-    });
-
     log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id  GET /health");
+
+    // Change this:
+    log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id  GET /health");
+
+    // To this:
+    log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id");
 }

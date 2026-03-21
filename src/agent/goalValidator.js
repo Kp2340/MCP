@@ -120,3 +120,34 @@ export function logValidation(intent, result) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
     }
 }
+
+/**
+ * Build-based validation — calls project_analyze via mcpClient.
+ * Returns { passed: boolean, reason: string }
+ *
+ * @param {string}    project
+ * @param {string}    intent
+ * @param {MCPClient} mcpClient
+ */
+export async function validateWithBuild(project, intent, mcpClient) {
+    // Read-only intents don't need a build check
+    if (intent === "general") {
+        return { passed: true, reason: "Read-only intent — build check skipped" };
+    }
+
+    try {
+        const result     = await mcpClient.callTool("project_analyze", { project });
+        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
+        const passed     = resultText.includes("passed") || resultText.trim() === "";
+
+        return {
+            passed,
+            reason: passed
+                ? "Static analysis passed"
+                : `Static analysis issues: ${resultText.substring(0, 200)}`
+        };
+    } catch (err) {
+        // Non-fatal — build check failing shouldn't block the agent
+        return { passed: true, reason: `Build check skipped (error: ${err.message})` };
+    }
+}

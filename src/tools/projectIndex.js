@@ -11,8 +11,8 @@ export async function projectIndex({ project }) {
     const index = buildSemanticIndex(root);
     cachedIndexes[project] = index;
 
-    const classCount    = index.classes.length;
-    const functionCount = index.functions.length;
+    const classCount    = (index.classes ?? []).length;
+    const functionCount = (index.functions ?? []).length;
 
     return {
         content: [{

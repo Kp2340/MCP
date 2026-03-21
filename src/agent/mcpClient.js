@@ -10,7 +10,8 @@ export class MCPClient {
         const serverPath = path.resolve(__dirname, "../index.js");
 
         this.proc = spawn("node", [serverPath], {
-            stdio: ["pipe", "pipe", "inherit"]
+            stdio: ["pipe", "pipe", "inherit"],
+            env: { ...process.env, TRANSPORT: "stdio" }
         });
 
         this.buffer = "";
@@ -71,7 +72,7 @@ export class MCPClient {
             const timeout = setTimeout(() => {
                 this.pending.delete(id);
                 reject(new Error(`MCP timeout calling ${name}`));
-            }, 60000);  // 60s timeout (was 20s — builds can be slow)
+            }, 120000);  // 60s timeout (was 20s — builds can be slow)
 
             this.pending.set(id, {
                 resolve: (res) => { clearTimeout(timeout); resolve(res); },

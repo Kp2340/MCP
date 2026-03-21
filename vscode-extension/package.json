@@ -1,0 +1,98 @@
+{
+  "name": "aidev-mcp",
+  "displayName": "AI Dev MCP",
+  "description": "Run AI coding tasks directly from VS Code via your MCP server",
+  "version": "1.0.0",
+  "publisher": "kp2340",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kp2340/MCP"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Other"],
+  "keywords": ["mcp", "ai", "coding assistant", "ollama", "automation"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aidevmcp.runPrompt",
+        "title": "MCP: Run AI Prompt",
+        "category": "AI Dev MCP",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "aidevmcp.checkStatus",
+        "title": "MCP: Check Job Status",
+        "category": "AI Dev MCP"
+      },
+      {
+        "command": "aidevmcp.listJobs",
+        "title": "MCP: List All Jobs",
+        "category": "AI Dev MCP"
+      },
+      {
+        "command": "aidevmcp.openSettings",
+        "title": "MCP: Open Settings",
+        "category": "AI Dev MCP"
+      }
+    ],
+    "configuration": {
+      "title": "AI Dev MCP",
+      "properties": {
+        "aidevmcp.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of your MCP server (e.g. https://ai.decorom.in or your ngrok URL)",
+          "order": 1
+        },
+        "aidevmcp.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key (x-api-key header). Keep this secret.",
+          "order": 2
+        },
+        "aidevmcp.defaultProject": {
+          "type": "string",
+          "default": "",
+          "description": "Default project key. Leave empty to auto-detect from workspace folder name.",
+          "order": 3
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aidevmcp.runPrompt",
+          "group": "z_aidevmcp",
+          "when": "editorTextFocus"
+        }
+      ],
+      "commandPalette": [
+        { "command": "aidevmcp.runPrompt" },
+        { "command": "aidevmcp.checkStatus" },
+        { "command": "aidevmcp.listJobs" },
+        { "command": "aidevmcp.openSettings" }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "aidevmcp.runPrompt",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "echo 'No build step required'",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^2.24.0"
+  }
+}

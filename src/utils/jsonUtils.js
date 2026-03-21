@@ -14,6 +14,10 @@ export function extractJSON(text) {
         .replace(/```/g, "")
         .trim();
 
+    // Fix invalid JSON escape sequences produced by LLM (e.g. regex /\S+@\S+/)
+    // Replaces bare \S \w \d etc. with escaped versions so JSON.parse doesn't throw
+    text = text.replace(/\\([^"\\/bfnrtu0-9])/g, "\\\\$1");
+
     // Find the first '{' and balance-match to its closing '}'
     const start = text.indexOf("{");
     if (start === -1) return text;

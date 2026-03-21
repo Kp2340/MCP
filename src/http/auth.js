@@ -19,7 +19,7 @@ let warnedOnce = false;
 
 export function authMiddleware(req, res, next) {
     // Skip auth for health check — allows load balancers / tunnel probes
-    if (req.path === "/health") return next();
+    if (req.path === "/health" || req.path === "/health/") return next();
 
     // Dev mode: no API key configured
     if (!config.API_KEY) {

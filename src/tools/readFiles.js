@@ -17,13 +17,23 @@ export function readFiles({ project, paths }) {
             const fullPath = validatePath(projectRoot, relativePath);
 
             if (!fs.existsSync(fullPath)) {
-
-                results.push({
-                    path: relativePath,
-                    error: "File not found"
-                });
-
-                continue;
+                // Auto-search common subdirectories before giving up
+                const searchDirs = ["src/components", "src/app", "src", "app", "components"];
+                let found = false;
+                for (const dir of searchDirs) {
+                    try {
+                        const candidate = validatePath(projectRoot, `${dir}/${relativePath}`);
+                        if (fs.existsSync(candidate)) {
+                            fullPath = candidate;
+                            found = true;
+                            break;
+                        }
+                    } catch { /* invalid path — skip */ }
+                }
+                if (!found) {
+                    results.push({ path: relativePath, error: "File not found" });
+                    continue;
+                }
             }
 
             const content = readFileLimited(

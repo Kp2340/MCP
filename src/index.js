@@ -300,6 +300,11 @@ if (config.TRANSPORT === "stdio") {
     // Trust proxy headers (Cloudflare / ngrok set X-Forwarded-*)
     app.set("trust proxy", 1);
 
+    // ── Health check — no auth, no middleware, always responds ────────────────
+    app.get("/health", (_req, res) => {
+        res.json({ status: "ok", version: "5.0.0" });
+    });
+
     // ── Middleware stack ──────────────────────────────────────────────────────
     app.use(corsMiddleware);                      // CORS + proxy headers
     app.use(express.json({ limit: "2mb" }));      // parse JSON bodies
@@ -328,7 +333,7 @@ if (config.TRANSPORT === "stdio") {
     });
 
     // ── Start ─────────────────────────────────────────────────────────────────
-    app.listen(config.PORT, () => {
+    app.listen(config.PORT, "0.0.0.0", () => {
         log.info(`AI Dev MCP Server v5.0.0 running`);
         log.info(`Base URL:  ${config.BASE_URL}`);
         log.info(`SSE:       ${config.BASE_URL}/sse`);

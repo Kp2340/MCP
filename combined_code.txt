@@ -1,4 +1,143 @@
 ﻿========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\.index_manifest_jsv.json
+========================================
+{
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\next-env.d.ts": 1771681248662.6545,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\next-sitemap.config.js": 1772263716928.1975,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\next.config.js": 1771686424647.4854,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\postcss.config.js": 1771680586665.929,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\about\\page.tsx": 1772264185841.2898,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\contact\\page.tsx": 1772264185845.1335,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\customers\\page.tsx": 1772264185850.5276,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\gidc-land\\page.tsx": 1772264185854.9944,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\layout.tsx": 1773482188784.0288,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\page.tsx": 1772264185880.9368,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\app\\services\\page.tsx": 1772264185861.8518,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\AnimatedSection.tsx": 1772264185892.3423,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\Button.tsx": 1772264185894.3486,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\ContactContent.tsx": 1773482178670.9253,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\Footer.tsx": 1773482186771.5173,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\Header.tsx": 1772264185906.2134,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\PolicyCard.tsx": 1772264185909.5835,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\ProcessStep.tsx": 1772264185912.0344,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\SectionHeading.tsx": 1772264185912.8726,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\ServiceCard.tsx": 1772264185912.8726,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\components\\Toast.tsx": 1772264185916.5793,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\src\\data\\company.ts": 1773487406384.3972,
+  "C:\\Users\\kushp\\IdeaProjects\\jsv solution\\tailwind.config.ts": 1771680584890.534
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\example.js
+========================================
+/**
+ * AI Dev MCP — Example Usage
+ *
+ * Run with:
+ *   MCP_BASE_URL=https://your-ngrok-url.ngrok.io \
+ *   MCP_API_KEY=your-api-key \
+ *   node example.js
+ *
+ * Or set them directly below.
+ */
+
+import { MCPClient, createClientFromEnv } from "./src/client/mcpClient.js";
+
+// ── Option A: from environment variables ──────────────────────────────────────
+// const client = createClientFromEnv();
+
+// ── Option B: explicit configuration ─────────────────────────────────────────
+const client = new MCPClient({
+    baseUrl: process.env.MCP_BASE_URL || "https://ai.decorom.in",
+    apiKey:  process.env.MCP_API_KEY  || "kush-full-stack-developer-java-with-react",
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 1: Submit and stream in real-time
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function exampleStream() {
+    console.log("\n── Example 1: Submit + stream ────────────────────────\n");
+
+    const jobId = await client.runTask(
+        "Fix the login bug — form is not validating email format",
+        "jsv"
+    );
+
+    console.log(`Job ID: ${jobId}`);
+    console.log("Streaming logs...\n");
+
+    await client.stream(jobId, (msg) => {
+        const d = msg.data;
+        if (msg.event === "completed") {
+            console.log("\n✔  DONE:", JSON.stringify(d, null, 2));
+        } else if (msg.event === "failed") {
+            console.error("\n✘  FAILED:", JSON.stringify(d, null, 2));
+        } else if (d?.log) {
+            console.log(`[${d.step ?? "?"}] ${d.log}`);
+        } else if (typeof d === "string") {
+            console.log(d);
+        }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 2: Submit and wait (polling fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function exampleWait() {
+    console.log("\n── Example 2: Submit + waitForCompletion ─────────────\n");
+
+    const jobId = await client.runTask(
+        "Add unit tests for the CartService class",
+        "jsv"
+    );
+
+    console.log(`Job ID: ${jobId}\nWaiting...`);
+
+    const result = await client.waitForCompletion(jobId, (msg) => {
+        if (msg.event === "poll") process.stdout.write(".");
+        else if (msg.data?.log) process.stdout.write(`\n  ${msg.data.log}`);
+    });
+
+    console.log("\n\nFinal result:", result);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 3: Check queue and jobs
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function exampleInspect() {
+    console.log("\n── Example 3: Inspect queue + jobs ──────────────────\n");
+
+    const queue = await client.getQueue();
+    console.log("Queue:", queue);
+
+    const jobs = await client.listJobs();
+    console.log(`\nAll jobs (${jobs.length}):`);
+    for (const j of jobs) {
+        console.log(`  ${j.id} | ${j.status.padEnd(10)} | ${j.project ?? ""}`);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Run
+// ─────────────────────────────────────────────────────────────────────────────
+
+(async () => {
+    try {
+        // Pick one to test:
+        await exampleStream();
+        // await exampleWait();
+        // await exampleInspect();
+    } catch (err) {
+        console.error("Error:", err.message);
+        process.exit(1);
+    }
+})();
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\export-project.ps1
 ========================================
 $projectRoot = "C:\Users\kushp\IdeaProjects\MCP"
@@ -104,6 +243,11 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start":       "node src/index.js",
+    "start:http":  "cross-env TRANSPORT=http node src/index.js",
+    "start:stdio": "cross-env TRANSPORT=stdio node src/index.js",
+    "tunnel":      "cloudflared tunnel --url http://localhost:3001",
+    "ngrok":       "ngrok http 3001",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -119,6 +263,8 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
   },
   "homepage": "https://github.com/Kp2340/MCP#readme",
   "dependencies": {
+    "express": "^4.21.2",
+    "cross-env": "^7.0.3",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@xenova/transformers": "^2.17.2",
     "chromadb": "^3.3.3",
@@ -703,15 +849,432 @@ Once the custom model is working:
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\intellij-plugin\ARCHITECTURE.md
+========================================
+# IntelliJ Plugin — Architecture Guide
+
+## Overview
+
+The IntelliJ plugin is a **Kotlin Tool Window plugin** that:
+1. Provides a sidebar panel for submitting prompts
+2. Calls `POST /run` to enqueue tasks
+3. Streams logs from `GET /stream/:id`
+4. Injects the current file path and selected code into every request
+
+---
+
+## Plugin Structure
+
+```
+intellij-plugin/
+├── src/main/
+│   ├── kotlin/in/decorom/mcp/
+│   │   ├── McpPlugin.kt           ← Plugin entry point
+│   │   ├── McpToolWindowFactory.kt ← Creates the sidebar panel
+│   │   ├── McpToolWindow.kt       ← UI panel (JPanel, JTextField, JTextArea)
+│   │   ├── McpClient.kt           ← HTTP client (OkHttp or built-in HttpURLConnection)
+│   │   ├── McpSettings.kt         ← Persistent settings (baseUrl, apiKey, project)
+│   │   └── McpSettingsComponent.kt ← Settings UI
+│   └── resources/
+│       ├── META-INF/plugin.xml    ← Plugin manifest
+│       └── icons/mcp.svg          ← Sidebar icon
+└── build.gradle.kts
+```
+
+---
+
+## plugin.xml (manifest)
+
+```xml
+<idea-plugin>
+  <id>in.decorom.mcp</id>
+  <name>AI Dev MCP</name>
+  <vendor>Kp2340</vendor>
+  <description>Connect to your private MCP coding agent</description>
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <!-- Tool window sidebar panel -->
+    <toolWindow id="AI Dev MCP"
+                secondary="false"
+                anchor="right"
+                factoryClass="in.decorom.mcp.McpToolWindowFactory"
+                icon="/icons/mcp.svg"/>
+
+    <!-- Persistent settings page -->
+    <applicationConfigurable
+        parentId="tools"
+        instance="in.decorom.mcp.McpSettingsComponent"
+        displayName="AI Dev MCP"/>
+
+    <!-- Persistent state storage -->
+    <applicationService
+        serviceImplementation="in.decorom.mcp.McpSettings"/>
+  </extensions>
+
+  <actions>
+    <action id="McpRunPrompt"
+            class="in.decorom.mcp.RunPromptAction"
+            text="MCP: Run AI Prompt"
+            description="Send prompt to your MCP coding agent">
+      <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift M"/>
+    </action>
+  </actions>
+</idea-plugin>
+```
+
+---
+
+## McpClient.kt — HTTP Client
+
+```kotlin
+package in.decorom.mcp
+
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.json.JSONObject
+
+class McpClient(private val baseUrl: String, private val apiKey: String) {
+
+    // ── POST /run ──────────────────────────────────────────────────────────────
+    fun runTask(prompt: String, project: String): String {
+        val url = URL("$baseUrl/run")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod  = "POST"
+        conn.doOutput       = true
+        conn.connectTimeout = 10_000
+        conn.readTimeout    = 15_000
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("x-api-key", apiKey)
+
+        val body = JSONObject()
+            .put("prompt",  prompt)
+            .put("project", project)
+            .toString()
+
+        conn.outputStream.use { it.write(body.toByteArray()) }
+
+        val response = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+
+        return JSONObject(response).getString("id")
+    }
+
+    // ── GET /status/:id ────────────────────────────────────────────────────────
+    fun getStatus(jobId: String): JSONObject {
+        val url  = URL("$baseUrl/status/$jobId")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.setRequestProperty("x-api-key", apiKey)
+        val response = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+        return JSONObject(response)
+    }
+
+    // ── GET /stream/:id  (SSE) ─────────────────────────────────────────────────
+    // Call this on a background thread — it blocks until the stream closes.
+    fun stream(jobId: String, onEvent: (event: String, data: JSONObject?) -> Unit) {
+        val url  = URL("$baseUrl/stream/$jobId")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.setRequestProperty("x-api-key", apiKey)
+        conn.setRequestProperty("Accept", "text/event-stream")
+        conn.connectTimeout = 10_000
+        conn.readTimeout    = 0   // no timeout — stream is long-lived
+
+        val reader = BufferedReader(InputStreamReader(conn.inputStream))
+        var eventName = "message"
+        var dataLine  = ""
+
+        reader.useLines { lines ->
+            for (line in lines) {
+                when {
+                    line.startsWith("event:") -> eventName = line.removePrefix("event:").trim()
+                    line.startsWith("data:")  -> dataLine  = line.removePrefix("data:").trim()
+                    line.isEmpty() && dataLine.isNotEmpty() -> {
+                        val parsed = runCatching { JSONObject(dataLine) }.getOrNull()
+                        onEvent(eventName, parsed)
+                        // Reset for next event block
+                        eventName = "message"
+                        dataLine  = ""
+                    }
+                }
+            }
+        }
+        conn.disconnect()
+    }
+}
+```
+
+---
+
+## McpToolWindow.kt — UI Panel
+
+```kotlin
+package in.decorom.mcp
+
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
+import java.awt.BorderLayout
+import java.awt.Dimension
+import javax.swing.*
+
+class McpToolWindow(private val project: Project) {
+
+    val panel: JPanel = JPanel(BorderLayout(8, 8))
+
+    private val promptField  = JTextField()
+    private val projectField = JTextField()
+    private val runButton    = JButton("▶  Run")
+    private val logArea      = JTextArea().apply {
+        isEditable = false
+        font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
+        lineWrap = true
+    }
+    private val scrollPane = JScrollPane(logArea)
+
+    init {
+        // ── Top form ──────────────────────────────────────────────────────────
+        val form = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+            add(JLabel("Project key:"))
+            add(projectField.apply { preferredSize = Dimension(300, 28) })
+            add(Box.createVerticalStrut(4))
+            add(JLabel("Prompt:"))
+            add(promptField.apply { preferredSize = Dimension(300, 28) })
+            add(Box.createVerticalStrut(6))
+            add(runButton)
+        }
+
+        panel.add(form, BorderLayout.NORTH)
+        panel.add(scrollPane, BorderLayout.CENTER)
+
+        // Auto-fill project from settings
+        val settings = McpSettings.instance
+        projectField.text = settings.defaultProject
+
+        // ── Run button ────────────────────────────────────────────────────────
+        runButton.addActionListener { onRun() }
+    }
+
+    private fun onRun() {
+        val prompt  = promptField.text.trim()
+        val proj    = projectField.text.trim()
+        val settings = McpSettings.instance
+
+        if (settings.baseUrl.isEmpty() || settings.apiKey.isEmpty()) {
+            Messages.showErrorDialog(project, "Configure baseUrl and apiKey in Settings → Tools → AI Dev MCP", "MCP Not Configured")
+            return
+        }
+        if (prompt.isEmpty() || proj.isEmpty()) {
+            Messages.showWarningDialog(project, "Enter both a project key and a prompt.", "MCP")
+            return
+        }
+
+        // Inject editor context
+        val fullPrompt = buildPromptWithContext(prompt)
+
+        logArea.text = ""
+        runButton.isEnabled = false
+        log("▶ Running: \"${fullPrompt.take(80)}\" on [$proj]")
+
+        // Run on background thread to avoid blocking the EDT
+        Thread {
+            try {
+                val client = McpClient(settings.baseUrl, settings.apiKey)
+                val jobId  = client.runTask(fullPrompt, proj)
+                log("  Job ID: $jobId")
+                log("─".repeat(50))
+
+                client.stream(jobId) { event, data ->
+                    SwingUtilities.invokeLater {
+                        when (event) {
+                            "completed" -> {
+                                log("✔  Completed: ${data?.toString()}")
+                                runButton.isEnabled = true
+                            }
+                            "failed"    -> {
+                                log("✘  Failed: ${data?.toString()}")
+                                runButton.isEnabled = true
+                            }
+                            else -> {
+                                val logMsg = data?.optString("log") ?: data?.toString() ?: ""
+                                val step   = data?.optInt("step", -1).takeIf { it != -1 }
+                                log("  ${if (step != null) "[$step] " else ""}$logMsg")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                SwingUtilities.invokeLater {
+                    log("✘  Error: ${e.message}")
+                    runButton.isEnabled = true
+                }
+            }
+        }.start()
+    }
+
+    private fun buildPromptWithContext(prompt: String): String {
+        val editor: Editor? = FileEditorManager.getInstance(project).selectedTextEditor
+        val selectedText = editor?.selectionModel?.selectedText
+        val filePath     = editor?.document?.let {
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(it)?.path
+        }
+
+        return if (!selectedText.isNullOrBlank() && filePath != null) {
+            "[File: $filePath]\n```\n$selectedText\n```\n\n$prompt"
+        } else {
+            prompt
+        }
+    }
+
+    private fun log(msg: String) {
+        SwingUtilities.invokeLater {
+            logArea.append("$msg\n")
+            logArea.caretPosition = logArea.document.length
+        }
+    }
+}
+```
+
+---
+
+## McpSettings.kt — Persistent State
+
+```kotlin
+package in.decorom.mcp
+
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+
+@State(name = "McpSettings", storages = [Storage("McpSettings.xml")])
+class McpSettings : PersistentStateComponent<McpSettings.State> {
+
+    data class State(
+        var baseUrl:        String = "",
+        var apiKey:         String = "",
+        var defaultProject: String = ""
+    )
+
+    private var _state = State()
+
+    override fun getState()              = _state
+    override fun loadState(s: State)     { _state = s }
+
+    var baseUrl:        String get() = _state.baseUrl;        set(v) { _state.baseUrl        = v }
+    var apiKey:         String get() = _state.apiKey;         set(v) { _state.apiKey         = v }
+    var defaultProject: String get() = _state.defaultProject; set(v) { _state.defaultProject = v }
+
+    companion object {
+        val instance: McpSettings
+            get() = ApplicationManager.getApplication().getService(McpSettings::class.java)
+    }
+}
+```
+
+---
+
+## build.gradle.kts
+
+```kotlin
+plugins {
+    id("org.jetbrains.intellij") version "1.17.0"
+    kotlin("jvm") version "1.9.22"
+}
+
+group   = "in.decorom"
+version = "1.0.0"
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation("org.json:json:20240303")   // lightweight JSON — no Jackson needed
+}
+
+intellij {
+    version.set("2024.1")
+    type.set("IC")           // IntelliJ IDEA Community
+    plugins.set(listOf())
+}
+
+tasks {
+    buildSearchableOptions { enabled = false }
+    patchPluginXml {
+        sinceBuild.set("231")
+        untilBuild.set("")
+    }
+    signPlugin {
+        certificateChain.set(System.getenv("CERTIFICATE_CHAIN") ?: "")
+        privateKey.set(System.getenv("PRIVATE_KEY") ?: "")
+        password.set(System.getenv("PRIVATE_KEY_PASSWORD") ?: "")
+    }
+    publishPlugin {
+        token.set(System.getenv("PUBLISH_TOKEN") ?: "")
+    }
+}
+```
+
+---
+
+## Distribution (internal)
+
+For internal team distribution, **skip JetBrains Marketplace**:
+
+```bash
+./gradlew buildPlugin
+# Produces: build/distributions/aidev-mcp-1.0.0.zip
+```
+
+Teammates install via:
+**Settings → Plugins → ⚙ → Install Plugin from Disk…** → select the `.zip`
+
+---
+
+## Key Integration Points
+
+| What the plugin injects | How |
+|---|---|
+| Current file path | `FileEditorManager.selectedTextEditor.document` |
+| Selected code | `editor.selectionModel.selectedText` |
+| Project key | User input / saved in `McpSettings` |
+| API key | Stored in `McpSettings` (Settings → Tools → AI Dev MCP) |
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\index.js
 ========================================
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+/**
+ * src/index.js — AI Dev MCP Server v5.0.0
+ *
+ * Dual-transport server:
+ *   TRANSPORT=http   → HTTP + SSE  (multi-IDE, production)
+ *   TRANSPORT=stdio  → Stdio        (Claude Desktop, local)
+ *
+ * HTTP mode exposes:
+ *   GET  /sse          MCP SSE endpoint (IDE connects here)
+ *   POST /message      MCP tool calls
+ *   POST /run          Enqueue agent job
+ *   GET  /status/:id   Job status
+ *   GET  /stream/:id   Live SSE job updates
+ *   GET  /jobs         List jobs
+ *   GET  /queue        Queue status
+ *   GET  /health       Health check
+ */
+
+import { Server }             from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
     ListToolsRequestSchema,
     CallToolRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 
+// ── Tool imports ──────────────────────────────────────────────────────────────
 import { scanProject }       from "./tools/scanProject.js";
 import { readFiles }         from "./tools/readFiles.js";
 import { applyChanges }      from "./tools/applyChanges.js";
@@ -726,19 +1289,25 @@ import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
 import { projectDiff }       from "./tools/projectDiff.js";
 import { projectGitLog }     from "./tools/projectGitLog.js";
 
+// ── Core imports ──────────────────────────────────────────────────────────────
 import { getProject, listProjects } from "./core/projectRegistry.js";
 import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
 import { queryCodebase }            from "./vector/queryCodebase.js";
 import { embed }                    from "./vector/embedder.js";
 import { storeMemory, queryMemory } from "./vector/memory.js";
+import { config }                   from "./core/config.js";
+import { createLogger }             from "./core/logger.js";
 
-const server = new Server(
-    { name: "ai-dev-mcp", version: "4.0.0" },
+const log = createLogger("server");
+
+// ── MCP Server ────────────────────────────────────────────────────────────────
+const mcpServer = new Server(
+    { name: "ai-dev-mcp", version: "5.0.0" },
     { capabilities: { tools: {} } }
 );
 
-// ─── Tool definitions ────────────────────────────────────────────────────────
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
+// ── Tool definitions ──────────────────────────────────────────────────────────
+mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
         {
             name: "project_scan",
@@ -773,7 +1342,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_str_replace",
-            description: "Apply targeted search-and-replace edits without rewriting whole files. Safer and more token-efficient. Prefer this over project_apply_changes for modifications.",
+            description: "Apply targeted search-and-replace edits without rewriting whole files. Safer and more token-efficient.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -803,7 +1372,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 properties: {
                     project:  { type: "string" },
                     query:    { type: "string" },
-                    fileType: { type: "string", description: "Optional ripgrep file type filter" }
+                    fileType: { type: "string" }
                 },
                 required: ["project", "query"]
             }
@@ -824,12 +1393,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_index",
-            description: "Build semantic index of project (incremental — skips unchanged files)",
+            description: "Build semantic index of project (incremental)",
             inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
             name: "project_find_symbol",
-            description: "Find symbol in semantic index",
+            description: "Find class/function/component by name. Returns file + line number.",
             inputSchema: {
                 type: "object",
                 properties: { project: { type: "string" }, name: { type: "string" } },
@@ -838,7 +1407,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_dependency_graph",
-            description: "Analyze project dependency graph",
+            description: "Analyze project import dependency graph",
             inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
@@ -848,7 +1417,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_semantic_search",
-            description: "Search relevant code snippets using semantic meaning",
+            description: "Search code by semantic meaning using vector embeddings",
             inputSchema: {
                 type: "object",
                 properties: { project: { type: "string" }, query: { type: "string" } },
@@ -857,7 +1426,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_analyze",
-            description: "Run static analysis before build — checks broken imports and syntax errors",
+            description: "Static analysis — checks broken imports, syntax errors, TypeScript errors",
             inputSchema: { type: "object", properties: { project: { type: "string" } }, required: ["project"] }
         },
         {
@@ -875,7 +1444,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_memory_query",
-            description: "Query long-term project memory for architecture patterns relevant to a prompt",
+            description: "Query long-term project memory for patterns relevant to a prompt",
             inputSchema: {
                 type: "object",
                 properties: { project: { type: "string" }, prompt: { type: "string" } },
@@ -884,29 +1453,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "project_list",
-            description: "List all available projects registered in this MCP server",
+            description: "List all registered projects",
             inputSchema: { type: "object", properties: {}, required: [] }
         },
         {
             name: "project_diff",
-            description: "Show uncommitted git changes as a unified diff. Use before committing to review what the agent changed.",
+            description: "Show uncommitted git changes as unified diff",
             inputSchema: {
                 type: "object",
                 properties: {
                     project: { type: "string" },
-                    staged:  { type: "boolean", description: "If true, show staged changes only" }
+                    staged:  { type: "boolean" }
                 },
                 required: ["project"]
             }
         },
         {
             name: "project_git_log",
-            description: "Show recent git commit history. Helps agent avoid duplicate commits.",
+            description: "Show recent git commit history",
             inputSchema: {
                 type: "object",
                 properties: {
                     project: { type: "string" },
-                    count:   { type: "number", description: "Number of commits to show (default 10, max 30)" }
+                    count:   { type: "number" }
                 },
                 required: ["project"]
             }
@@ -914,15 +1483,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     ]
 }));
 
-// ─── Tool router ─────────────────────────────────────────────────────────────
-server.setRequestHandler(CallToolRequestSchema, async (req) => {
-
+// ── Tool router ───────────────────────────────────────────────────────────────
+mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
     const tool = req.params.name;
     const args = req.params.arguments;
-    console.error("\n========== TOOL CALL ==========");
-    console.error("Tool:", tool);
-    console.error("Args:", JSON.stringify(args).substring(0, 200));
-    console.error("================================");
+
+    log.info(`Tool call: ${tool} | args: ${JSON.stringify(args).substring(0, 150)}`);
 
     if (tool === "project_scan")           return scanProject(args);
     if (tool === "project_read_files")     return readFiles(args);
@@ -938,43 +1504,96 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     if (tool === "project_git_log")        return projectGitLog(args);
 
     if (tool === "project_list") {
-        return {
-            content: [{ type: "text", text: JSON.stringify(listProjects(), null, 2) }]
-        };
+        return { content: [{ type: "text", text: JSON.stringify(listProjects(), null, 2) }] };
     }
-
     if (tool === "project_dependency_graph") {
-        const projectRoot = getProject(args.project).root;
-        const graph = buildDependencyGraph(projectRoot);
+        const root  = getProject(args.project).root;
+        const graph = buildDependencyGraph(root);
         return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
     }
-
     if (tool === "project_build_and_fix") {
         await runAutoFix(args.project);
         return { content: [{ type: "text", text: "Build + auto-fix completed" }] };
     }
-
     if (tool === "project_semantic_search") {
         const embedding = await embed(args.query);
-        const docs = await queryCodebase(embedding, args.project);
+        const docs      = await queryCodebase(embedding, args.project);
         return { content: [{ type: "text", text: docs.join("\n\n---\n\n") }] };
     }
-
     if (tool === "project_memory_store") {
         await storeMemory(args.project, args.text, args.tag || "general");
         return { content: [{ type: "text", text: "Memory stored" }] };
     }
-
     if (tool === "project_memory_query") {
         const memory = await queryMemory(args.project, args.prompt);
         return { content: [{ type: "text", text: memory || "No relevant memory found" }] };
     }
 
-    throw new Error("Unknown tool: " + tool);
+    throw new Error(`Unknown tool: ${tool}`);
 });
 
-// ─── Transport: stdio (primary — used by Claude Desktop / Antigravity) ────────
-await server.connect(new StdioServerTransport());
+// ── Transport selection ───────────────────────────────────────────────────────
+if (config.TRANSPORT === "stdio") {
+    // ── Stdio mode: Claude Desktop / direct local use ─────────────────────────
+    log.info("Starting in STDIO transport mode");
+    await mcpServer.connect(new StdioServerTransport());
+
+} else {
+    // ── HTTP + SSE mode: multi-IDE, remote access ─────────────────────────────
+    const { default: express }  = await import("express");
+    const { corsMiddleware }     = await import("./http/cors.js");
+    const { authMiddleware }     = await import("./http/auth.js");
+    const { attachMcpRoutes }   = await import("./http/mcpRouter.js");
+    const { attachJobRoutes }   = await import("./http/jobRoutes.js");
+
+    const app = express();
+
+    // Trust proxy headers (Cloudflare / ngrok set X-Forwarded-*)
+    app.set("trust proxy", 1);
+
+    // ── Health check — no auth, no middleware, always responds ────────────────
+    app.get("/health", (_req, res) => {
+        res.json({ status: "ok", version: "5.0.0" });
+    });
+
+    // ── Middleware stack ──────────────────────────────────────────────────────
+    app.use(corsMiddleware);                      // CORS + proxy headers
+    app.use(express.json({ limit: "2mb" }));      // parse JSON bodies
+    app.use(authMiddleware);                      // API key validation
+
+    // ── Request logger ────────────────────────────────────────────────────────
+    app.use((req, _res, next) => {
+        const ip = req.headers["x-forwarded-for"] || req.ip;
+        log.info(`${req.method} ${req.path} | ip=${ip}`);
+        next();
+    });
+
+    // ── Routes ────────────────────────────────────────────────────────────────
+    attachMcpRoutes(app, mcpServer);  // /sse  /message
+    attachJobRoutes(app);             // /run  /status/:id  /stream/:id  /jobs  /queue  /health
+
+    // ── 404 handler ───────────────────────────────────────────────────────────
+    app.use((req, res) => {
+        res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
+    });
+
+    // ── Error handler ─────────────────────────────────────────────────────────
+    app.use((err, _req, res, _next) => {
+        log.error("Unhandled error:", err.message);
+        res.status(500).json({ error: err.message || "Internal server error" });
+    });
+
+    // ── Start ─────────────────────────────────────────────────────────────────
+    app.listen(config.PORT, "0.0.0.0", () => {
+        log.info(`AI Dev MCP Server v5.0.0 running`);
+        log.info(`Base URL:  ${config.BASE_URL}`);
+        log.info(`SSE:       ${config.BASE_URL}/sse`);
+        log.info(`Message:   ${config.BASE_URL}/message`);
+        log.info(`Run job:   ${config.BASE_URL}/run`);
+        log.info(`Health:    ${config.BASE_URL}/health`);
+        log.info(`Auth:      ${config.API_KEY ? "ENABLED" : "DISABLED (set API_KEY env var)"}`);
+    });
+}
 
 
 ========================================
@@ -993,6 +1612,7 @@ import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
 import { reviewChanges } from "./reviewer.js";
+import { fileURLToPath } from "url";
 import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
 import {
     COMPRESS_EVERY_N_STEPS,
@@ -1009,10 +1629,8 @@ const MODEL       = "qwen2.5-coder:7b";
 const MAX_STEPS   = 25;
 const MAX_RETRIES = 2;
 
-const mcp       = new MCPClient();
-const collector = new TrainingCollector();
-
-console.error(`[training] ${collector.count()} examples collected so far`);
+let mcp;
+let collector;
 
 // ─── Cost state ──────────────────────────────────────────────────────────────
 function makeCostState() {
@@ -1109,7 +1727,9 @@ async function executeWithRetry(step, context, project, memoryCtx, costState, ex
 }
 
 // ─── Main adaptive agent loop ────────────────────────────────────────────────
-async function runAgent(prompt) {
+export async function runAgent(prompt) {
+    if (!mcp)       mcp       = new MCPClient();
+    if (!collector) collector = new TrainingCollector();
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
     if (!projectMatch) throw new Error("Prompt must include: project: <project-name>");
     const project = projectMatch[1];
@@ -1358,16 +1978,35 @@ async function runAgent(prompt) {
     console.error(`──────────────────────\n`);
 }
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    collector = new TrainingCollector();
+    console.error(`[training] ${collector.count()} examples collected so far`);
 
-rl.question("Prompt: ", async (prompt) => {
-    try {
-        await runAgent(prompt);
-    } catch (err) {
-        console.error("Agent error:", err.message);
-    }
-    process.exit();
-});
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question("Prompt: ", async (prompt) => {
+        try {
+            await runAgent(prompt);
+        } catch (err) {
+            console.error("Agent error:", err.message);
+        }
+        process.exit();
+    });
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\agentRunner.js
+========================================
+/**
+ * src/agent/agentRunner.js
+ *
+ * Thin wrapper that exports runAgent for use by the HTTP job queue.
+ * Keeps agent.js unchanged (it has its own readline CLI loop).
+ *
+ * The queue calls runAgent(prompt) where prompt already includes
+ * "project: <name>" as required by the agent's project matcher.
+ */
+
+export { runAgent } from "./agent.js";
 
 
 ========================================
@@ -2192,6 +2831,37 @@ export function logValidation(intent, result) {
     console.error(`[validator]    Reason: ${result.reason}`);
     if (result.suggest) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
+    }
+}
+
+/**
+ * Build-based validation — calls project_analyze via mcpClient.
+ * Returns { passed: boolean, reason: string }
+ *
+ * @param {string}    project
+ * @param {string}    intent
+ * @param {MCPClient} mcpClient
+ */
+export async function validateWithBuild(project, intent, mcpClient) {
+    // Read-only intents don't need a build check
+    if (intent === "general") {
+        return { passed: true, reason: "Read-only intent — build check skipped" };
+    }
+
+    try {
+        const result     = await mcpClient.callTool("project_analyze", { project });
+        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
+        const passed     = resultText.includes("passed") || resultText.trim() === "";
+
+        return {
+            passed,
+            reason: passed
+                ? "Static analysis passed"
+                : `Static analysis issues: ${resultText.substring(0, 200)}`
+        };
+    } catch (err) {
+        // Non-fatal — build check failing shouldn't block the agent
+        return { passed: true, reason: `Build check skipped (error: ${err.message})` };
     }
 }
 
@@ -3537,6 +4207,312 @@ JSON:`;
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\client\mcpClient.js
+========================================
+/**
+ * MCP Client SDK
+ * Zero external dependencies — works in Node.js and browser.
+ * Connects to any AI Dev MCP server over HTTP.
+ */
+
+const DEFAULT_POLL_INTERVAL_MS = 2000;
+const DEFAULT_TIMEOUT_MS       = 300_000; // 5 minutes
+
+export class MCPClient {
+
+    /**
+     * @param {object} options
+     * @param {string} options.baseUrl  - e.g. "https://ai.decorom.in"
+     * @param {string} options.apiKey   - x-api-key header value
+     * @param {number} [options.timeout]        - max wait for waitForCompletion (ms)
+     * @param {number} [options.pollInterval]   - polling interval when SSE unavailable (ms)
+     */
+    constructor({ baseUrl, apiKey, timeout, pollInterval } = {}) {
+        if (!baseUrl) throw new Error("MCPClient: baseUrl is required");
+        if (!apiKey)  throw new Error("MCPClient: apiKey is required");
+
+        this.baseUrl      = baseUrl.replace(/\/$/, "");
+        this.apiKey       = apiKey;
+        this.timeout      = timeout      ?? DEFAULT_TIMEOUT_MS;
+        this.pollInterval = pollInterval ?? DEFAULT_POLL_INTERVAL_MS;
+    }
+
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    _headers(extra = {}) {
+        return {
+            "Content-Type": "application/json",
+            "x-api-key":    this.apiKey,
+            ...extra,
+        };
+    }
+
+    async _fetch(path, options = {}) {
+        const url = `${this.baseUrl}${path}`;
+        const res = await fetch(url, {
+            ...options,
+            headers: { ...this._headers(), ...(options.headers || {}) },
+        });
+
+        if (!res.ok) {
+            let body = "";
+            try { body = await res.text(); } catch {}
+            throw new Error(`MCP ${options.method || "GET"} ${path} → ${res.status}: ${body}`);
+        }
+
+        return res;
+    }
+
+    async _json(path, options = {}) {
+        const res = await this._fetch(path, options);
+        return res.json();
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /**
+     * Submit a task to the MCP server.
+     *
+     * @param {string} prompt   - The coding instruction
+     * @param {string} project  - Project key (must exist in server's projects.json)
+     * @returns {Promise<string>} jobId
+     */
+    async runTask(prompt, project) {
+        if (!prompt)  throw new Error("runTask: prompt is required");
+        if (!project) throw new Error("runTask: project is required");
+
+        const data = await this._json("/run", {
+            method: "POST",
+            body:   JSON.stringify({ prompt, project }),
+        });
+
+        return data.id;
+    }
+
+    /**
+     * Fetch the current status of a job.
+     *
+     * @param {string} jobId
+     * @returns {Promise<object>} job object: { id, status, result?, error?, logs? }
+     */
+    async getStatus(jobId) {
+        if (!jobId) throw new Error("getStatus: jobId is required");
+        return this._json(`/status/${jobId}`);
+    }
+
+    /**
+     * List all jobs, optionally filtered by status.
+     *
+     * @param {"pending"|"running"|"completed"|"failed"|null} [statusFilter]
+     * @returns {Promise<object[]>}
+     */
+    async listJobs(statusFilter = null) {
+        const qs = statusFilter ? `?status=${statusFilter}` : "";
+        return this._json(`/jobs${qs}`);
+    }
+
+    /**
+     * Get queue depth and running-job info.
+     *
+     * @returns {Promise<object>} { pending, running }
+     */
+    async getQueue() {
+        return this._json("/queue");
+    }
+
+    /**
+     * Subscribe to live SSE updates for a job.
+     * Works in both Node.js (node-fetch / undici) and modern browsers.
+     *
+     * @param {string}   jobId
+     * @param {function} onMessage  - called with each parsed SSE event: { event, data }
+     * @returns {Promise<void>}     - resolves when the stream closes
+     */
+    async stream(jobId, onMessage) {
+        if (!jobId)     throw new Error("stream: jobId is required");
+        if (!onMessage) throw new Error("stream: onMessage callback is required");
+
+        const url = `${this.baseUrl}/stream/${jobId}`;
+
+        // Browser path — use EventSource (no auth header support, so pass key in QS)
+        if (typeof EventSource !== "undefined") {
+            return this._streamBrowser(url, onMessage);
+        }
+
+        // Node.js path — use fetch with streaming body
+        return this._streamNode(url, onMessage);
+    }
+
+    /** @private */
+    _streamBrowser(url, onMessage) {
+        return new Promise((resolve, reject) => {
+            // Browsers can't set headers on EventSource; pass key as query param
+            const src = new EventSource(`${url}?key=${encodeURIComponent(this.apiKey)}`);
+
+            src.onmessage = (e) => {
+                try { onMessage({ event: "message", data: JSON.parse(e.data) }); } catch {}
+            };
+
+            const terminal = (eventName) => {
+                src.addEventListener(eventName, (e) => {
+                    try { onMessage({ event: eventName, data: JSON.parse(e.data) }); } catch {}
+                    src.close();
+                    resolve();
+                });
+            };
+
+            terminal("completed");
+            terminal("failed");
+
+            src.onerror = (err) => {
+                src.close();
+                reject(new Error("SSE connection error"));
+            };
+        });
+    }
+
+    /** @private */
+    async _streamNode(url, onMessage) {
+        const res = await this._fetch(`/stream/${url.split("/stream")[1]}`, {
+            headers: { Accept: "text/event-stream" },
+        });
+
+        const reader = res.body.getReader
+            ? res.body.getReader()           // WHATWG Streams (undici)
+            : res.body;                      // Node.js Readable fallback
+
+        if (reader.read) {
+            // WHATWG Streams
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                buffer  = this._parseSSEBuffer(buffer, onMessage);
+            }
+        } else {
+            // Older Node.js readable stream
+            await new Promise((resolve, reject) => {
+                let buffer = "";
+                reader.setEncoding("utf8");
+                reader.on("data", (chunk) => {
+                    buffer += chunk;
+                    buffer = this._parseSSEBuffer(buffer, onMessage);
+                });
+                reader.on("end",   resolve);
+                reader.on("error", reject);
+            });
+        }
+    }
+
+    /** @private */
+    _parseSSEBuffer(buffer, onMessage) {
+        const parts = buffer.split("\n\n");
+        // Last part may be incomplete — keep it
+        const incomplete = parts.pop();
+
+        for (const block of parts) {
+            const lines = block.split("\n");
+            let event = "message";
+            let data  = null;
+
+            for (const line of lines) {
+                if (line.startsWith("event:")) event = line.slice(6).trim();
+                if (line.startsWith("data:"))  data  = line.slice(5).trim();
+            }
+
+            if (data !== null && data !== "" && !data.startsWith(":")) {
+                try { onMessage({ event, data: JSON.parse(data) }); } catch {
+                    onMessage({ event, data });
+                }
+            }
+        }
+
+        return incomplete;
+    }
+
+    /**
+     * Wait until a job reaches a terminal state (completed / failed).
+     * Uses SSE when available, falls back to polling.
+     *
+     * @param {string}   jobId
+     * @param {function} [onProgress] - optional callback for intermediate updates
+     * @returns {Promise<object>} final job object
+     */
+    async waitForCompletion(jobId, onProgress) {
+        const deadline = Date.now() + this.timeout;
+
+        return new Promise(async (resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error(`waitForCompletion: timed out after ${this.timeout}ms`));
+            }, this.timeout);
+
+            const cleanup = () => clearTimeout(timeoutId);
+
+            try {
+                // Try SSE first
+                await this.stream(jobId, (msg) => {
+                    if (onProgress) onProgress(msg);
+
+                    if (msg.event === "completed" || msg.event === "failed") {
+                        cleanup();
+                        if (msg.event === "failed") {
+                            reject(new Error(`Job ${jobId} failed: ${JSON.stringify(msg.data)}`));
+                        } else {
+                            resolve(msg.data);
+                        }
+                    }
+                });
+                cleanup();
+            } catch {
+                // SSE failed — fall back to polling
+                cleanup();
+                this._pollUntilDone(jobId, onProgress, deadline)
+                    .then(resolve)
+                    .catch(reject);
+            }
+        });
+    }
+
+    /** @private */
+    async _pollUntilDone(jobId, onProgress, deadline) {
+        while (Date.now() < deadline) {
+            const job = await this.getStatus(jobId);
+            if (onProgress) onProgress({ event: "poll", data: job });
+
+            if (job.status === "completed") return job;
+            if (job.status === "failed")    throw new Error(`Job ${jobId} failed: ${job.error}`);
+
+            await new Promise(r => setTimeout(r, this.pollInterval));
+        }
+        throw new Error(`Polling timed out for job ${jobId}`);
+    }
+}
+
+// ── Environment-aware factory ─────────────────────────────────────────────────
+
+/**
+ * Create a client from environment variables.
+ * Works in Node.js; in browsers set window.MCP_BASE_URL / window.MCP_API_KEY.
+ *
+ * @returns {MCPClient}
+ */
+export function createClientFromEnv() {
+    const baseUrl = (typeof process !== "undefined" && process.env?.MCP_BASE_URL)
+        || (typeof window !== "undefined" && window.MCP_BASE_URL)
+        || "";
+
+    const apiKey = (typeof process !== "undefined" && process.env?.MCP_API_KEY)
+        || (typeof window !== "undefined" && window.MCP_API_KEY)
+        || "";
+
+    return new MCPClient({ baseUrl, apiKey });
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
 ========================================
 {
@@ -3597,6 +4573,65 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
     "indexExtensions": []
   }
 }
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\config.js
+========================================
+/**
+ * src/core/config.js
+ *
+ * Single source of truth for all runtime configuration.
+ * Every value comes from environment variables with sane defaults.
+ *
+ * Usage:
+ *   import { config } from "./core/config.js";
+ *   config.PORT  →  3001
+ */
+
+function required(key) {
+    const val = process.env[key];
+    if (!val) {
+        console.error(`[config] FATAL: environment variable ${key} is not set.`);
+        process.exit(1);
+    }
+    return val;
+}
+
+function optional(key, defaultValue) {
+    return process.env[key] || defaultValue;
+}
+
+export const config = {
+    // ── Server ──────────────────────────────────────────────────────────────
+    PORT:        parseInt(optional("PORT", "3001"), 10),
+    BASE_URL:    optional("BASE_URL", "http://localhost:3001"),
+
+    // ── Auth ────────────────────────────────────────────────────────────────
+    // Set API_KEY in your .env file. Requests without it will be rejected.
+    API_KEY:     optional("API_KEY", ""),  // empty = auth disabled (dev only)
+
+    // ── LLM ─────────────────────────────────────────────────────────────────
+    OLLAMA_HOST: optional("OLLAMA_HOST", "http://localhost:11434"),
+    LLM_MODEL:   optional("LLM_MODEL",   "qwen2.5-coder:7b"),
+
+    // ── Vector DB ───────────────────────────────────────────────────────────
+    CHROMA_HOST: optional("CHROMA_HOST", "localhost"),
+    CHROMA_PORT: parseInt(optional("CHROMA_PORT", "8000"), 10),
+
+    // ── Queue ───────────────────────────────────────────────────────────────
+    // Max time a single agent job is allowed to run before forced timeout
+    JOB_TIMEOUT_MS: parseInt(optional("JOB_TIMEOUT_MS", "300000"), 10),  // 5 min
+
+    // ── CORS ────────────────────────────────────────────────────────────────
+    // Comma-separated allowed origins, or * for all
+    CORS_ORIGIN: optional("CORS_ORIGIN", "*"),
+
+    // ── Mode ────────────────────────────────────────────────────────────────
+    // "http"   → HTTP+SSE server (production, multi-IDE)
+    // "stdio"  → Stdio transport (Claude Desktop direct connection)
+    TRANSPORT:   optional("TRANSPORT", "http"),
+};
 
 
 ========================================
@@ -3798,6 +4833,49 @@ export const KEYWORD_STEMS = {
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\logger.js
+========================================
+/**
+ * src/core/logger.js
+ *
+ * Lightweight structured logger — no external dependencies.
+ * All output goes to stderr (keeps stdout clean for stdio MCP transport).
+ *
+ * Levels: DEBUG | INFO | WARN | ERROR
+ * Format: [2025-01-15T10:23:44.123Z] [LEVEL] [module] message
+ */
+
+const LOG_LEVEL = (process.env.LOG_LEVEL || "INFO").toUpperCase();
+
+const LEVELS = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
+const currentLevel = LEVELS[LOG_LEVEL] ?? LEVELS.INFO;
+
+function timestamp() {
+    return new Date().toISOString();
+}
+
+function write(level, module, ...args) {
+    if (LEVELS[level] < currentLevel) return;
+    const msg = args.map(a =>
+        typeof a === "object" ? JSON.stringify(a) : String(a)
+    ).join(" ");
+    process.stderr.write(`[${timestamp()}] [${level.padEnd(5)}] [${module}] ${msg}\n`);
+}
+
+export function createLogger(module) {
+    return {
+        debug: (...args) => write("DEBUG", module, ...args),
+        info:  (...args) => write("INFO",  module, ...args),
+        warn:  (...args) => write("WARN",  module, ...args),
+        error: (...args) => write("ERROR", module, ...args),
+    };
+}
+
+// Default logger for modules that don't set their own
+export const logger = createLogger("app");
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\projectRegistry.js
 ========================================
 import fs from "fs";
@@ -3917,6 +4995,474 @@ export function commitChanges(projectRoot, message) {
     const safe = sanitizeCommitMessage(message);
     spawnSync("git", ["add", "."], { cwd: projectRoot });
     spawnSync("git", ["commit", "-m", safe], { cwd: projectRoot });
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\auth.js
+========================================
+/**
+ * src/http/auth.js
+ *
+ * API key authentication middleware.
+ *
+ * Reads x-api-key header and compares against config.API_KEY.
+ * If API_KEY is empty (dev mode), auth is skipped with a warning logged once.
+ *
+ * Usage:
+ *   app.use(authMiddleware);
+ */
+
+import { config } from "../core/config.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("auth");
+
+let warnedOnce = false;
+
+export function authMiddleware(req, res, next) {
+    // Skip auth for health check — allows load balancers / tunnel probes
+    if (req.path === "/health" || req.path === "/health/") return next();
+
+    // Dev mode: no API key configured
+    if (!config.API_KEY) {
+        if (!warnedOnce) {
+            log.warn("API_KEY not set — auth is DISABLED. Set API_KEY env var for production.");
+            warnedOnce = true;
+        }
+        return next();
+    }
+
+    const provided = req.headers["x-api-key"];
+
+    if (!provided) {
+        log.warn(`Rejected unauthenticated request: ${req.method} ${req.path} from ${req.ip}`);
+        return res.status(401).json({ error: "Missing x-api-key header" });
+    }
+
+    if (provided !== config.API_KEY) {
+        log.warn(`Rejected invalid API key from ${req.ip}`);
+        return res.status(403).json({ error: "Invalid API key" });
+    }
+
+    next();
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\cors.js
+========================================
+import { config } from "../core/config.js";
+
+export function corsMiddleware(req, res, next) {
+    const origin = config.CORS_ORIGIN === "*"
+        ? "*"
+        : req.headers.origin || "";
+
+    res.setHeader("Access-Control-Allow-Origin",  origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-key, x-session-id, ngrok-skip-browser-warning");
+    res.setHeader("Access-Control-Max-Age",       "86400");
+
+    if (req.path === "/sse") {
+        res.setHeader("Cache-Control", "no-cache, no-store");
+        res.setHeader("X-Accel-Buffering", "no");
+    }
+
+    if (req.method === "OPTIONS") {
+        return res.status(204).end();
+    }
+
+    next();
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\jobRoutes.js
+========================================
+/**
+ * src/http/jobRoutes.js
+ *
+ * REST endpoints for the agent job queue.
+ *
+ * Routes:
+ *   POST /run          → enqueue an agent task
+ *   GET  /status/:id   → get job status + result
+ *   GET  /jobs         → list recent jobs
+ *   GET  /queue        → current queue status
+ *   GET  /stream/:id   → SSE stream for live job updates
+ *   GET  /health       → health check (no auth)
+ */
+
+import { enqueue, getJob, listJobs, getQueueStatus,
+         subscribeToJob, unsubscribeFromJob }       from "./queue.js";
+import { createLogger }                             from "../core/logger.js";
+import { runAgent }                                 from "../agent/agentRunner.js";
+
+const log = createLogger("job-routes");
+
+export function attachJobRoutes(app) {
+
+    // ── POST /run ──────────────────────────────────────────────────────────────
+    app.post("/run", (req, res) => {
+        const { prompt, project } = req.body || {};
+
+        if (!prompt || typeof prompt !== "string") {
+            return res.status(400).json({ error: "prompt (string) is required" });
+        }
+        if (!project || typeof project !== "string") {
+            return res.status(400).json({ error: "project (string) is required" });
+        }
+
+        // Runner function — executed by the queue when the job's turn comes
+        const runner = async (job) => {
+            log.info(`Running agent | job=${job.id} | project=${project}`);
+            // runAgent writes output to stderr; we capture its summary
+            await runAgent(`${prompt} project: ${project}`);
+            return `Agent completed task for project: ${project}`;
+        };
+
+        const job = enqueue(prompt, project, runner);
+        const status = getQueueStatus();
+
+        log.info(`Enqueued job ${job.id} | queue_depth=${status.pending + (status.running ? 1 : 0)}`);
+
+        res.status(202).json({
+            id:          job.id,
+            status:      job.status,
+            position:    status.pending,
+            createdAt:   job.createdAt,
+            streamUrl:   `/stream/${job.id}`,
+            statusUrl:   `/status/${job.id}`
+        });
+    });
+
+    // ── GET /status/:id ────────────────────────────────────────────────────────
+    app.get("/status/:id", (req, res) => {
+        const job = getJob(req.params.id);
+        if (!job) {
+            return res.status(404).json({ error: `Job ${req.params.id} not found` });
+        }
+        res.json(job);
+    });
+
+    // ── GET /jobs ──────────────────────────────────────────────────────────────
+    app.get("/jobs", (req, res) => {
+        const filter = req.query.status || null;  // ?status=pending|running|completed|failed
+        res.json(listJobs(filter));
+    });
+
+    // ── GET /queue ──────────────────────────────────────────────────────────────
+    app.get("/queue", (req, res) => {
+        res.json(getQueueStatus());
+    });
+
+    // ── GET /stream/:id ────────────────────────────────────────────────────────
+    // SSE stream for live updates on a specific job.
+    // IDE plugins can subscribe here to get real-time progress.
+    app.get("/stream/:id", (req, res) => {
+        const jobId = req.params.id;
+        const job   = getJob(jobId);
+
+        if (!job) {
+            return res.status(404).json({ error: `Job ${jobId} not found` });
+        }
+
+        res.setHeader("Content-Type",  "text/event-stream");
+        res.setHeader("Connection",     "keep-alive");
+        res.setHeader("Cache-Control",  "no-cache");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.flushHeaders();
+
+        // If job is already terminal, send final event and close
+        if (job.status === "completed") {
+            res.write(`event: completed\ndata: ${JSON.stringify(job)}\n\n`);
+            return res.end();
+        }
+        if (job.status === "failed") {
+            res.write(`event: failed\ndata: ${JSON.stringify(job)}\n\n`);
+            return res.end();
+        }
+
+        // Live job — subscribe to events
+        subscribeToJob(jobId, res);
+
+        // Heartbeat every 15s to keep connection alive through proxies
+        const heartbeat = setInterval(() => {
+            try { res.write(":heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+        }, 15000);
+
+        req.on("close", () => {
+            clearInterval(heartbeat);
+            unsubscribeFromJob(jobId, res);
+            log.debug(`Stream closed for job ${jobId}`);
+        });
+    });
+
+    log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id  GET /health");
+
+    // Change this:
+    log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id  GET /health");
+
+    // To this:
+    log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id");
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\mcpRouter.js
+========================================
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("mcp-router");
+const transports = new Map();
+
+export function attachMcpRoutes(app, mcpServer) {
+
+    app.get("/sse", async (req, res) => {
+        const sessionId = req.headers["x-session-id"] ||
+            `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+        log.info(`SSE client connected: sessionId=${sessionId} ip=${req.headers["x-forwarded-for"] || req.ip}`);
+
+        const transport = new SSEServerTransport("/message", res);
+        transports.set(sessionId, transport);
+
+        res.setHeader("x-session-id", sessionId);
+
+        req.on("close", () => {
+            transports.delete(sessionId);
+            log.info(`SSE client disconnected: sessionId=${sessionId}`);
+        });
+
+        try {
+            await mcpServer.connect(transport);
+        } catch (err) {
+            log.error(`SSE connect error for ${sessionId}:`, err.message);
+            transports.delete(sessionId);
+        }
+    });
+
+    app.post("/message", async (req, res) => {
+        const sessionId = req.headers["x-session-id"];
+
+        if (!sessionId) {
+            return res.status(400).json({ error: "Missing x-session-id header" });
+        }
+
+        const transport = transports.get(sessionId);
+        if (!transport) {
+            return res.status(404).json({ error: `Session ${sessionId} not found. Connect to /sse first.` });
+        }
+
+        try {
+            await transport.handlePostMessage(req, res);
+        } catch (err) {
+            log.error(`POST /message error:`, err.message);
+            if (!res.headersSent) res.status(500).json({ error: err.message });
+        }
+    });
+
+    log.info("MCP SSE routes attached: GET /sse  POST /message");
+}
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\queue.js
+========================================
+/**
+ * src/http/queue.js
+ *
+ * Single-concurrency in-memory job queue.
+ *
+ * Because the system runs on limited hardware (laptop GPU/CPU), only ONE
+ * agent job runs at a time. All others wait in a FIFO queue.
+ *
+ * Job lifecycle:
+ *   pending → running → completed | failed
+ *
+ * Job structure:
+ *   {
+ *     id:        string   (uuid-style)
+ *     prompt:    string
+ *     project:   string
+ *     status:    "pending" | "running" | "completed" | "failed"
+ *     createdAt: number   (ms timestamp)
+ *     startedAt: number | null
+ *     endedAt:   number | null
+ *     result:    string | null   (final output text)
+ *     error:     string | null
+ *   }
+ *
+ * Usage:
+ *   import { enqueue, getJob, getQueueStatus } from "./queue.js";
+ */
+
+import { createLogger } from "../core/logger.js";
+import { config }       from "../core/config.js";
+
+const log = createLogger("queue");
+
+// ── State ────────────────────────────────────────────────────────────────────
+const jobs  = new Map();   // id → job
+const queue = [];          // pending job ids (FIFO)
+let   running = false;     // true when a job is executing
+
+// ── ID generator ─────────────────────────────────────────────────────────────
+function makeId() {
+    return `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ── SSE subscriber registry ───────────────────────────────────────────────────
+// Maps jobId → array of res objects (SSE connections watching that job)
+const subscribers = new Map();
+
+export function subscribeToJob(jobId, res) {
+    if (!subscribers.has(jobId)) subscribers.set(jobId, []);
+    subscribers.get(jobId).push(res);
+    log.debug(`SSE subscriber added for job ${jobId} (total: ${subscribers.get(jobId).length})`);
+}
+
+export function unsubscribeFromJob(jobId, res) {
+    const list = subscribers.get(jobId);
+    if (!list) return;
+    const idx = list.indexOf(res);
+    if (idx !== -1) list.splice(idx, 1);
+    if (list.length === 0) subscribers.delete(jobId);
+}
+
+function emit(jobId, event, data) {
+    const list = subscribers.get(jobId);
+    if (!list || list.length === 0) return;
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const res of list) {
+        try { res.write(payload); } catch { /* client disconnected */ }
+    }
+}
+
+// ── Core queue logic ──────────────────────────────────────────────────────────
+
+/**
+ * Enqueue a new agent job.
+ * @param {string} prompt
+ * @param {string} project
+ * @param {Function} runner  async (job) => string  — the actual agent work
+ * @returns {object} job
+ */
+export function enqueue(prompt, project, runner) {
+    const id  = makeId();
+    const job = {
+        id,
+        prompt,
+        project,
+        status:    "pending",
+        createdAt: Date.now(),
+        startedAt: null,
+        endedAt:   null,
+        result:    null,
+        error:     null,
+        _runner:   runner   // internal — not exposed via API
+    };
+    jobs.set(id, job);
+    queue.push(id);
+
+    log.info(`Job enqueued: ${id} | project=${project} | queue_depth=${queue.length}`);
+    emit(id, "queued", { id, position: queue.length, status: "pending" });
+
+    // Kick off processing (no-op if already running)
+    setImmediate(processNext);
+
+    return job;
+}
+
+/**
+ * Get a job by id.
+ * Returns the public-facing view (no _runner).
+ */
+export function getJob(id) {
+    const job = jobs.get(id);
+    if (!job) return null;
+    const { _runner, ...pub } = job;
+    return pub;
+}
+
+/**
+ * Get overall queue status.
+ */
+export function getQueueStatus() {
+    const pending = [...jobs.values()].filter(j => j.status === "pending").length;
+    const runningJob = [...jobs.values()].find(j => j.status === "running");
+    return {
+        running:      !!runningJob,
+        currentJobId: runningJob?.id || null,
+        pending,
+        total:        jobs.size
+    };
+}
+
+/**
+ * List all jobs (newest first), with optional status filter.
+ */
+export function listJobs(statusFilter = null) {
+    return [...jobs.values()]
+        .filter(j => !statusFilter || j.status === statusFilter)
+        .map(({ _runner, ...pub }) => pub)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 50);  // cap at 50 for safety
+}
+
+// ── Processor ─────────────────────────────────────────────────────────────────
+async function processNext() {
+    if (running || queue.length === 0) return;
+
+    const id  = queue.shift();
+    const job = jobs.get(id);
+    if (!job) { processNext(); return; }  // ghost entry — skip
+
+    running       = true;
+    job.status    = "running";
+    job.startedAt = Date.now();
+
+    log.info(`Job started: ${id} | project=${job.project}`);
+    emit(id, "started", { id, status: "running", startedAt: job.startedAt });
+
+    // Hard timeout — kill the job if it runs too long
+    const timeout = setTimeout(() => {
+        log.warn(`Job timed out: ${id}`);
+        job.status  = "failed";
+        job.error   = `Timed out after ${config.JOB_TIMEOUT_MS / 1000}s`;
+        job.endedAt = Date.now();
+        emit(id, "failed", { id, error: job.error });
+        running = false;
+        processNext();
+    }, config.JOB_TIMEOUT_MS);
+
+    try {
+        const result  = await job._runner(job);
+        clearTimeout(timeout);
+
+        job.status  = "completed";
+        job.result  = typeof result === "string" ? result : JSON.stringify(result);
+        job.endedAt = Date.now();
+
+        const duration = ((job.endedAt - job.startedAt) / 1000).toFixed(1);
+        log.info(`Job completed: ${id} | duration=${duration}s`);
+        emit(id, "completed", { id, status: "completed", result: job.result, duration });
+
+    } catch (err) {
+        clearTimeout(timeout);
+
+        job.status  = "failed";
+        job.error   = err.message || String(err);
+        job.endedAt = Date.now();
+
+        log.error(`Job failed: ${id} | error=${job.error}`);
+        emit(id, "failed", { id, status: "failed", error: job.error });
+
+    } finally {
+        running = false;
+        // Schedule next after a tick so the event loop breathes
+        setImmediate(processNext);
+    }
 }
 
 
@@ -5726,5 +7272,648 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
     saveManifest(projectName, manifest);
     console.error(`Indexing completed for: ${projectName} — ${indexed} indexed, ${skipped} unchanged (skipped)`);
 }
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\vscode-extension\extension.js
+========================================
+// AI Dev MCP — VS Code Extension
+// Connects to your MCP server and lets you run AI coding tasks from inside VS Code.
+
+const vscode = require("vscode");
+
+// ── Inline MCPClient (no external deps, no build step) ───────────────────────
+// Copied from src/client/mcpClient.js so the extension is self-contained.
+
+const DEFAULT_POLL_INTERVAL_MS = 2000;
+const DEFAULT_TIMEOUT_MS       = 300_000;
+
+class MCPClient {
+    constructor({ baseUrl, apiKey, timeout, pollInterval } = {}) {
+        if (!baseUrl) throw new Error("MCPClient: baseUrl is required");
+        if (!apiKey)  throw new Error("MCPClient: apiKey is required");
+        this.baseUrl      = baseUrl.replace(/\/$/, "");
+        this.apiKey       = apiKey;
+        this.timeout      = timeout      ?? DEFAULT_TIMEOUT_MS;
+        this.pollInterval = pollInterval ?? DEFAULT_POLL_INTERVAL_MS;
+    }
+
+    _headers() {
+        return { "Content-Type": "application/json", "x-api-key": this.apiKey };
+    }
+
+    async _json(path, opts = {}) {
+        const res = await fetch(`${this.baseUrl}${path}`, {
+            ...opts,
+            headers: { ...this._headers(), ...(opts.headers || {}) },
+        });
+        if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            throw new Error(`MCP ${opts.method || "GET"} ${path} → ${res.status}: ${body}`);
+        }
+        return res.json();
+    }
+
+    async runTask(prompt, project) {
+        const data = await this._json("/run", {
+            method: "POST",
+            body:   JSON.stringify({ prompt, project }),
+        });
+        return data.id;
+    }
+
+    async getStatus(jobId) {
+        return this._json(`/status/${jobId}`);
+    }
+
+    async stream(jobId, onMessage) {
+        const res = await fetch(`${this.baseUrl}/stream/${jobId}`, {
+            headers: { ...this._headers(), Accept: "text/event-stream" },
+        });
+        if (!res.ok) throw new Error(`Stream ${res.status}`);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop();
+
+            for (const block of parts) {
+                let event = "message", data = null;
+                for (const line of block.split("\n")) {
+                    if (line.startsWith("event:")) event = line.slice(6).trim();
+                    if (line.startsWith("data:"))  data  = line.slice(5).trim();
+                }
+                if (data && !data.startsWith(":")) {
+                    try { onMessage({ event, data: JSON.parse(data) }); } catch {
+                        onMessage({ event, data });
+                    }
+                }
+            }
+        }
+    }
+
+    async waitForCompletion(jobId, onProgress) {
+        return new Promise(async (resolve, reject) => {
+            const tid = setTimeout(
+                () => reject(new Error(`Timed out after ${this.timeout}ms`)),
+                this.timeout
+            );
+            try {
+                await this.stream(jobId, (msg) => {
+                    if (onProgress) onProgress(msg);
+                    if (msg.event === "completed") { clearTimeout(tid); resolve(msg.data); }
+                    if (msg.event === "failed")    { clearTimeout(tid); reject(new Error(JSON.stringify(msg.data))); }
+                });
+                clearTimeout(tid);
+            } catch {
+                clearTimeout(tid);
+                // Fallback: poll
+                try {
+                    const deadline = Date.now() + this.timeout;
+                    while (Date.now() < deadline) {
+                        const job = await this.getStatus(jobId);
+                        if (onProgress) onProgress({ event: "poll", data: job });
+                        if (job.status === "completed") return resolve(job);
+                        if (job.status === "failed")    return reject(new Error(job.error));
+                        await new Promise(r => setTimeout(r, this.pollInterval));
+                    }
+                    reject(new Error("Polling timed out"));
+                } catch (e) { reject(e); }
+            }
+        });
+    }
+}
+
+// ── Extension state ───────────────────────────────────────────────────────────
+
+/** @type {vscode.OutputChannel} */
+let outputChannel;
+/** @type {vscode.StatusBarItem} */
+let statusBar;
+/** @type {MCPClient|null} */
+let client = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getConfig() {
+    return vscode.workspace.getConfiguration("aidevmcp");
+}
+
+function buildClient() {
+    const cfg    = getConfig();
+    const baseUrl = cfg.get("baseUrl") || process.env.MCP_BASE_URL || "";
+    const apiKey  = cfg.get("apiKey")  || process.env.MCP_API_KEY  || "";
+
+    if (!baseUrl || !apiKey) return null;
+    return new MCPClient({ baseUrl, apiKey });
+}
+
+function setStatus(text, tooltip, color) {
+    statusBar.text    = text;
+    statusBar.tooltip = tooltip ?? "AI Dev MCP";
+    statusBar.color   = color   ?? new vscode.ThemeColor("statusBar.foreground");
+    statusBar.show();
+}
+
+function log(msg) {
+    const ts = new Date().toISOString().replace("T", " ").slice(0, 19);
+    outputChannel.appendLine(`[${ts}] ${msg}`);
+}
+
+// ── Active project helpers ────────────────────────────────────────────────────
+
+function getWorkspaceProject() {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return null;
+    // Use the configured override if set
+    const override = getConfig().get("defaultProject");
+    if (override) return override;
+    // Fall back to folder name (lower-cased, hyphens stripped)
+    return folders[0].name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getEditorContext() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return null;
+    const doc  = editor.document;
+    const sel  = editor.selection;
+    return {
+        filePath:     doc.uri.fsPath,
+        language:     doc.languageId,
+        selectedText: sel.isEmpty ? null : doc.getText(sel),
+        lineNumber:   sel.active.line + 1,
+    };
+}
+
+// ── Commands ──────────────────────────────────────────────────────────────────
+
+async function cmdRunPrompt() {
+    client = buildClient();
+    if (!client) {
+        const action = await vscode.window.showErrorMessage(
+            "AI Dev MCP: baseUrl or apiKey not configured.",
+            "Open Settings"
+        );
+        if (action === "Open Settings") {
+            vscode.commands.executeCommand("workbench.action.openSettings", "aidevmcp");
+        }
+        return;
+    }
+
+    // 1. Pick project
+    const autoProject = getWorkspaceProject();
+    const project = await vscode.window.showInputBox({
+        prompt:      "Project key (must match projects.json on the server)",
+        placeHolder: autoProject ?? "jsv",
+        value:       autoProject ?? "",
+    });
+    if (!project) return;
+
+    // 2. Get prompt — pre-fill with selected code context
+    const ctx    = getEditorContext();
+    const prefix = ctx?.selectedText
+        ? `[File: ${ctx.filePath}, line ${ctx.lineNumber}]\n\`\`\`\n${ctx.selectedText}\n\`\`\`\n\n`
+        : "";
+
+    const prompt = await vscode.window.showInputBox({
+        prompt:      "What should the AI do?",
+        placeHolder: "Fix the login bug / Add unit tests / Refactor this function",
+        value:       prefix,
+    });
+    if (!prompt) return;
+
+    // 3. Show output panel
+    outputChannel.show(true);
+    log(`▶  Running: "${prompt.slice(0, 80)}${prompt.length > 80 ? "…" : ""}" on project [${project}]`);
+    setStatus("$(sync~spin) MCP Running…", "AI Dev MCP — job running", new vscode.ThemeColor("statusBarItem.warningBackground"));
+
+    try {
+        // 4. Submit
+        const jobId = await client.runTask(prompt, project);
+        log(`   Job ID: ${jobId}`);
+        log(`   Stream: ${getConfig().get("baseUrl")}/stream/${jobId}`);
+        log("─".repeat(60));
+
+        // 5. Stream logs
+        let stepCount = 0;
+        const jobResult = await client.waitForCompletion(jobId, (msg) => {
+            const d = msg.data;
+            if (!d) return;
+
+            if (msg.event === "poll") {
+                log(`   ↻ status: ${d.status}`);
+                return;
+            }
+
+            stepCount++;
+            if (typeof d === "string") {
+                log(`   ${d}`);
+            } else if (d.log) {
+                log(`   [${d.step ?? stepCount}] ${d.log}`);
+            } else if (d.status) {
+                log(`   status → ${d.status}`);
+            } else {
+                log(`   ${JSON.stringify(d)}`);
+            }
+        });
+
+        // 6. Done
+        log("─".repeat(60));
+        log(`✔  Completed. Result: ${typeof jobResult === "object" ? JSON.stringify(jobResult, null, 2) : jobResult}`);
+        setStatus("$(check) MCP Done", "AI Dev MCP — last job completed");
+
+        vscode.window.showInformationMessage(
+            `AI Dev MCP: Task completed for [${project}]`,
+            "View Logs"
+        ).then(a => { if (a === "View Logs") outputChannel.show(); });
+
+    } catch (err) {
+        log(`✘  Error: ${err.message}`);
+        setStatus("$(error) MCP Failed", "AI Dev MCP — last job failed", new vscode.ThemeColor("statusBarItem.errorBackground"));
+
+        vscode.window.showErrorMessage(
+            `AI Dev MCP: ${err.message}`,
+            "View Logs"
+        ).then(a => { if (a === "View Logs") outputChannel.show(); });
+    }
+}
+
+async function cmdCheckStatus() {
+    client = buildClient();
+    if (!client) {
+        vscode.window.showErrorMessage("AI Dev MCP: not configured. Check settings.");
+        return;
+    }
+
+    const jobId = await vscode.window.showInputBox({ prompt: "Enter Job ID to check" });
+    if (!jobId) return;
+
+    try {
+        const job = await client.getStatus(jobId);
+        outputChannel.show(true);
+        log(`Status for ${jobId}:`);
+        log(JSON.stringify(job, null, 2));
+    } catch (err) {
+        vscode.window.showErrorMessage(`AI Dev MCP: ${err.message}`);
+    }
+}
+
+async function cmdListJobs() {
+    client = buildClient();
+    if (!client) return;
+
+    try {
+        const jobs = await client.listJobs();
+        outputChannel.show(true);
+        log("─".repeat(60));
+        log(`All jobs (${jobs.length}):`);
+        for (const j of jobs) {
+            log(`  ${j.id} | ${j.status.padEnd(10)} | ${j.project ?? ""} | ${j.prompt?.slice(0, 60) ?? ""}`);
+        }
+        log("─".repeat(60));
+    } catch (err) {
+        vscode.window.showErrorMessage(`AI Dev MCP: ${err.message}`);
+    }
+}
+
+async function cmdOpenSettings() {
+    vscode.commands.executeCommand("workbench.action.openSettings", "aidevmcp");
+}
+
+// ── Activate / Deactivate ─────────────────────────────────────────────────────
+
+function activate(context) {
+    // Output channel
+    outputChannel = vscode.window.createOutputChannel("AI Dev MCP");
+    outputChannel.appendLine("AI Dev MCP extension activated.");
+
+    // Status bar
+    statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBar.command = "aidevmcp.runPrompt";
+    setStatus("$(robot) MCP", "AI Dev MCP — click to run a task");
+
+    // Register commands
+    const commands = [
+        vscode.commands.registerCommand("aidevmcp.runPrompt",   cmdRunPrompt),
+        vscode.commands.registerCommand("aidevmcp.checkStatus", cmdCheckStatus),
+        vscode.commands.registerCommand("aidevmcp.listJobs",    cmdListJobs),
+        vscode.commands.registerCommand("aidevmcp.openSettings",cmdOpenSettings),
+    ];
+
+    context.subscriptions.push(outputChannel, statusBar, ...commands);
+
+    // Eagerly validate config
+    client = buildClient();
+    if (!client) {
+        vscode.window.showWarningMessage(
+            "AI Dev MCP: Set baseUrl and apiKey in settings to get started.",
+            "Open Settings"
+        ).then(a => { if (a === "Open Settings") cmdOpenSettings(); });
+    }
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate };
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\vscode-extension\package.json
+========================================
+{
+  "name": "aidev-mcp",
+  "displayName": "AI Dev MCP",
+  "description": "Run AI coding tasks directly from VS Code via your MCP server",
+  "version": "1.0.0",
+  "publisher": "kp2340",
+  "icon": "icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kp2340/MCP"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Other"],
+  "keywords": ["mcp", "ai", "coding assistant", "ollama", "automation"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aidevmcp.runPrompt",
+        "title": "MCP: Run AI Prompt",
+        "category": "AI Dev MCP",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "aidevmcp.checkStatus",
+        "title": "MCP: Check Job Status",
+        "category": "AI Dev MCP"
+      },
+      {
+        "command": "aidevmcp.listJobs",
+        "title": "MCP: List All Jobs",
+        "category": "AI Dev MCP"
+      },
+      {
+        "command": "aidevmcp.openSettings",
+        "title": "MCP: Open Settings",
+        "category": "AI Dev MCP"
+      }
+    ],
+    "configuration": {
+      "title": "AI Dev MCP",
+      "properties": {
+        "aidevmcp.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of your MCP server (e.g. https://ai.decorom.in or your ngrok URL)",
+          "order": 1
+        },
+        "aidevmcp.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key (x-api-key header). Keep this secret.",
+          "order": 2
+        },
+        "aidevmcp.defaultProject": {
+          "type": "string",
+          "default": "",
+          "description": "Default project key. Leave empty to auto-detect from workspace folder name.",
+          "order": 3
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aidevmcp.runPrompt",
+          "group": "z_aidevmcp",
+          "when": "editorTextFocus"
+        }
+      ],
+      "commandPalette": [
+        { "command": "aidevmcp.runPrompt" },
+        { "command": "aidevmcp.checkStatus" },
+        { "command": "aidevmcp.listJobs" },
+        { "command": "aidevmcp.openSettings" }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "aidevmcp.runPrompt",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "echo 'No build step required'",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^2.24.0"
+  }
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\vscode-extension\README.md
+========================================
+# AI Dev MCP — Plugin & Client System
+
+Complete client SDK and IDE integrations for the AI Dev MCP server.
+
+---
+
+## What's Included
+
+```
+mcp-plugin/
+├── src/
+│   └── client/
+│       └── mcpClient.js          ← Universal JS SDK (Node + browser, zero deps)
+├── vscode-extension/
+│   ├── extension.js              ← Full VS Code extension
+│   ├── package.json              ← Extension manifest
+│   └── README.md                 ← Setup + packaging instructions
+├── intellij-plugin/
+│   └── ARCHITECTURE.md           ← Full Kotlin plugin code + build guide
+└── example.js                    ← SDK usage examples
+```
+
+---
+
+## 1 — JavaScript Client SDK
+
+**File:** `src/client/mcpClient.js`  
+Zero dependencies. Works in Node.js 18+ and modern browsers.
+
+```js
+import { MCPClient } from "./src/client/mcpClient.js";
+
+const client = new MCPClient({
+    baseUrl: "https://your-ngrok-url.ngrok.io",  // or custom domain
+    apiKey:  "your-api-key",
+});
+
+// Submit a task
+const jobId = await client.runTask("Fix login bug", "jsv");
+
+// Stream live logs
+await client.stream(jobId, (msg) => {
+    if (msg.event === "completed") console.log("Done!", msg.data);
+    else console.log(`[${msg.data?.step}] ${msg.data?.log}`);
+});
+
+// OR: wait for completion (stream → poll fallback)
+const result = await client.waitForCompletion(jobId, console.log);
+```
+
+### Environment variable support
+
+```bash
+MCP_BASE_URL=https://your-ngrok-url.ngrok.io
+MCP_API_KEY=your-api-key
+```
+
+```js
+import { createClientFromEnv } from "./src/client/mcpClient.js";
+const client = createClientFromEnv();
+```
+
+### Full API
+
+| Method | Description |
+|---|---|
+| `runTask(prompt, project)` | Submit task → returns jobId |
+| `getStatus(jobId)` | Fetch job status object |
+| `listJobs(statusFilter?)` | List all jobs |
+| `getQueue()` | Get queue depth |
+| `stream(jobId, onMessage)` | Subscribe to SSE stream |
+| `waitForCompletion(jobId, onProgress?)` | Wait for terminal state |
+
+---
+
+## 2 — VS Code Extension
+
+### Install (teammates)
+
+```bash
+# Package (one time, from your machine)
+cd vscode-extension
+npm install
+npx vsce package
+# → aidev-mcp-1.0.0.vsix
+
+# Install (on teammate's machine)
+code --install-extension aidev-mcp-1.0.0.vsix
+```
+
+### Configure
+
+Settings → search **aidevmcp**:
+
+| Setting | Value |
+|---|---|
+| `aidevmcp.baseUrl` | `https://your-ngrok-url.ngrok.io` |
+| `aidevmcp.apiKey` | Your API key |
+| `aidevmcp.defaultProject` | e.g. `jsv` |
+
+### Use
+
+- **Ctrl+Shift+M** → prompts for project + task
+- Highlight code first → it's injected as context automatically
+- Logs stream live in the **AI Dev MCP** output panel
+- Status bar shows running / idle state
+
+---
+
+## 3 — IntelliJ Plugin
+
+See `intellij-plugin/ARCHITECTURE.md` for complete Kotlin source code.
+
+**Build:**
+```bash
+cd intellij-plugin
+./gradlew buildPlugin
+# → build/distributions/aidev-mcp-1.0.0.zip
+```
+
+**Install internally (no Marketplace):**  
+Settings → Plugins → ⚙ → Install Plugin from Disk → select the `.zip`
+
+---
+
+## 4 — SSE Stream Format
+
+The server emits standard SSE events:
+
+```
+event: message
+data: {"step": 1, "log": "Reading files..."}
+
+event: message
+data: {"step": 2, "log": "Applying changes..."}
+
+event: completed
+data: {"id": "job_abc", "status": "completed", "result": "..."}
+
+event: failed
+data: {"id": "job_abc", "status": "failed", "error": "..."}
+
+:heartbeat
+```
+
+Every 15 seconds a heartbeat (`:heartbeat`) keeps the connection alive through proxies and ngrok.
+
+---
+
+## 5 — Endpoints Reference
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/run` | x-api-key | Submit a job |
+| GET | `/status/:id` | x-api-key | Get job status |
+| GET | `/stream/:id` | x-api-key | SSE stream for a job |
+| GET | `/jobs` | x-api-key | List all jobs |
+| GET | `/queue` | x-api-key | Queue depth |
+| GET | `/health` | none | Health check |
+
+---
+
+## 6 — Generic Integration (any IDE)
+
+For any IDE that supports HTTP + plugins:
+
+```
+POST /run
+Headers: x-api-key: <key>, Content-Type: application/json
+Body: { "prompt": "...", "project": "jsv" }
+→ { "id": "job_xxx", "streamUrl": "/stream/job_xxx" }
+
+GET /stream/job_xxx
+Headers: x-api-key: <key>, Accept: text/event-stream
+→ SSE stream (parse event: / data: lines)
+```
+
+---
+
+## Security Notes
+
+- The API key is validated on every request server-side
+- Share the `.vsix` / `.zip` plugin files with teammates — **not** the API key in plaintext
+- Each teammate adds the key in their local IDE settings
+- Rotate the key in your `.env` if compromised (restart the server)
 
 

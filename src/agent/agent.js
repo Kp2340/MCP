@@ -11,6 +11,7 @@ import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
 import { reviewChanges } from "./reviewer.js";
+import { fileURLToPath } from "url";
 import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
 import {
     COMPRESS_EVERY_N_STEPS,
@@ -27,10 +28,8 @@ const MODEL       = "qwen2.5-coder:7b";
 const MAX_STEPS   = 25;
 const MAX_RETRIES = 2;
 
-const mcp       = new MCPClient();
-const collector = new TrainingCollector();
-
-console.error(`[training] ${collector.count()} examples collected so far`);
+let mcp;
+let collector;
 
 // ─── Cost state ──────────────────────────────────────────────────────────────
 function makeCostState() {
@@ -127,7 +126,9 @@ async function executeWithRetry(step, context, project, memoryCtx, costState, ex
 }
 
 // ─── Main adaptive agent loop ────────────────────────────────────────────────
-async function runAgent(prompt) {
+export async function runAgent(prompt) {
+    if (!mcp)       mcp       = new MCPClient();
+    if (!collector) collector = new TrainingCollector();
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
     if (!projectMatch) throw new Error("Prompt must include: project: <project-name>");
     const project = projectMatch[1];
@@ -376,13 +377,17 @@ async function runAgent(prompt) {
     console.error(`──────────────────────\n`);
 }
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    collector = new TrainingCollector();
+    console.error(`[training] ${collector.count()} examples collected so far`);
 
-rl.question("Prompt: ", async (prompt) => {
-    try {
-        await runAgent(prompt);
-    } catch (err) {
-        console.error("Agent error:", err.message);
-    }
-    process.exit();
-});
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question("Prompt: ", async (prompt) => {
+        try {
+            await runAgent(prompt);
+        } catch (err) {
+            console.error("Agent error:", err.message);
+        }
+        process.exit();
+    });
+}
