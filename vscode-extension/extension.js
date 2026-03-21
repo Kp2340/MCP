@@ -1,14 +1,13 @@
-// AI Dev MCP — VS Code Extension
-// Connects to your MCP server and lets you run AI coding tasks from inside VS Code.
+// AI Dev MCP — VS Code Extension v1.1.0
+// Calls POST /run (agentic mode — Qwen2.5 agent loop)
+// Never connects to /sse — that is for Antigravity / Claude Desktop only.
 
 const vscode = require("vscode");
-
-// ── Inline MCPClient (no external deps, no build step) ───────────────────────
-// Copied from src/client/mcpClient.js so the extension is self-contained.
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_TIMEOUT_MS       = 300_000;
 
+// ── MCPClient ─────────────────────────────────────────────────────────────────
 class MCPClient {
     constructor({ baseUrl, apiKey, timeout, pollInterval } = {}) {
         if (!baseUrl) throw new Error("MCPClient: baseUrl is required");
@@ -30,15 +29,18 @@ class MCPClient {
         });
         if (!res.ok) {
             const body = await res.text().catch(() => "");
-            throw new Error(`MCP ${opts.method || "GET"} ${path} → ${res.status}: ${body}`);
+            throw new Error(`MCP ${opts.method || "GET"} ${path} \u2192 ${res.status}: ${body}`);
         }
         return res.json();
     }
 
-    async runTask(prompt, project) {
+    // MCP-3.11: sends "path" so the server can auto-register unknown projects
+    async runTask(prompt, project, projectPath) {
+        const body = { prompt, project };
+        if (projectPath) body.path = projectPath;
         const data = await this._json("/run", {
             method: "POST",
-            body:   JSON.stringify({ prompt, project }),
+            body:   JSON.stringify(body),
         });
         return data.id;
     }
@@ -47,13 +49,22 @@ class MCPClient {
         return this._json(`/status/${jobId}`);
     }
 
+    async listJobs(statusFilter) {
+        const qs = statusFilter ? `?status=${statusFilter}` : "";
+        return this._json(`/jobs${qs}`);
+    }
+
+    async getQueue() {
+        return this._json("/queue");
+    }
+
     async stream(jobId, onMessage) {
         const res = await fetch(`${this.baseUrl}/stream/${jobId}`, {
             headers: { ...this._headers(), Accept: "text/event-stream" },
         });
         if (!res.ok) throw new Error(`Stream ${res.status}`);
 
-        const reader = res.body.getReader();
+        const reader  = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -71,9 +82,8 @@ class MCPClient {
                     if (line.startsWith("data:"))  data  = line.slice(5).trim();
                 }
                 if (data && !data.startsWith(":")) {
-                    try { onMessage({ event, data: JSON.parse(data) }); } catch {
-                        onMessage({ event, data });
-                    }
+                    try { onMessage({ event, data: JSON.parse(data) }); }
+                    catch { onMessage({ event, data }); }
                 }
             }
         }
@@ -112,25 +122,18 @@ class MCPClient {
 }
 
 // ── Extension state ───────────────────────────────────────────────────────────
-
-/** @type {vscode.OutputChannel} */
 let outputChannel;
-/** @type {vscode.StatusBarItem} */
 let statusBar;
-/** @type {MCPClient|null} */
 let client = null;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getConfig() {
     return vscode.workspace.getConfiguration("aidevmcp");
 }
 
 function buildClient() {
-    const cfg    = getConfig();
+    const cfg     = getConfig();
     const baseUrl = cfg.get("baseUrl") || process.env.MCP_BASE_URL || "";
     const apiKey  = cfg.get("apiKey")  || process.env.MCP_API_KEY  || "";
-
     if (!baseUrl || !apiKey) return null;
     return new MCPClient({ baseUrl, apiKey });
 }
@@ -147,23 +150,34 @@ function log(msg) {
     outputChannel.appendLine(`[${ts}] ${msg}`);
 }
 
-// ── Active project helpers ────────────────────────────────────────────────────
+// ── Project helpers ───────────────────────────────────────────────────────────
 
-function getWorkspaceProject() {
+/** Returns the workspace root filesystem path (e.g. C:/Projects/zeveal-backend). */
+function getWorkspacePath() {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) return null;
-    // Use the configured override if set
+    return folders[0].uri.fsPath;  // absolute path, e.g. C:\Projects\zeveal-backend
+}
+
+/**
+ * Returns the project name to use:
+ *   1. User-configured defaultProject override
+ *   2. Workspace folder base name (lowercased)
+ */
+function getWorkspaceProjectName() {
     const override = getConfig().get("defaultProject");
     if (override) return override;
-    // Fall back to folder name (lower-cased, hyphens stripped)
-    return folders[0].name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const wsPath = getWorkspacePath();
+    if (!wsPath) return null;
+    // e.g. "C:/Users/kush/zeveal-backend" -> "zeveal-backend"
+    return wsPath.split(/[\\/]/).pop().toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
 
 function getEditorContext() {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return null;
-    const doc  = editor.document;
-    const sel  = editor.selection;
+    const doc = editor.document;
+    const sel = editor.selection;
     return {
         filePath:     doc.uri.fsPath,
         language:     doc.languageId,
@@ -187,16 +201,17 @@ async function cmdRunPrompt() {
         return;
     }
 
-    // 1. Pick project
-    const autoProject = getWorkspaceProject();
-    const project = await vscode.window.showInputBox({
-        prompt:      "Project key (must match projects.json on the server)",
-        placeHolder: autoProject ?? "jsv",
-        value:       autoProject ?? "",
+    // 1. Project — auto-detected from workspace, user can override
+    const autoName    = getWorkspaceProjectName();
+    const wsPath      = getWorkspacePath();
+    const projectName = await vscode.window.showInputBox({
+        prompt:      "Project name (auto-detected — press Enter to confirm or type another)",
+        placeHolder: autoName ?? "my-project",
+        value:       autoName ?? "",
     });
-    if (!project) return;
+    if (!projectName) return;
 
-    // 2. Get prompt — pre-fill with selected code context
+    // 2. Prompt — pre-fill with selected code context
     const ctx    = getEditorContext();
     const prefix = ctx?.selectedText
         ? `[File: ${ctx.filePath}, line ${ctx.lineNumber}]\n\`\`\`\n${ctx.selectedText}\n\`\`\`\n\n`
@@ -204,31 +219,46 @@ async function cmdRunPrompt() {
 
     const prompt = await vscode.window.showInputBox({
         prompt:      "What should the AI do?",
-        placeHolder: "Fix the login bug / Add unit tests / Refactor this function",
+        placeHolder: "Fix the login bug / Analyse the project / Add unit tests",
         value:       prefix,
     });
     if (!prompt) return;
 
     // 3. Show output panel
     outputChannel.show(true);
-    log(`▶  Running: "${prompt.slice(0, 80)}${prompt.length > 80 ? "…" : ""}" on project [${project}]`);
-    setStatus("$(sync~spin) MCP Running…", "AI Dev MCP — job running", new vscode.ThemeColor("statusBarItem.warningBackground"));
+    log(`\u25b6  Running: "${prompt.slice(0, 80)}${prompt.length > 80 ? "\u2026" : ""}" on [${projectName}]`);
+    if (wsPath) log(`   Path: ${wsPath}`);
+    setStatus("$(sync~spin) MCP Running\u2026", "AI Dev MCP \u2014 job running", new vscode.ThemeColor("statusBarItem.warningBackground"));
 
     try {
-        // 4. Submit
-        const jobId = await client.runTask(prompt, project);
+        // 4. Submit — pass workspace path so server auto-registers if needed
+        const jobId = await client.runTask(prompt, projectName, wsPath);
         log(`   Job ID: ${jobId}`);
         log(`   Stream: ${getConfig().get("baseUrl")}/stream/${jobId}`);
-        log("─".repeat(60));
+        log("\u2500".repeat(60));
 
-        // 5. Stream logs
+        // 5. Stream live progress
         let stepCount = 0;
         const jobResult = await client.waitForCompletion(jobId, (msg) => {
             const d = msg.data;
             if (!d) return;
 
             if (msg.event === "poll") {
-                log(`   ↻ status: ${d.status}`);
+                log(`   \u21bb status: ${d.status}`);
+                return;
+            }
+            // MCP-3.11: step event from queue.emitJobStep()
+            if (msg.event === "step") {
+                stepCount++;
+                log(`   [${d.step ?? stepCount}] ${d.detail ?? JSON.stringify(d)}`);
+                return;
+            }
+            if (msg.event === "queued") {
+                log(`   Queued at position ${d.position ?? "?"}`);
+                return;
+            }
+            if (msg.event === "started") {
+                log(`   Agent started`);
                 return;
             }
 
@@ -237,27 +267,28 @@ async function cmdRunPrompt() {
                 log(`   ${d}`);
             } else if (d.log) {
                 log(`   [${d.step ?? stepCount}] ${d.log}`);
+            } else if (d.result) {
+                log(`   result: ${d.result}`);
             } else if (d.status) {
-                log(`   status → ${d.status}`);
+                log(`   status \u2192 ${d.status}`);
             } else {
                 log(`   ${JSON.stringify(d)}`);
             }
         });
 
         // 6. Done
-        log("─".repeat(60));
-        log(`✔  Completed. Result: ${typeof jobResult === "object" ? JSON.stringify(jobResult, null, 2) : jobResult}`);
-        setStatus("$(check) MCP Done", "AI Dev MCP — last job completed");
+        log("\u2500".repeat(60));
+        log(`\u2714  Completed. ${typeof jobResult === "object" ? JSON.stringify(jobResult, null, 2) : jobResult}`);
+        setStatus("$(check) MCP Done", "AI Dev MCP \u2014 last job completed");
 
         vscode.window.showInformationMessage(
-            `AI Dev MCP: Task completed for [${project}]`,
+            `AI Dev MCP: Task completed for [${projectName}]`,
             "View Logs"
         ).then(a => { if (a === "View Logs") outputChannel.show(); });
 
     } catch (err) {
-        log(`✘  Error: ${err.message}`);
-        setStatus("$(error) MCP Failed", "AI Dev MCP — last job failed", new vscode.ThemeColor("statusBarItem.errorBackground"));
-
+        log(`\u2718  Error: ${err.message}`);
+        setStatus("$(error) MCP Failed", "AI Dev MCP \u2014 last job failed", new vscode.ThemeColor("statusBarItem.errorBackground"));
         vscode.window.showErrorMessage(
             `AI Dev MCP: ${err.message}`,
             "View Logs"
@@ -267,14 +298,9 @@ async function cmdRunPrompt() {
 
 async function cmdCheckStatus() {
     client = buildClient();
-    if (!client) {
-        vscode.window.showErrorMessage("AI Dev MCP: not configured. Check settings.");
-        return;
-    }
-
+    if (!client) { vscode.window.showErrorMessage("AI Dev MCP: not configured."); return; }
     const jobId = await vscode.window.showInputBox({ prompt: "Enter Job ID to check" });
     if (!jobId) return;
-
     try {
         const job = await client.getStatus(jobId);
         outputChannel.show(true);
@@ -288,16 +314,28 @@ async function cmdCheckStatus() {
 async function cmdListJobs() {
     client = buildClient();
     if (!client) return;
-
     try {
         const jobs = await client.listJobs();
         outputChannel.show(true);
-        log("─".repeat(60));
+        log("\u2500".repeat(60));
         log(`All jobs (${jobs.length}):`);
         for (const j of jobs) {
-            log(`  ${j.id} | ${j.status.padEnd(10)} | ${j.project ?? ""} | ${j.prompt?.slice(0, 60) ?? ""}`);
+            log(`  ${j.id} | ${j.status.padEnd(10)} | ${j.project ?? ""} | ${(j.prompt ?? "").slice(0, 60)}`);
         }
-        log("─".repeat(60));
+        log("\u2500".repeat(60));
+    } catch (err) {
+        vscode.window.showErrorMessage(`AI Dev MCP: ${err.message}`);
+    }
+}
+
+async function cmdQueueStatus() {
+    client = buildClient();
+    if (!client) return;
+    try {
+        const q = await client.getQueue();
+        outputChannel.show(true);
+        log(`Queue: running=${q.running} | pending=${q.pending} | total=${q.total}`);
+        if (q.currentJobId) log(`  Current job: ${q.currentJobId}`);
     } catch (err) {
         vscode.window.showErrorMessage(`AI Dev MCP: ${err.message}`);
     }
@@ -310,33 +348,21 @@ async function cmdOpenSettings() {
 // ── Activate / Deactivate ─────────────────────────────────────────────────────
 
 function activate(context) {
-    // Output channel
     outputChannel = vscode.window.createOutputChannel("AI Dev MCP");
-    outputChannel.appendLine("AI Dev MCP extension activated.");
+    outputChannel.appendLine("AI Dev MCP v1.1.0 activated. Uses POST /run (agentic mode).");
 
-    // Status bar
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBar.command = "aidevmcp.runPrompt";
-    setStatus("$(robot) MCP", "AI Dev MCP — click to run a task");
+    setStatus("$(robot) MCP", "AI Dev MCP \u2014 click to run a task");
 
-    // Register commands
-    const commands = [
-        vscode.commands.registerCommand("aidevmcp.runPrompt",   cmdRunPrompt),
-        vscode.commands.registerCommand("aidevmcp.checkStatus", cmdCheckStatus),
-        vscode.commands.registerCommand("aidevmcp.listJobs",    cmdListJobs),
-        vscode.commands.registerCommand("aidevmcp.openSettings",cmdOpenSettings),
+    const cmds = [
+        vscode.commands.registerCommand("aidevmcp.runPrompt",    cmdRunPrompt),
+        vscode.commands.registerCommand("aidevmcp.checkStatus",  cmdCheckStatus),
+        vscode.commands.registerCommand("aidevmcp.listJobs",     cmdListJobs),
+        vscode.commands.registerCommand("aidevmcp.queueStatus",  cmdQueueStatus),
+        vscode.commands.registerCommand("aidevmcp.openSettings", cmdOpenSettings),
     ];
-
-    context.subscriptions.push(outputChannel, statusBar, ...commands);
-
-    // Eagerly validate config
-    client = buildClient();
-    if (!client) {
-        vscode.window.showWarningMessage(
-            "AI Dev MCP: Set baseUrl and apiKey in settings to get started.",
-            "Open Settings"
-        ).then(a => { if (a === "Open Settings") cmdOpenSettings(); });
-    }
+    context.subscriptions.push(...cmds, statusBar);
 }
 
 function deactivate() {}

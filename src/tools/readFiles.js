@@ -5,20 +5,21 @@ import { readFileLimited } from "../utils/fileUtils.js";
 import { MAX_FILE_SIZE } from "../core/constants.js";
 
 export function readFiles({ project, paths }) {
-
     const projectRoot = getProject(project).root;
-
     const results = [];
 
     for (const relativePath of paths) {
-
         try {
-
-            const fullPath = validatePath(projectRoot, relativePath);
+            // FIX: use let so the path can be reassigned during fallback search
+            let fullPath = validatePath(projectRoot, relativePath);
 
             if (!fs.existsSync(fullPath)) {
                 // Auto-search common subdirectories before giving up
-                const searchDirs = ["src/components", "src/app", "src", "app", "components"];
+                // Added "addons" for Odoo, "lib" for Go/generic
+                const searchDirs = [
+                    "src/components", "src/app", "src", "app",
+                    "components", "addons", "lib", "pkg"
+                ];
                 let found = false;
                 for (const dir of searchDirs) {
                     try {
@@ -36,31 +37,15 @@ export function readFiles({ project, paths }) {
                 }
             }
 
-            const content = readFileLimited(
-                fullPath,
-                MAX_FILE_SIZE
-            );
-
-            results.push({
-                path: relativePath,
-                content
-            });
+            const content = readFileLimited(fullPath, MAX_FILE_SIZE);
+            results.push({ path: relativePath, content });
 
         } catch (err) {
-
-            results.push({
-                path: relativePath,
-                error: err.message
-            });
+            results.push({ path: relativePath, error: err.message });
         }
     }
 
     return {
-        content: [
-            {
-                type: "text",
-                text: JSON.stringify(results, null, 2)
-            }
-        ]
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
     };
 }

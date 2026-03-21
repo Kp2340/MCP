@@ -4,6 +4,9 @@ import { spawnSync } from "child_process";
 
 import { getProject } from "../core/projectRegistry.js";
 import { validateChangeRequest, sanitizeCommitMessage } from "../core/validator.js";
+import { createLogger } from "../core/logger.js";
+
+const log = createLogger("apply-changes");
 
 function getNextBranch(root, prefix) {
     const result = spawnSync("git", ["branch"], { cwd: root, encoding: "utf8" });
@@ -21,6 +24,12 @@ function getNextBranch(root, prefix) {
     return `${prefix}-${max + 1}`;
 }
 
+/** Returns true if git working tree has staged or unstaged changes. */
+function hasChanges(root) {
+    const r = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+    return (r.stdout || "").trim().length > 0;
+}
+
 export function applyChanges({ project, files, commitMessage, increment }) {
     const config = getProject(project);
     const root = config.root;
@@ -35,20 +44,35 @@ export function applyChanges({ project, files, commitMessage, increment }) {
 
     spawnSync("git", ["add", "."], { cwd: root });
 
-    const safeMessage = sanitizeCommitMessage(commitMessage);
-
-    if (increment) {
-        const branch = getNextBranch(root, config.branchPrefix);
-        spawnSync("git", ["checkout", "-b", branch], { cwd: root });
-        spawnSync("git", ["commit", "-m", `${branch} ${safeMessage}`], { cwd: root });
+    // Guard: nothing to commit — skip silently instead of letting git error
+    if (!hasChanges(root)) {
+        log.warn(`applyChanges: no changes to commit for project "${project}"`);
         return {
-            content: [{ type: "text", text: `Created branch ${branch}` }]
+            content: [{ type: "text", text: "No changes detected — files already match target content. Nothing committed." }]
         };
     }
 
-    spawnSync("git", ["commit", "-m", safeMessage], { cwd: root });
+    const safeMessage = sanitizeCommitMessage(commitMessage);
+
+    if (increment) {
+        const prefix = config.branchPrefix || "AI";
+        const branch = getNextBranch(root, prefix);
+        spawnSync("git", ["checkout", "-b", branch], { cwd: root });
+        const result = spawnSync("git", ["commit", "-m", `${branch} ${safeMessage}`], { cwd: root, encoding: "utf8" });
+        if (result.status !== 0) {
+            throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
+        }
+        return {
+            content: [{ type: "text", text: `Created branch ${branch} and committed changes.` }]
+        };
+    }
+
+    const result = spawnSync("git", ["commit", "-m", safeMessage], { cwd: root, encoding: "utf8" });
+    if (result.status !== 0) {
+        throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
+    }
 
     return {
-        content: [{ type: "text", text: "Changes committed" }]
+        content: [{ type: "text", text: `Changes committed: ${safeMessage}` }]
     };
 }

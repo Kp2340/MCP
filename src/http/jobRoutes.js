@@ -3,18 +3,17 @@
  *
  * REST endpoints for the agent job queue.
  *
- * Routes:
- *   POST /run          → enqueue an agent task
- *   GET  /status/:id   → get job status + result
- *   GET  /jobs         → list recent jobs
- *   GET  /queue        → current queue status
- *   GET  /stream/:id   → SSE stream for live job updates
+ * MCP-3.11: /run now accepts an optional "path" field so callers can
+ * pass the workspace path alongside the project name. If the project name
+ * isn't in the registry but a path is provided, the project is auto-registered
+ * before the agent runs.
  */
 
 import { enqueue, getJob, listJobs, getQueueStatus,
          subscribeToJob, unsubscribeFromJob }       from "./queue.js";
 import { createLogger }                             from "../core/logger.js";
 import { runAgent }                                 from "../agent/agentRunner.js";
+import { registerDynamicProject, listProjects }     from "../core/projectRegistry.js";
 
 const log = createLogger("job-routes");
 
@@ -22,13 +21,24 @@ export function attachJobRoutes(app) {
 
     // ── POST /run ──────────────────────────────────────────────────────────────
     app.post("/run", (req, res) => {
-        const { prompt, project } = req.body || {};
+        const { prompt, project, path: projectPath } = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
             return res.status(400).json({ error: "prompt (string) is required" });
         }
         if (!project || typeof project !== "string") {
             return res.status(400).json({ error: "project (string) is required" });
+        }
+
+        // Auto-register if project unknown but a path was provided
+        const knownProjects = listProjects();
+        if (!knownProjects.includes(project) && projectPath) {
+            try {
+                registerDynamicProject(project, projectPath);
+                log.info(`Auto-registered "${project}" from /run request (path: ${projectPath})`);
+            } catch (err) {
+                return res.status(400).json({ error: `Cannot register project: ${err.message}` });
+            }
         }
 
         const runner = async (job) => {
@@ -61,8 +71,7 @@ export function attachJobRoutes(app) {
 
     // ── GET /jobs ──────────────────────────────────────────────────────────────
     app.get("/jobs", (req, res) => {
-        const filter = req.query.status || null;
-        res.json(listJobs(filter));
+        res.json(listJobs(req.query.status || null));
     });
 
     // ── GET /queue ─────────────────────────────────────────────────────────────
@@ -74,7 +83,6 @@ export function attachJobRoutes(app) {
     app.get("/stream/:id", (req, res) => {
         const jobId = req.params.id;
         const job   = getJob(jobId);
-
         if (!job) return res.status(404).json({ error: `Job ${jobId} not found` });
 
         res.setHeader("Content-Type",     "text/event-stream");
@@ -101,9 +109,8 @@ export function attachJobRoutes(app) {
         req.on("close", () => {
             clearInterval(heartbeat);
             unsubscribeFromJob(jobId, res);
-            log.debug(`Stream closed for job ${jobId}`);
         });
     });
 
-    log.info("Job routes attached: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id");
+    log.info("Job routes: POST /run  GET /status/:id  GET /jobs  GET /queue  GET /stream/:id");
 }

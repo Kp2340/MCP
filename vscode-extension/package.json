@@ -1,44 +1,23 @@
 {
   "name": "aidev-mcp",
   "displayName": "AI Dev MCP",
-  "description": "Run AI coding tasks directly from VS Code via your MCP server",
-  "version": "1.0.0",
+  "description": "Agentic AI coding via your private MCP server. Uses POST /run — Qwen2.5 agent does the work.",
+  "version": "1.1.0",
   "publisher": "kp2340",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Kp2340/MCP"
-  },
-  "engines": {
-    "vscode": "^1.85.0"
-  },
+  "repository": { "type": "git", "url": "https://github.com/Kp2340/MCP" },
+  "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],
   "keywords": ["mcp", "ai", "coding assistant", "ollama", "automation"],
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "aidevmcp.runPrompt",
-        "title": "MCP: Run AI Prompt",
-        "category": "AI Dev MCP",
-        "icon": "$(robot)"
-      },
-      {
-        "command": "aidevmcp.checkStatus",
-        "title": "MCP: Check Job Status",
-        "category": "AI Dev MCP"
-      },
-      {
-        "command": "aidevmcp.listJobs",
-        "title": "MCP: List All Jobs",
-        "category": "AI Dev MCP"
-      },
-      {
-        "command": "aidevmcp.openSettings",
-        "title": "MCP: Open Settings",
-        "category": "AI Dev MCP"
-      }
+      { "command": "aidevmcp.runPrompt",   "title": "MCP: Run AI Prompt",    "category": "AI Dev MCP", "icon": "$(robot)" },
+      { "command": "aidevmcp.checkStatus", "title": "MCP: Check Job Status", "category": "AI Dev MCP" },
+      { "command": "aidevmcp.listJobs",    "title": "MCP: List All Jobs",    "category": "AI Dev MCP" },
+      { "command": "aidevmcp.queueStatus", "title": "MCP: Queue Status",     "category": "AI Dev MCP" },
+      { "command": "aidevmcp.openSettings","title": "MCP: Open Settings",    "category": "AI Dev MCP" }
     ],
     "configuration": {
       "title": "AI Dev MCP",
@@ -46,35 +25,32 @@
         "aidevmcp.baseUrl": {
           "type": "string",
           "default": "",
-          "description": "Base URL of your MCP server (e.g. https://ai.decorom.in or your ngrok URL)",
+          "description": "Base URL of your MCP server, e.g. http://192.168.1.x:3001",
           "order": 1
         },
         "aidevmcp.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key (x-api-key header). Keep this secret.",
+          "description": "API key (x-api-key header). Same key as in your server .env file.",
           "order": 2
         },
         "aidevmcp.defaultProject": {
           "type": "string",
           "default": "",
-          "description": "Default project key. Leave empty to auto-detect from workspace folder name.",
+          "description": "Override project name. Leave empty to auto-detect from workspace folder name. The server path is sent automatically for auto-registration.",
           "order": 3
         }
       }
     },
     "menus": {
       "editor/context": [
-        {
-          "command": "aidevmcp.runPrompt",
-          "group": "z_aidevmcp",
-          "when": "editorTextFocus"
-        }
+        { "command": "aidevmcp.runPrompt", "group": "z_aidevmcp", "when": "editorTextFocus" }
       ],
       "commandPalette": [
         { "command": "aidevmcp.runPrompt" },
         { "command": "aidevmcp.checkStatus" },
         { "command": "aidevmcp.listJobs" },
+        { "command": "aidevmcp.queueStatus" },
         { "command": "aidevmcp.openSettings" }
       ]
     },
