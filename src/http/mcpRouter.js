@@ -1,94 +1,103 @@
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { createLogger } from "../core/logger.js";
-import { config } from "../core/config.js";
+/**
+ * src/http/mcpRouter.js
+ *
+ * Dual-transport MCP router:
+ *
+ *   POST /mcp  — Streamable HTTP, stateless + JSON response mode
+ *               Used by: Gemini CLI, Claude Code, Cursor, Windsurf
+ *               Each POST gets an immediate JSON response (no streaming).
+ *               Notifications return 202 immediately — no timeout.
+ *               Works cleanly through Cloudflare tunnels and any proxy.
+ *
+ *   GET  /sse       — Legacy SSE (2024-11-05 spec, kept for compatibility)
+ *   POST /message   — Legacy SSE message endpoint
+ *               Used by: Claude Desktop older versions, older IDE plugins
+ */
+
+import { SSEServerTransport }            from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createLogger }                  from "../core/logger.js";
+import { config }                        from "../core/config.js";
 
 const log = createLogger("mcp-router");
-const transports = new Map();
 
-/**
- * Resolve the public base URL for this server.
- * When running behind a reverse proxy (Cloudflare tunnel, ngrok, Tailscale),
- * the SDK sends an "endpoint" SSE event to the client telling it where to POST
- * messages. That URL must be the public-facing URL, not localhost.
- *
- * Priority:
- *   1. X-Forwarded-Host + X-Forwarded-Proto from the proxy
- *   2. Host header + protocol from the request
- *   3. BASE_URL from .env (fallback)
- */
+// Legacy SSE sessions only
+const sseSessions = new Map();
+
 function resolvePublicBase(req) {
-    const forwardedProto = req.headers["x-forwarded-proto"];
-    const forwardedHost  = req.headers["x-forwarded-host"] || req.headers["x-forwarded-for"];
-    if (forwardedProto && forwardedHost) {
-        const proto = forwardedProto.split(",")[0].trim();
-        const host  = forwardedHost.split(",")[0].trim();
-        return `${proto}://${host}`;
-    }
-    // Fall back to Host header
-    const host = req.headers["host"];
-    if (host) {
-        const proto = req.secure ? "https" : "http";
-        return `${proto}://${host}`;
-    }
-    // Last resort: configured BASE_URL
+    const proto = req.headers["x-forwarded-proto"]?.split(",")[0].trim();
+    const host  = req.headers["x-forwarded-host"]?.split(",")[0].trim()
+               || req.headers["host"];
+    if (proto && host) return `${proto}://${host}`;
+    if (host)          return `${req.secure ? "https" : "http"}://${host}`;
     return config.BASE_URL;
 }
 
 export function attachMcpRoutes(app, mcpServer) {
 
+    // ── Streamable HTTP — stateless, JSON response mode ────────────────────────────────
+    // One shared mcpServer, new transport per request.
+    // enableJsonResponse:true makes every response immediate JSON — no open connections.
+    // sessionIdGenerator:undefined = stateless, no Mcp-Session-Id tracking.
+    app.post("/mcp", async (req, res) => {
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            enableJsonResponse:  true,
+        });
+        res.on("close", () => transport.close());
+        try {
+            await mcpServer.connect(transport);
+            await transport.handleRequest(req, res, req.body);
+        } catch (err) {
+            log.error("/mcp error:", err.message);
+            if (!res.headersSent) res.status(500).json({
+                jsonrpc: "2.0",
+                error: { code: -32603, message: err.message },
+                id: null
+            });
+        }
+    });
+
+    app.delete("/mcp", (_req, res) => res.status(200).end());
+
+    // ── Legacy SSE transport ────────────────────────────────────────────────────────────
     app.get("/sse", async (req, res) => {
-        const sessionId = req.headers["x-session-id"] ||
-            `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-        // Build the full public message URL so clients behind a proxy
-        // (Cloudflare tunnel, ngrok, Tailscale) can POST back correctly.
-        const publicBase  = resolvePublicBase(req);
-        const messageUrl  = `${publicBase}/message`;
-
-        log.info(`SSE client connected: sessionId=${sessionId} ip=${req.headers["x-forwarded-for"] || req.ip} messageUrl=${messageUrl}`);
+        const publicBase = resolvePublicBase(req);
+        const messageUrl = `${publicBase}/message`;
+        log.info(`Legacy SSE connect from ${req.headers["x-forwarded-for"] || req.ip} — endpoint=${messageUrl}`);
 
         const transport = new SSEServerTransport(messageUrl, res);
-        transports.set(sessionId, transport);
-
-        res.setHeader("x-session-id", sessionId);
+        sseSessions.set(transport.sessionId, transport);
+        res.setHeader("x-session-id", transport.sessionId);
 
         req.on("close", () => {
-            transports.delete(sessionId);
-            log.info(`SSE client disconnected: sessionId=${sessionId}`);
+            sseSessions.delete(transport.sessionId);
+            log.info(`Legacy SSE closed: ${transport.sessionId}`);
         });
 
         try {
             await mcpServer.connect(transport);
         } catch (err) {
-            log.error(`SSE connect error for ${sessionId}:`, err.message);
-            transports.delete(sessionId);
+            log.error("Legacy SSE connect error:", err.message);
+            sseSessions.delete(transport.sessionId);
         }
     });
 
     app.post("/message", async (req, res) => {
-        // Accept session ID from header OR query string.
-        // The MCP SDK appends ?sessionId=<id> to the message URL it sends to clients,
-        // so most well-behaved clients will use the query string automatically.
-        // The x-session-id header is kept for backward compatibility.
         const sessionId = req.query.sessionId || req.headers["x-session-id"];
-
-        if (!sessionId) {
-            return res.status(400).json({ error: "Missing sessionId (query param or x-session-id header)" });
-        }
-
-        const transport = transports.get(sessionId);
+        if (!sessionId) return res.status(400).json({ error: "Missing sessionId" });
+        const transport = sseSessions.get(sessionId);
         if (!transport) {
-            log.warn(`Session not found: ${sessionId} — known sessions: ${[...transports.keys()].join(", ") || "none"}`);
-            return res.status(404).json({ error: `Session ${sessionId} not found. Connect to /sse first.` });
+            log.warn(`Legacy SSE session not found: ${sessionId}`);
+            return res.status(404).json({ error: `Session ${sessionId} not found. Reconnect to /sse.` });
         }
-
         try {
             await transport.handlePostMessage(req, res);
         } catch (err) {
-            log.error(`POST /message error:`, err.message);
+            log.error("/message error:", err.message);
             if (!res.headersSent) res.status(500).json({ error: err.message });
         }
     });
 
-    log.info("MCP SSE routes attached: GET /sse  POST /message");
+    log.info("MCP routes: POST /mcp (Streamable HTTP stateless)  GET /sse  POST /message (Legacy SSE)");
 }

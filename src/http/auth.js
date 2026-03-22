@@ -14,8 +14,11 @@ import { createLogger } from "../core/logger.js";
 
 const log = createLogger("auth");
 
-// Routes that never require auth — MCP SSE transport + health
-const PUBLIC_PATHS = new Set(["/health", "/health/", "/sse", "/message"]);
+// Routes that never require auth — MCP transports + health
+// /mcp     = Streamable HTTP transport (modern clients: Gemini CLI, Claude Code, Cursor)
+// /sse     = Legacy SSE transport (older clients)
+// /message = Legacy SSE message endpoint
+const PUBLIC_PATHS = new Set(["/health", "/health/", "/mcp", "/sse", "/message"]);
 
 // ── Rate limit state ──────────────────────────────────────────────────────────
 const rateLimitMap = new Map();

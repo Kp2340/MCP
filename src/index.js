@@ -67,7 +67,7 @@ const log = createLogger("server");
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 const mcpServer = new Server(
-    { name: "ai-dev-mcp", version: "5.1.0" },
+    { name: "ai-dev-mcp", version: "5.2.0" },
     { capabilities: { tools: {} } }
 );
 

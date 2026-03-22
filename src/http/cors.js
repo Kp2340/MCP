@@ -12,12 +12,16 @@ export function corsMiddleware(req, res, next) {
     res.setHeader("Access-Control-Expose-Headers", "x-session-id");
     res.setHeader("Access-Control-Max-Age", "86400");
 
-    // SSE-specific headers
+    // SSE anti-buffering headers — must be set on EVERY request, not just /sse.
+    // Cloudflare and other reverse proxies inspect these early in the response
+    // pipeline. Setting them only inside the /sse handler is too late — the
+    // proxy has already decided to buffer by the time Express runs route handlers.
+    res.setHeader("X-Accel-Buffering",         "no");
+    res.setHeader("ngrok-skip-browser-warning", "true");
+
     if (req.path === "/sse") {
-        res.setHeader("Cache-Control",      "no-cache, no-store");
-        res.setHeader("X-Accel-Buffering",  "no");
-        // Skip ngrok's HTML interstitial page for SSE connections
-        res.setHeader("ngrok-skip-browser-warning", "true");
+        res.setHeader("Cache-Control", "no-cache, no-store, no-transform");
+        res.setHeader("Connection",    "keep-alive");
     }
 
     if (req.method === "OPTIONS") {
