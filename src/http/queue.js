@@ -1,16 +1,19 @@
 /**
  * src/http/queue.js
  *
- * Single-concurrency in-memory job queue.
+ * Single-concurrency in-memory job queue with persistence.
  *
- * Improvements in MCP-3.11:
- *   - Job map cap: keeps only last 100 jobs to prevent memory leak on long-running server
+ * Improvements:
+ *   - Job map cap: keeps only last 100 jobs to prevent memory leak
  *   - clearTimeout on timeout path before calling processNext (prevent double-fire)
  *   - Emit step-level progress events so IDE extensions see live updates
+ *   - Persistent job store: jobs survive server restarts (via jobStore.js)
+ *   - queueDepth included in "queued" SSE event so clients don't need a separate /queue poll
  */
 
 import { createLogger } from "../core/logger.js";
 import { config }       from "../core/config.js";
+import { loadJobs, persistJobs } from "./jobStore.js";
 
 const log = createLogger("queue");
 
@@ -20,11 +23,14 @@ const jobs  = new Map();
 const queue = [];
 let   running = false;
 
+// Restore persisted jobs on module load (before any requests arrive)
+loadJobs(jobs);
+
 function makeId() {
     return `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ── SSE subscriber registry ───────────────────────────────────────────────────
+// ── SSE subscriber registry ───────────────────────────────────────────────
 const subscribers = new Map();
 
 export function subscribeToJob(jobId, res) {
@@ -53,7 +59,7 @@ function emit(jobId, event, data) {
     }
 }
 
-// ── Evict oldest completed/failed jobs when over cap ─────────────────────────
+// ── Evict oldest completed/failed jobs when over cap ─────────────────
 function evictOldJobs() {
     if (jobs.size <= MAX_JOBS) return;
     const terminal = [...jobs.entries()]
@@ -83,7 +89,8 @@ export function enqueue(prompt, project, runner) {
     jobs.set(id, job);
     queue.push(id);
     log.info(`Job enqueued: ${id} | project=${project} | queue_depth=${queue.length}`);
-    emit(id, "queued", { id, position: queue.length, status: "pending" });
+    emit(id, "queued", { id, position: queue.length, status: "pending", queueDepth: queue.length });
+    persistJobs(jobs);
     setImmediate(processNext);
     return job;
 }
@@ -131,6 +138,7 @@ async function processNext() {
         job.endedAt     = Date.now();
         log.warn(`Job timed out: ${id}`);
         emit(id, "failed", { id, error: job.error });
+        persistJobs(jobs);
         running = false;
         setImmediate(processNext);
     }, config.JOB_TIMEOUT_MS);
@@ -147,6 +155,7 @@ async function processNext() {
         const duration = ((job.endedAt - job.startedAt) / 1000).toFixed(1);
         log.info(`Job completed: ${id} | duration=${duration}s`);
         emit(id, "completed", { id, status: "completed", result: job.result, duration });
+        persistJobs(jobs);
 
     } catch (err) {
         if (timeoutFired) return;
@@ -158,6 +167,7 @@ async function processNext() {
 
         log.error(`Job failed: ${id} | error=${job.error}`);
         emit(id, "failed", { id, status: "failed", error: job.error });
+        persistJobs(jobs);
 
     } finally {
         if (!timeoutFired) {

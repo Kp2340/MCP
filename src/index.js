@@ -31,10 +31,12 @@ import {
 import express from "express";
 
 // ── HTTP layer imports ────────────────────────────────────────────────────────
-import { attachMcpRoutes } from "./http/mcpRouter.js";
-import { attachJobRoutes } from "./http/jobRoutes.js";
+import { attachMcpRoutes }   from "./http/mcpRouter.js";
+import { attachJobRoutes }   from "./http/jobRoutes.js";
+import { attachHealthRoutes } from "./http/healthRoutes.js";
 import { authMiddleware, ipAllowlistMiddleware, rateLimitMiddleware } from "./http/auth.js";
-import { corsMiddleware }  from "./http/cors.js";
+import { corsMiddleware }    from "./http/cors.js";
+import { runStartupChecks } from "./http/startupChecks.js";
 
 // ── Tool imports ──────────────────────────────────────────────────────────────
 import { scanProject }       from "./tools/scanProject.js";

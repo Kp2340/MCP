@@ -1,35 +1,38 @@
 @echo off
+cd /d "%~dp0"
 title AI Dev MCP HTTP Server
 
 echo.
-echo  AI Dev MCP Server v5.0.0 - HTTP Mode
+echo  AI Dev MCP Server v5.1.0 - HTTP Mode
 echo.
 
-REM ── Environment ──────────────────────────────────────────────────────────────
-set TRANSPORT=http
-set PORT=3001
-set BASE_URL=http://localhost:3001
-set API_KEY=kush-full-stack-developer-java-with-react
-set OLLAMA_HOST=http://localhost:11434
-set LLM_MODEL=qwen2.5-coder:7b
-set CHROMA_HOST=localhost
-set CHROMA_PORT=8000
-set JOB_TIMEOUT_MS=300000
-set CORS_ORIGIN=*
-set LOG_LEVEL=INFO
+REM Load .env
+if exist .env (
+    for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
+        if not "%%a"=="" if not "%%~a:~0,1%%"=="#" set %%a=%%b
+    )
+)
 
-REM ── Services ──────────────────────────────────────────────────────────────────
+set PORT=8080
+set BASE_URL=http://localhost:8080
+
+REM Start ChromaDB
 echo Starting ChromaDB...
-start "ChromaDB" /min cmd /c "chroma run --path ./chroma"
-timeout /t 3 /nobreak >nul
+start "ChromaDB" /min cmd /c "chroma run --path "%~dp0chroma""
+timeout /t 4 /nobreak >nul
 
-REM Old — cloudflared (broken on your machine)
-REM start "CF Tunnel" /min cmd /c "cloudflared tunnel --url http://127.0.0.1:3001 --protocol http2 > %TEMP%\cf-tunnel.log 2>&1"
-
-REM New — ngrok
-start "ngrok" /min cmd /c "ngrok http 3001 --log=stdout > %TEMP%\ngrok.log 2>&1"
+REM Start Cloudflare Tunnel on port 8080
+echo Starting Cloudflare Tunnel...
+start "CF Tunnel" cmd /c "cloudflared tunnel --url http://localhost:8080 > "%TEMP%\cf-tunnel.log" 2>&1"
 timeout /t 5 /nobreak >nul
 
-echo Starting MCP HTTP Server on port %PORT%...
+REM Print the URL
+echo.
+for /f "tokens=*" %%a in ('type "%TEMP%\cf-tunnel.log" ^| findstr "trycloudflare.com"') do echo  URL: %%a
+echo  Add above URL + /sse in claude.ai connector
+echo.
+
+REM Start MCP server on port 8080
+echo Starting MCP HTTP Server on port 8080...
 echo.
 node src/index.js

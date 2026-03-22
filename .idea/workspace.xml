@@ -4,24 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-3.10">
-      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/checksums/checksums.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/checksums/checksums.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/build/reports/problems/problems-report.html" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/build/reports/problems/problems-report.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpClient.kt" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpClient.kt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpToolWindow.kt" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpToolWindow.kt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent/agent.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/agent.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent/agentRunner.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/agentRunner.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/config.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/config.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/http/auth.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/http/auth.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/http/jobRoutes.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/http/jobRoutes.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tools/projectStrReplace.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/tools/projectStrReplace.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/vscode-extension/extension.js" beforeDir="false" afterPath="$PROJECT_DIR$/vscode-extension/extension.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/vscode-extension/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/vscode-extension/package.json" afterDir="false" />
-    </list>
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-3.14" />
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -62,12 +45,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="feat: move IntelliJ plugin into mcp/intellij-plugin — full source, build files, plugin.xml, Kotlin classes" />
-        <option name="rewordedMessage" value="MCP-3.13" />
+        <option name="originalMessage" value="MCP-3.14" />
+        <option name="rewordedMessage" value="MCP-3.14" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="c9f6eb000d1235483117161c9f9808b5674c7b61" />
+    <option name="onto" value="864be4822a54b70291cec6f26ab0c94d29ffb1fa" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -94,39 +77,39 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "dart.analysis.tool.window.visible": "false",
-    "git-widget-placeholder": "mcp-2",
-    "ignore.virus.scanning.warn.message": "true",
-    "javascript.nodejs.core.library.configured.version": "20.19.6",
-    "javascript.nodejs.core.library.typings.version": "20.19.35",
-    "junie.onboarding.icon.badge.shown": "true",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "C:/Users/kushp/IdeaProjects/MCP/vscode-extension",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "npm.install --force.executor": "Run",
-    "project.structure.last.edited": "Project",
-    "project.structure.proportion": "0.0",
-    "project.structure.side.proportion": "0.44827586",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
-    "to.speed.mode.migration.done": "true",
-    "ts.external.directory.path": "C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
-    "vcs.patch.path": "C:/Users/kushp/Downloads",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;dart.analysis.tool.window.visible&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;mcp-2&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;javascript.nodejs.core.library.configured.version&quot;: &quot;20.19.6&quot;,
+    &quot;javascript.nodejs.core.library.typings.version&quot;: &quot;20.19.35&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/kushp/IdeaProjects/MCP/vscode-extension&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;npm.install --force.executor&quot;: &quot;Run&quot;,
+    &quot;project.structure.last.edited&quot;: &quot;Project&quot;,
+    &quot;project.structure.proportion&quot;: &quot;0.0&quot;,
+    &quot;project.structure.side.proportion&quot;: &quot;0.44827586&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;in.decorom.mcp.settings&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
+    &quot;vcs.patch.path&quot;: &quot;C:/Users/kushp/Downloads&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecapSpentCounter">
     <option name="endsOfQuotaMs" value="1773090000000" />
     <option name="spentUsd" value="0.059687" />
@@ -168,6 +151,9 @@
       <option name="workspaceLocation" value="$PROJECT_DIR$" />
       <method v="2" />
     </configuration>
+    <configuration default="true" type="LiferayServerConfiguration" factoryName="Liferay Server">
+      <method v="2" />
+    </configuration>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
@@ -201,7 +187,8 @@
       <workItem from="1774079215812" duration="12989000" />
       <workItem from="1774097444872" duration="323000" />
       <workItem from="1774097995959" duration="2000" />
-      <workItem from="1774098061672" duration="11686000" />
+      <workItem from="1774098061672" duration="13288000" />
+      <workItem from="1774165971802" duration="1924000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -315,7 +302,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774123295341</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="MCP-3.14">
+      <option name="closed" value="true" />
+      <created>1774134763358</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1774134763358</updated>
+    </task>
+    <option name="localTasksCounter" value="16" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -362,7 +357,8 @@
     <MESSAGE value="MCP-3.12" />
     <MESSAGE value="MCP-3.11" />
     <MESSAGE value="MCP-3.13" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-3.13" />
+    <MESSAGE value="MCP-3.14" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-3.14" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

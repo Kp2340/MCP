@@ -1,9 +1,10 @@
-// ── Model config (single source of truth — change here to swap models) ─────────
-export const LLM_MODEL          = "qwen2.5-coder:7b";
+// ── Model config — env-driven values delegate to config.js (single source of truth)
+import { config } from "./config.js";
+export const LLM_MODEL          = config.LLM_MODEL;
 export const LLM_TEMPERATURE    = 0.1;
-export const OLLAMA_HOST        = process.env.OLLAMA_HOST || "http://localhost:11434";
-export const CHROMA_HOST        = process.env.CHROMA_HOST || "localhost";
-export const CHROMA_PORT        = parseInt(process.env.CHROMA_PORT || "8000", 10);
+export const OLLAMA_HOST        = config.OLLAMA_HOST;
+export const CHROMA_HOST        = config.CHROMA_HOST;
+export const CHROMA_PORT        = config.CHROMA_PORT;
 
 // ── Embedding model versioning — bump when swapping models to avoid stale vectors
 export const EMBEDDING_MODEL    = "Xenova/all-MiniLM-L6-v2";
