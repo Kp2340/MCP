@@ -49,22 +49,31 @@ export class TrainingCollector {
 
     /** Called at the start of a new agent run. */
     startRun(prompt) {
-        this._prompt = prompt;
-        this._steps  = [];
+        this._prompt  = prompt;
+        this._steps   = [];
+        this._context = "";   // accumulates execution context across steps
     }
 
     /**
-     * Log a successful step.
-     * @param {string} step       - natural-language step description
-     * @param {object} toolCall   - { tool, args }
-     * @param {string} result     - text result from MCP
+     * Log a successful step — captures the full (step → toolCall → result) trajectory.
+     * @param {string} step        - natural-language step description
+     * @param {object} toolCall    - { tool, args }
+     * @param {string} result      - text result from MCP
+     * @param {string} [context]   - current execution context snapshot
      */
-    logStep(step, toolCall, result) {
+    logStep(step, toolCall, result, context = "") {
         if (!ENABLED) return;
         const toolCallJSON = JSON.stringify(toolCall);
         // Only record steps that produced valid JSON tool calls
         try { JSON.parse(toolCallJSON); } catch { return; }
-        this._steps.push({ step, toolCall, result });
+        // Skip read-only tool calls — training data should focus on write actions
+        const writeTools = new Set(["project_apply_changes", "project_str_replace", "project_apply_patch"]);
+        if (!writeTools.has(toolCall.tool)) {
+            // Still record non-write tools but mark them as context-only
+            this._steps.push({ step, toolCall, result, context: context.substring(0, 600), isWrite: false });
+            return;
+        }
+        this._steps.push({ step, toolCall, result, context: context.substring(0, 600), isWrite: true });
     }
 
     /**
@@ -97,18 +106,22 @@ export class TrainingCollector {
         }
 
         let saved = 0;
-        for (const { step, toolCall, result } of this._steps) {
+        for (const { step, toolCall, result, context, isWrite } of this._steps) {
             const example = {
                 messages: [
                     { role: "system",    content: SYSTEM_PROMPT },
                     {
                         role: "user",
-                        content: `Project context:\n${this._prompt.substring(0, 800)}\n\nStep:\n${step}`
+                        content: [
+                            `Task: ${this._prompt.substring(0, 400)}`,
+                            context ? `\nExecution context:\n${context}` : "",
+                            `\nStep to execute:\n${step}`
+                        ].join("")
                     },
                     { role: "assistant", content: JSON.stringify(toolCall) }
                 ],
                 // Metadata for filtering/analysis — not used during training
-                _meta: { fingerprint, ts: Date.now() }
+                _meta: { fingerprint, ts: Date.now(), isWrite: !!isWrite, tool: toolCall.tool }
             };
             try {
                 fs.appendFileSync(DATASET_FILE, JSON.stringify(example) + "\n", "utf8");

@@ -114,16 +114,12 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
                             ids:        [id],
                             documents:  [chunk],
                             embeddings: [embedding],
-                            // Metadata enables future file-type or path filtering in queries
                             metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
                         });
-                    } catch {
-                        await collection.add({
-                            ids:        [id],
-                            documents:  [chunk],
-                            embeddings: [embedding],
-                            metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
-                        });
+                    } catch (upsertErr) {
+                        // upsert failed — log and skip this chunk rather than calling
+                        // add() which will also fail if the ID already exists
+                        console.error(`[indexer] upsert failed for ${rel} chunk ${ci}:`, upsertErr.message);
                     }
                 }
 

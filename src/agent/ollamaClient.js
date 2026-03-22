@@ -23,12 +23,17 @@ export async function askLLM(model, prompt, opts = {}) {
     };
 
     for (let attempt = 0; attempt < 3; attempt++) {
+        const controller = new AbortController();
+        const timeoutMs  = opts.timeout ?? 180_000;  // 3 min default; caller can override
+        const timer      = setTimeout(() => controller.abort(), timeoutMs);
         try {
             const res = await fetch(OLLAMA_URL, {
-                method: "POST",
+                method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body)
+                body:    JSON.stringify(body),
+                signal:  controller.signal
             });
+            clearTimeout(timer);
 
             if (!res.ok) {
                 throw new Error(`Ollama HTTP ${res.status}`);
@@ -38,8 +43,10 @@ export async function askLLM(model, prompt, opts = {}) {
             return data.response?.trim() ?? "";
 
         } catch (err) {
-            if (attempt === 2) throw new Error(`LLM failed after 3 attempts: ${err.message}`);
-            console.warn(`LLM retry ${attempt + 1}/3...`);
+            clearTimeout(timer);
+            const isAbort = err.name === "AbortError";
+            if (attempt === 2) throw new Error(`LLM failed after 3 attempts: ${isAbort ? `timeout after ${timeoutMs}ms` : err.message}`);
+            console.warn(`LLM retry ${attempt + 1}/3... (${isAbort ? "timeout" : err.message})`);
             await new Promise(r => setTimeout(r, 2000));
         }
     }

@@ -12,13 +12,58 @@ function hasChanges(root) {
 }
 
 /**
- * Normalize a string for comparison:
+ * Normalize a string for comparison.
  * - Convert CRLF -> LF
+ * - Convert JSON-escaped newlines (\\n from LLM output) -> real newlines
+ * - Convert JSON-escaped tabs (\\t) -> real tabs
  * - Do NOT trim — trimming causes false "not found" when search string
  *   starts or ends with meaningful whitespace/indentation.
  */
 function normalize(s) {
-    return s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    return s
+        .replace(/\r\n/g, "\n")  // Windows CRLF
+        .replace(/\r/g, "\n")    // old Mac CR
+        .replace(/\\n/g, "\n")   // JSON-escaped newline from LLM
+        .replace(/\\t/g, "\t");  // JSON-escaped tab from LLM
+}
+
+/**
+ * Fuzzy line-by-line match fallback.
+ *
+ * When exact string match fails (e.g. LLM generated search from truncated context),
+ * try to find the search block by matching its non-empty lines as a contiguous
+ * sequence inside the file. Returns the exact substring from the file if found,
+ * null otherwise.
+ *
+ * This recovers from:
+ *  - Leading/trailing whitespace differences
+ *  - Single-line truncation at the boundary of the 4K context window
+ *  - Minor LLM paraphrasing of whitespace
+ */
+function fuzzyLineMatch(fileContent, searchStr) {
+    const fileLines   = fileContent.split("\n");
+    const searchLines = searchStr.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0);
+
+    if (searchLines.length === 0) return null;
+    // Only attempt fuzzy match for multi-line searches (single-line false positives are too risky)
+    if (searchLines.length < 2) return null;
+
+    for (let i = 0; i <= fileLines.length - searchLines.length; i++) {
+        let matched = true;
+        for (let j = 0; j < searchLines.length; j++) {
+            if (fileLines[i + j].trimEnd() !== searchLines[j]) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            // Return the exact slice from the file (preserves original whitespace/endings)
+            const startLine = i;
+            const endLine   = i + searchLines.length - 1;
+            return fileLines.slice(startLine, endLine + 1).join("\n");
+        }
+    }
+    return null;
 }
 
 /**
@@ -36,10 +81,13 @@ export function projectStrReplace({ project, edits, commitMessage }) {
     const root   = config.root;
 
     // ── Git identity guard ──────────────────────────────────────────────────
-    // Root cause #5: on fresh machines git user.email / user.name is not set,
-    // causing "git commit" to fail silently with status 128.
-    const emailCheck = spawnSync("git", ["config", "user.email"], { cwd: root, encoding: "utf8" });
-    if (!emailCheck.stdout.trim()) {
+    // On fresh machines git user.email/user.name may not be configured,
+    // causing "git commit" to fail with exit code 128.
+    // Check local repo config first, then global — only inject fallback if BOTH empty.
+    // This avoids overwriting the developer's real global git identity.
+    const localEmail  = spawnSync("git", ["config", "--local",  "user.email"], { cwd: root, encoding: "utf8" }).stdout.trim();
+    const globalEmail = spawnSync("git", ["config", "--global", "user.email"], { cwd: root, encoding: "utf8" }).stdout.trim();
+    if (!localEmail && !globalEmail) {
         spawnSync("git", ["config", "user.email", "aidev@mcp.local"], { cwd: root });
         spawnSync("git", ["config", "user.name",  "AI Dev MCP"],       { cwd: root });
         log.info("Set fallback git identity for commit");
@@ -88,29 +136,34 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         const normalizedSearch  = normalize(search);   // NO .trim()
         const normalizedReplace = normalize(replace);
 
-        // ── Root cause #2: search string not in file ─────────────────────────
-        // Better diagnostic: show surrounding context so user can fix the prompt.
+        // ── Search string not found — try fuzzy fallback before giving up ────
+        let effectiveSearch = normalizedSearch;
         if (!normalizedFile.includes(normalizedSearch)) {
-            // Find closest partial match for helpful hint
-            const searchLines  = normalizedSearch.split("\n");
-            const firstLine    = searchLines[0].trim();
-            const hintIdx      = normalizedFile.indexOf(firstLine);
-            const hint = hintIdx !== -1
-                ? `\nClosest match found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 80).replace(/\n/g, "↵")}"`
-                : "\nNo partial match found — the file may have changed since it was read.";
+            // Attempt fuzzy line-by-line match (recovers from truncation / whitespace drift)
+            const fuzzyMatch = fuzzyLineMatch(normalizedFile, normalizedSearch);
+            if (fuzzyMatch) {
+                log.info(`str-replace: exact match failed, fuzzy match succeeded for ${relativePath}`);
+                effectiveSearch = fuzzyMatch;
+            } else {
+                // Both exact and fuzzy failed — give rich diagnostic for LLM retry
+                const searchLines  = normalizedSearch.split("\n");
+                const firstLine    = searchLines[0].trim();
+                const hintIdx      = normalizedFile.indexOf(firstLine);
+                const hint = hintIdx !== -1
+                    ? `\nFirst line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"`
+                    : "\nNo partial match found — the file may have changed since it was read.";
 
-            throw new Error(
-                `Search string not found in "${relativePath}".\n` +
-                `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
-                hint +
-                `\nTip: call project_read_files first to get the exact current content.`
-            );
+                throw new Error(
+                    `Search string not found in "${relativePath}".\n` +
+                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
+                    hint +
+                    `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`
+                );
+            }
         }
 
-        // ── Root cause #3: regex special chars + root cause #4: ambiguous match
-        // String.replace(string, replacement) only replaces the FIRST occurrence.
-        // If the search matches more than once, the edit is ambiguous — throw.
-        const escapedSearch = escapeRegex(normalizedSearch);
+        // Ambiguous match check: effectiveSearch must appear exactly once
+        const escapedSearch = escapeRegex(effectiveSearch);
         const matchCount    = (normalizedFile.match(new RegExp(escapedSearch, "g")) || []).length;
         if (matchCount > 1) {
             throw new Error(
@@ -119,7 +172,8 @@ export function projectStrReplace({ project, edits, commitMessage }) {
             );
         }
 
-        const updated = normalizedFile.replace(normalizedSearch, normalizedReplace);
+        // Apply: use effectiveSearch (may be fuzzy-resolved) for the actual replace
+        const updated = normalizedFile.replace(effectiveSearch, normalizedReplace);
         fs.writeFileSync(fullPath, updated, "utf8");
         log.info(`str-replace: edited ${relativePath}`);
         results.push(`  edited: ${relativePath}`);

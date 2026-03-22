@@ -65,6 +65,10 @@ function routeByRule(step, project) {
     if (/\b(git log|commit history|recent commits|what was committed)\b/.test(s))
         return JSON.stringify({ tool: "project_git_log", args: { project } });
 
+    // Run tests
+    if (/\b(run tests|run test suite|run project tests|execute tests|verify tests|confirm tests|npm test|pytest|go test)\b/.test(s))
+        return JSON.stringify({ tool: "project_test", args: { project } });
+
     return null;
 }
 
@@ -125,28 +129,34 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
             try {
                 const parsed = JSON.parse(ruled);
 
-                // Skip read if file already read or modified (we have the content)
+                // Skip read ONLY if file has been read AND not modified since.
+                // CRITICAL FIX (Bug 5): if a file was modified, ALWAYS allow re-read.
+                // The LLM needs the post-modification content to generate the next
+                // str_replace search string. Blocking this causes "search not found" errors.
                 if (parsed.tool === "project_read_files" && Array.isArray(parsed.args?.paths)) {
-                    const unstale = parsed.args.paths.filter(p => !execState.hasRead(p) && !execState.hasModified(p));
+                    const unstale = parsed.args.paths.filter(p => {
+                        const wasRead     = execState.hasRead(p);
+                        const wasModified = execState.hasModified(p);
+                        // Allow re-read if file was modified (content changed since last read)
+                        if (wasModified) return true;   // must re-read post-modification
+                        if (wasRead)     return false;  // skip: already read, not modified
+                        return true;                    // never seen: read it
+                    });
                     if (unstale.length === 0) {
-                        console.error(`[executor] ⚡ Skipping read — all files already in state: ${parsed.args.paths.join(", ")}`);
+                        console.error(`[executor] ⚡ Skipping read — files already read and unmodified: ${parsed.args.paths.join(", ")}`);
                         return JSON.stringify({ skipped: true, reason: "already_read" });
                     }
                     if (unstale.length < parsed.args.paths.length) {
-                        console.error(`[executor] ⚡ Partial skip — only reading new files: ${unstale.join(", ")}`);
+                        const skipped = parsed.args.paths.filter(p => !unstale.includes(p));
+                        console.error(`[executor] ⚡ Partial skip — skipping unmodified reads: ${skipped.join(", ")}`);
                         parsed.args.paths = unstale;
                         return JSON.stringify(parsed);
                     }
                 }
 
-                // Skip str_replace if edits target only already-modified files
-                if (parsed.tool === "project_str_replace" && Array.isArray(parsed.args?.edits)) {
-                    const newEdits = parsed.args.edits.filter(e => !execState.hasModified(e.path));
-                    if (newEdits.length === 0) {
-                        console.error(`[executor] ⚡ Skipping str_replace — all target files already modified`);
-                        return JSON.stringify({ skipped: true, reason: "already_modified" });
-                    }
-                }
+                // Do NOT skip str_replace based on execState.hasModified.
+                // A file may need multiple sequential str_replace edits in one run.
+                // The ambiguous-match check inside projectStrReplace.js handles safety.
             } catch { /* not JSON — fall through */ }
         }
         console.error("[executor] Rule-matched (no LLM call)");
@@ -176,17 +186,20 @@ Output ONLY a single JSON object. No explanation, no markdown, no text before or
 ## CORE RULES
 - NEVER explain. ONLY output a JSON tool call.
 - ALWAYS prefer project_str_replace over project_apply_changes for edits.
-- NEVER read the same file twice.
-- NEVER modify the same file twice unless fixing a new error.
 - ALWAYS use the SMALLEST fix possible (targeted str_replace, not full rewrites).
 - Output MUST be { "tool": "...", "args": { ... } } OR { "done": true }
 
 ## EXECUTION STATE CONSTRAINTS
-You are given execution state:
-- Files already read: DO NOT read again
-- Files already modified: DO NOT modify again unless fixing a NEW error
+- Files already read AND not modified: skip re-reading (you have the content)
+- Files that were MODIFIED: you MUST re-read before the next str_replace on that file
+  (the content changed — your old cached version is stale and will cause "not found" errors)
 - Last error type: prioritize fixing it deterministically
-Violating these rules will cause redundant operations and must be avoided.
+
+## STR_REPLACE RULES (most important)
+- The "search" field MUST be copied VERBATIM from the file's current content
+- If a file was recently modified, call project_read_files FIRST to get fresh content
+- Choose a unique 3-5 line anchor that appears EXACTLY ONCE in the file
+- Never use a single line as search — too likely to match multiple times
 
 ## PRIORITY ORDER (follow strictly)
 1. Deterministic recovery (if error exists: identify → fix → verify)

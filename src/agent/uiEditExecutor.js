@@ -67,12 +67,15 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
         try {
             console.error(`[uiEdit] Looking up symbol: ${componentName}`);
             const symbolResult = await mcpClient.callTool("project_find_symbol", { project, name: componentName });
-            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("\n") || "";
+            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("
+") || "";
             execState.recordToolCall("project_find_symbol", { project, name: componentName }, symbolText, ++stepsRun);
-            results.push(`[project_find_symbol]:\n${symbolText}`);
+            results.push(`[project_find_symbol]:
+${symbolText}`);
 
             // Parse file path from result like: "function Footer  →  src\components\Footer.tsx:116"
-            const pathMatch = symbolText.match(/→\s*([^\n:]+\.(?:tsx?|jsx?|java|kt|py))/);
+            const pathMatch = symbolText.match(/→\s*([^
+:]+\.(?:tsx?|jsx?|java|kt|py))/);
             if (pathMatch) {
                 filePath = pathMatch[1].trim().replace(/\\/g, "/");
                 console.error(`[uiEdit] Found file: ${filePath}`);
@@ -87,7 +90,8 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
         try {
             console.error(`[uiEdit] Searching for: ${componentName}`);
             const searchResult = await mcpClient.callTool("project_search", { project, query: componentName });
-            const searchText   = searchResult?.content?.map(c => c.text || "").join("\n") || "";
+            const searchText   = searchResult?.content?.map(c => c.text || "").join("
+") || "";
             execState.recordToolCall("project_search", { project, query: componentName }, searchText, ++stepsRun);
 
             // Extract first .tsx/.jsx file from results
@@ -110,9 +114,11 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
     try {
         console.error(`[uiEdit] Reading file: ${filePath}`);
         const readResult  = await mcpClient.callTool("project_read_files", { project, paths: [filePath] });
-        const readText    = readResult?.content?.map(c => c.text || "").join("\n") || "";
+        const readText    = readResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_read_files", { project, paths: [filePath] }, readText, ++stepsRun);
-        results.push(`[project_read_files]:\n${readText}`);
+        results.push(`[project_read_files]:
+${readText}`);
 
         // Extract actual file content from JSON result
         try {
@@ -132,23 +138,18 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
     }
 
     // ── Step 3: LLM generates precise str_replace using REAL content ──────────
-    if (costState) costState.llmCalls++;
-
-    // For "bottom" / "footer bottom" requests, only show the last part of the file
-    // so the LLM focuses on the right location and doesn't hallucinate
+    // Try up to 2 attempts: first with a focused snippet, then with full file if search fails
     const isBottomRequest = /bottom|footer|end|last|below|after|append/i.test(prompt);
-    const fileSnippet = isBottomRequest
-        ? fileContent.slice(-3000)   // last 3000 chars = bottom of file
-        : fileContent.substring(0, 6000);
 
-    const editPrompt = `You are a precise code editor. Output ONLY a JSON object.
+    const buildEditPrompt = (snippet, sectionLabel) =>
+        `You are a precise code editor. Output ONLY a JSON object.
 
 User request: ${prompt}
 
 File: ${filePath}
-File content (${isBottomRequest ? "bottom section" : "top section"}):
+File content (${sectionLabel}):
 \`\`\`
-${fileSnippet}
+${snippet}
 \`\`\`
 
 Your task: make the minimal change to fulfill the user request.
@@ -164,50 +165,68 @@ CRITICAL RULES:
 - Choose a UNIQUE anchor: 2-3 lines that appear only ONCE in the file
 - "replace" = the search string WITH your addition included
 - NEVER modify unrelated code
-- NEVER insert inside the middle of existing text or paragraphs
 - For adding text at the bottom: use the closing tags as your anchor
 - Output ONLY the JSON, no explanation
 
 JSON:`;
 
-    const raw = await askLLM(MODEL, editPrompt, { temperature: 0.0, num_predict: 1000 });
-    const extracted = extractJSON(raw);
+    const normalizedContent = fileContent.replace(/\r
+/g, "
+");
 
-    let editArgs;
-    try {
-        const parsed = JSON.parse(extracted);
-        if (!parsed.search || !parsed.replace) {
-            throw new Error("Missing search or replace field");
-        }
-        // Verify search string actually exists in the file
-        // Normalize both to LF for comparison since LLM returns LF but files may have CRLF
-        const normalizedContent = fileContent.replace(/\r\n/g, "\n");
-        const normalizedSearch  = parsed.search.replace(/\r\n/g, "\n").trim();
+    // Attempt 1: focused snippet (faster, cheaper)
+    const snippet1 = isBottomRequest
+        ? fileContent.slice(-3000)
+        : fileContent.substring(0, 6000);
+    const label1 = isBottomRequest ? "bottom section" : "top section";
 
-        if (!normalizedContent.includes(normalizedSearch)) {
-            console.error(`[uiEdit] LLM search string not found in file`);
-            console.error(`[uiEdit] Searched for: ${normalizedSearch.substring(0, 100)}`);
-            return { success: false, stepsRun, results };
+    let editArgs = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        const snippet = attempt === 1 ? snippet1 : fileContent.substring(0, 10000);
+        const label   = attempt === 1 ? label1   : "full file";
+
+        if (costState) costState.llmCalls++;
+        const raw       = await askLLM(MODEL, buildEditPrompt(snippet, label), { temperature: 0.0, num_predict: 1000 });
+        const extracted = extractJSON(raw);
+
+        try {
+            const parsed = JSON.parse(extracted);
+            if (!parsed.search || !parsed.replace) throw new Error("Missing search or replace");
+
+            const normalizedSearch = parsed.search.replace(/\r
+/g, "
+").trim();
+            if (!normalizedContent.includes(normalizedSearch)) {
+                console.error(`[uiEdit] Attempt ${attempt}: search string not found — ${normalizedSearch.substring(0, 80)}`);
+                if (attempt < 2) continue;  // retry with full file
+                console.error(`[uiEdit] Both attempts failed to produce a valid search string`);
+                return { success: false, stepsRun, results };
+            }
+
+            parsed.search = normalizedSearch;
+            editArgs = {
+                project,
+                edits: [{ path: filePath, search: parsed.search, replace: parsed.replace }],
+                commitMessage: `UI edit: ${prompt.substring(0, 60)}`
+            };
+            break;
+        } catch (err) {
+            console.error(`[uiEdit] Attempt ${attempt} parse error: ${err.message}`);
+            if (attempt >= 2) return { success: false, stepsRun, results };
         }
-        // Use normalized search string for the actual str_replace
-        parsed.search = normalizedSearch;
-        editArgs = {
-            project,
-            edits: [{ path: filePath, search: parsed.search, replace: parsed.replace }],
-            commitMessage: `UI edit: ${prompt.substring(0, 60)}`
-        };
-    } catch (err) {
-        console.error(`[uiEdit] Failed to parse LLM edit response: ${err.message}`);
-        return { success: false, stepsRun, results };
     }
+
+    if (!editArgs) return { success: false, stepsRun, results };
 
     // ── Step 4: Apply the str_replace ────────────────────────────────────────
     try {
         console.error(`[uiEdit] Applying str_replace to ${filePath}`);
         const applyResult = await mcpClient.callTool("project_str_replace", editArgs);
-        const applyText   = applyResult?.content?.map(c => c.text || "").join("\n") || "";
+        const applyText   = applyResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_str_replace", editArgs, applyText, ++stepsRun);
-        results.push(`[project_str_replace]:\n${applyText}`);
+        results.push(`[project_str_replace]:
+${applyText}`);
         console.error(`[uiEdit] ${applyText}`);
     } catch (err) {
         console.error(`[uiEdit] str_replace failed: ${err.message}`);
@@ -215,16 +234,25 @@ JSON:`;
     }
 
     // ── Step 5: Build and verify ──────────────────────────────────────────────
+    let buildPassed = true;
     try {
         console.error(`[uiEdit] Running build verification`);
         const buildResult = await mcpClient.callTool("project_build_and_fix", { project });
-        const buildText   = buildResult?.content?.map(c => c.text || "").join("\n") || "";
+        const buildText   = buildResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_build_and_fix", { project }, buildText, ++stepsRun);
-        results.push(`[project_build_and_fix]:\n${buildText}`);
-        console.error(`[uiEdit] Build: ${buildText}`);
+        results.push(`[project_build_and_fix]:
+${buildText}`);
+        // Detect build failures explicitly so the agent loop can inject recovery steps
+        buildPassed = !(/BUILD FAILED|BUILD TIMEOUT/i.test(buildText));
+        console.error(`[uiEdit] Build ${buildPassed ? "passed ✅" : "failed ❌"}: ${buildText.substring(0, 120)}`);
     } catch (err) {
-        console.error(`[uiEdit] Build failed: ${err.message}`);
+        buildPassed = false;
+        console.error(`[uiEdit] Build threw: ${err.message}`);
+        results.push(`[project_build_and_fix ERROR]: ${err.message}`);
     }
 
-    return { success: true, stepsRun, results };
+    // Return success based on whether build passed
+    // The calling agent loop checks success and may inject recovery steps if false
+    return { success: buildPassed, stepsRun, results };
 }

@@ -53,9 +53,23 @@ export function emitJobStep(jobId, step, detail) {
 function emit(jobId, event, data) {
     const list = subscribers.get(jobId);
     if (!list || list.length === 0) return;
-    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const payload = `event: ${event}
+data: ${JSON.stringify(data)}
+
+`;
+    // Write to all subscribers; prune any that have closed (write throws)
+    const alive = [];
     for (const res of list) {
-        try { res.write(payload); } catch { /* client disconnected */ }
+        try {
+            res.write(payload);
+            alive.push(res);
+        } catch {
+            // Client disconnected — drop from list silently
+        }
+    }
+    if (alive.length !== list.length) {
+        if (alive.length === 0) subscribers.delete(jobId);
+        else subscribers.set(jobId, alive);
     }
 }
 
@@ -114,6 +128,50 @@ export function listJobs(statusFilter = null) {
         .map(({ _runner, ...pub }) => pub)
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, 50);
+}
+
+/**
+ * Cancel a pending job (cannot cancel running jobs — they are async).
+ * Returns true if cancelled, false if not found or already running/done.
+ */
+export function cancelJob(id) {
+    const job = jobs.get(id);
+    if (!job || job.status !== "pending") return false;
+    job.status  = "failed";
+    job.error   = "Cancelled by user";
+    job.endedAt = Date.now();
+    const idx = queue.indexOf(id);
+    if (idx !== -1) queue.splice(idx, 1);
+    emit(id, "failed", { id, error: job.error });
+    persistJobs(jobs);
+    log.info(`Job cancelled: ${id}`);
+    return true;
+}
+
+/**
+ * Graceful shutdown: mark all pending jobs failed and close all SSE connections.
+ * Call this from SIGTERM/SIGINT handlers before process.exit().
+ */
+export function drainQueue() {
+    // Fail all pending jobs so clients don't hang waiting
+    for (const [id, job] of jobs.entries()) {
+        if (job.status === "pending") {
+            job.status  = "failed";
+            job.error   = "Server shutting down";
+            job.endedAt = Date.now();
+            emit(id, "failed", { id, error: job.error });
+        }
+    }
+    // Close all open SSE connections
+    for (const [, list] of subscribers.entries()) {
+        for (const res of list) {
+            try { res.end(); } catch { /* already closed */ }
+        }
+    }
+    subscribers.clear();
+    queue.length = 0;
+    try { persistJobs(jobs); } catch { /* ignore — we’re shutting down */ }
+    log.info("Queue drained for shutdown");
 }
 
 async function processNext() {

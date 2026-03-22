@@ -14,6 +14,9 @@
  */
 
 import os   from "os";
+import fs   from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { getQueueStatus } from "./queue.js";
 import { listProjects }   from "../core/projectRegistry.js";
 import { TrainingCollector } from "../training/collector.js";
@@ -22,7 +25,14 @@ import { createLogger }   from "../core/logger.js";
 
 const log       = createLogger("health");
 const startedAt = Date.now();
-const VERSION   = "5.2.0";
+
+// Read version from package.json so it never goes stale
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let VERSION = "unknown";
+try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf-8"));
+    VERSION = pkg.version || "unknown";
+} catch { /* ignore — VERSION stays "unknown" */ }
 
 export function attachHealthRoutes(app) {
     app.get("/health", (_req, res) => {

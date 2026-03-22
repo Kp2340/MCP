@@ -84,7 +84,22 @@ export const TOOL_CHAIN_TEMPLATES = [
             "Run static analysis to identify issues",
             "Read the files mentioned in the errors",
             "Apply targeted fixes using project_str_replace",
-            "Run build and fix to verify"
+            "Run build and fix to verify",
+            "Run tests to confirm fix is correct"
+        ]
+    },
+    {
+        name:        "fix_failing_test",
+        keywords:    ["test failing", "tests fail", "failing test", "fix test", "broken test"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Run project tests to see current failures",
+            "Run static analysis to identify issues",
+            "Find the failing test file",
+            "Read the failing test and the code it tests",
+            "Apply targeted fix using project_str_replace",
+            "Run tests again to verify all pass"
         ]
     },
     {
@@ -146,7 +161,10 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "read_only",
-        keywords:    ["explain", "understand", "show me", "what is", "how does", "analyse", "analyze", "tell me", "describe", "list all", "find api"],
+        // IMPORTANT: keywords must be specific enough to never match action prompts.
+        // 'explain', 'how does', 'describe' are safe — they signal read-only intent.
+        // 'analyze', 'show me', 'what is' are removed — too generic, match fix tasks.
+        keywords:    ["explain", "how does", "describe", "walk me through", "what does", "find api"],
         projectTypes: null,
         intent:      "general",
         steps: [
@@ -179,7 +197,8 @@ export const TOOL_CHAIN_TEMPLATES = [
             "Read similar existing test for reference",
             "Create the new test file using project_apply_changes",
             "Run static analysis",
-            "Run build and fix to verify"
+            "Run build and fix to verify",
+            "Run tests to confirm new tests pass"
         ]
     },
     {

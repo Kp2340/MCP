@@ -1,4 +1,3 @@
-import readline from "readline";
 import { MCPClient } from "./mcpClient.js";
 import { createPlan, updatePlan, estimateTokens, handleFailureDeterministically } from "./planner.js";
 import { executeStep } from "./executor.js";
@@ -10,9 +9,7 @@ import { askLLM } from "./ollamaClient.js";
 import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { executeUiEdit } from "./uiEditExecutor.js";
-import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
 import { reviewChanges } from "./reviewer.js";
-import { fileURLToPath } from "url";
 import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
 import {
     COMPRESS_EVERY_N_STEPS,
@@ -33,7 +30,7 @@ const MAX_RETRIES = 2;
 let mcp;
 let collector;
 
-// ─── Cost state ─────────────────────────────────────────────────────────────────────────────
+// ─── Cost state ──────────────────────────────────────────────────────────────────
 function makeCostState() {
     return { llmCalls: 0, totalChars: 0 };
 }
@@ -46,7 +43,7 @@ function estimatedTokens(costState) {
     return estimateTokens("".padEnd(costState.totalChars, "x"));
 }
 
-// ─── Context compression ───────────────────────────────────────────────────────────
+// ─── Context compression ──────────────────────────────────────────────────────────
 async function compressContext(context, execState, costState) {
     if (context.length < COMPRESS_MAX_CHARS) return context;
     console.error("[agent] Compressing context...");
@@ -70,7 +67,7 @@ ${context.substring(0, COMPRESS_MAX_CHARS)}`;
     return `[Compressed context summary]:\n${summary}\n\nExecution state:\n${stateBlock}`;
 }
 
-// ─── Memory extraction ────────────────────────────────────────────────────────────
+// ─── Memory extraction ───────────────────────────────────────────────────────────
 async function extractAndStoreMemory(project, prompt, context, costState) {
     try {
         if (costState) costState.llmCalls++;
@@ -93,7 +90,7 @@ Context: ${context.substring(0, 800)}`,
     }
 }
 
-// ─── Analyze-before-modify guard ──────────────────────────────────────────────────────────────────────────────
+// ─── Analyze-before-modify guard ────────────────────────────────────────────────────
 function enforceAnalyzeBeforeBuild(steps) {
     const ANALYZE_KEYWORDS = /(analyze|analyse|static.?analy|project_analyze)/i;
     const hasAnalyze = steps.some(s => ANALYZE_KEYWORDS.test(s));
@@ -107,7 +104,7 @@ function enforceAnalyzeBeforeBuild(steps) {
     return injected;
 }
 
-// ─── Step executor with retry ──────────────────────────────────────────────────────────────────────────
+// ─── Step executor with retry ────────────────────────────────────────────────────────
 async function executeWithRetry(step, context, project, memoryCtx, costState, execState) {
     let lastError = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -125,10 +122,11 @@ async function executeWithRetry(step, context, project, memoryCtx, costState, ex
     return { ok: false, error: lastError };
 }
 
-// ─── Main adaptive agent loop ──────────────────────────────────────────────────────────────────────
+// ─── Main adaptive agent loop ───────────────────────────────────────────────────────
 export async function runAgent(prompt, emit = null) {
     if (!mcp)       mcp       = new MCPClient();
     if (!collector) collector = new TrainingCollector();
+
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
     if (!projectMatch) throw new Error("Prompt must include: project: <project-name>");
     const project = projectMatch[1];
@@ -149,10 +147,10 @@ export async function runAgent(prompt, emit = null) {
 
     const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
 
-    // ── Fast path: direct tool-chain template match (0 LLM calls) ──────────────────────────
+    // ── Fast path: direct tool-chain template match (0 LLM calls) ──────────────────────
     const matchedTemplate = TOOL_CHAIN_TEMPLATES.find(t => {
-        const lower  = prompt.toLowerCase();
-        const hits   = t.keywords.filter(kw => lower.includes(kw)).length;
+        const lower    = prompt.toLowerCase();
+        const hits     = t.keywords.filter(kw => lower.includes(kw)).length;
         const intentOk = t.name === "ui_edit" || !t.intent || t.intent === promptIntent || t.intent === "general";
         return hits >= 2 && intentOk;
     });
@@ -170,7 +168,7 @@ export async function runAgent(prompt, emit = null) {
         if (success || stepsRun > 0) {
             const executionContext = results.join("\n");
             collector.startRun(prompt);
-            collector.endRun(stepsRun >= 2);
+            collector.endRun(stepsRun >= 2, execState);
             if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
 
             const validation = validateGoal(promptIntent, execState);
@@ -186,7 +184,7 @@ export async function runAgent(prompt, emit = null) {
         console.error("[agent] Direct chain insufficient — falling back to full LLM loop");
     }
 
-    // ── Full LLM planning loop ─────────────────────────────────────────────────────────────────────────────
+    // ── Full LLM planning loop ──────────────────────────────────────────────────────────
     const initialPlan = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
     trackChars(costState, initialPlan);
 
@@ -199,12 +197,14 @@ export async function runAgent(prompt, emit = null) {
             .filter(s => s.length > 4)
     );
 
-    let executionContext = planContext;
-    let successfulSteps  = 0;
-    let totalStepsDone   = 0;
-    let replanCount      = 0;
-    // earlyReviewDone: reviewer fires once, the first time a file is modified
-    let earlyReviewDone  = false;
+    let executionContext         = planContext;
+    let successfulSteps          = 0;
+    let totalStepsDone           = 0;
+    let replanCount              = 0;
+    // earlyReviewDone: reviewer fires once on first file modification
+    let earlyReviewDone          = false;
+    // reviewerIssuesInjected: inject issues back into queue only once
+    let reviewerIssuesInjected   = false;
 
     collector.startRun(prompt);
 
@@ -268,105 +268,166 @@ export async function runAgent(prompt, emit = null) {
             break;
         }
 
-        // ── Execute the resolved tool call ───────────────────────────────────────────────────────
-        const { tool, args } = parsed;
-        if (!tool) continue;
-
-        // Check for deterministic recovery override before calling tool
-        const activeError = execState.lastError();
-        if (activeError) {
-            const recoveryTools = handleFailureDeterministically(activeError.type, project, execState);
-            if (recoveryTools) {
-                console.error(`[agent] ⚡ Deterministic recovery triggered for: ${activeError.type}`);
-                const { results: recResults } = await executeToolsDirect(recoveryTools, mcp, execState);
-                executionContext += "\n" + recResults.join("\n");
-                successfulSteps++;
-                continue;
-            }
-        }
-
-        let toolResult;
-        try {
-            toolResult = await mcp.callTool(tool, args);
-        } catch (err) {
-            console.error(`[agent] Tool call failed: ${tool} — ${err.message}`);
-            execState.recordToolCall(tool, args, `Tool error: ${err.message}`, totalStepsDone);
+        // ── Deterministic recovery: handle failure tool steps directly (0 LLM) ────
+        if (parsed.tool === "__deterministic_recovery__" && Array.isArray(parsed.toolSteps)) {
+            console.error(`[agent] ⚡ Deterministic recovery: ${parsed.toolSteps.length} direct tool calls`);
+            const { results } = await executeToolsDirect(parsed.toolSteps, mcp, execState);
+            executionContext += "\n" + results.join("\n");
+            successfulSteps++;
             continue;
         }
 
-        const resultText = toolResult?.content?.map(c => c.text || "").join("\n") || "";
-        execState.recordToolCall(tool, args, resultText, totalStepsDone);
-        executionContext += `\n\n[${tool}]:\n${resultText.substring(0, 2000)}`;
+        // ── Execute the resolved tool call ───────────────────────────────────────────────
+        const toolName = parsed.tool;
+        const toolArgs = parsed.args || {};
+        toolArgs.project = toolArgs.project || project;
+
+        // Check execution state cache first (skip duplicate read calls)
+        const cached = execState.getCachedResult(toolName, toolArgs);
+        if (cached) {
+            console.error(`[agent] ⚡ Cache hit: ${toolName} — skipping duplicate call`);
+            executionContext += `\n[${toolName} cached]:\n${cached.substring(0, 500)}`;
+            continue;
+        }
+
+        let resultText = "";
+        try {
+            const result = await mcp.callTool(toolName, toolArgs);
+            resultText   = result?.content?.map(c => c.text || "").join("\n") || "";
+        } catch (err) {
+            console.error(`[agent] Tool error (${toolName}): ${err.message}`);
+            resultText = `Tool error: ${err.message}`;
+        }
+
+        // Truncate very long results to keep context manageable
+        const truncated = resultText.length > 4000
+            ? resultText.substring(0, 4000) + "\n...[truncated]"
+            : resultText;
+
+        execState.recordToolCall(toolName, toolArgs, resultText, totalStepsDone);
+        executionContext += `\n\n[${toolName}]:\n${truncated}`;
+        trackChars(costState, truncated);
         successfulSteps++;
 
-        console.error(`[agent] ← ${resultText.length} chars`);
-        if (resultText.length < 500) console.error(resultText);
+        // ── Training: log successful tool call trajectory ────────────────────────────
+        collector.logStep(
+            step,
+            { tool: toolName, args: toolArgs },
+            truncated,
+            fullContext.substring(0, 600)   // snapshot of context at time of call
+        );
 
-        // ── Early reviewer: fires once, right after the FIRST file is modified ───────────────────
-        // Runs while budget is still high so injected recovery steps have room to execute.
-        if (!earlyReviewDone && execState.filesModified.size >= 1 &&
-            (MAX_LLM_CALLS_PER_RUN - costState.llmCalls) >= 4) {
+        // ── Mid-run reviewer: fire once on first file modification ─────────────────
+        if (!earlyReviewDone && execState.filesModified.size >= 1) {
             earlyReviewDone = true;
-            const earlyReview = await reviewChanges(
+            const review = await reviewChanges(
                 project, prompt, execState, costState, executionContext, true
             );
-            if (earlyReview.verdict === "has_issues" && earlyReview.issues?.length > 0) {
-                const recoverySteps = issuesAsSteps(earlyReview.issues);
+
+            // ── FIXED: inject reviewer issues back into remaining steps ────────
+            if (
+                !reviewerIssuesInjected &&
+                review.verdict === "has_issues" &&
+                Array.isArray(review.issues) &&
+                review.issues.length > 0
+            ) {
+                const recoverySteps = issuesAsSteps(review.issues);
                 remainingSteps.unshift(...recoverySteps);
-                console.error(`[agent] Early reviewer injected ${recoverySteps.length} recovery step(s)`);
+                reviewerIssuesInjected = true;
+                console.error(`[agent] 🔍 Reviewer injected ${recoverySteps.length} recovery step(s) into queue`);
             }
         }
 
-        // ── Replan on repeated errors ──────────────────────────────────────────────────────────────────────
+        // ── Error-triggered replan (deterministic first, LLM fallback) ────────────
         const lastErr = execState.lastError();
-        if (lastErr && remainingSteps.length === 0 && replanCount < MAX_REPLANS) {
-            replanCount++;
-            console.error(`[agent] Error detected, replanning (${replanCount}/${MAX_REPLANS})...`);
-            const replanPrompt = `${enrichedPrompt}\n\nPrevious error: [${lastErr.type}] ${lastErr.text.substring(0, 200)}`;
-            const newPlan = await createPlan(replanPrompt, project, costState, promptIntent, execState);
-            const newSteps = enforceAnalyzeBeforeBuild(
-                newPlan
-                    .split("\n")
-                    .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
-                    .filter(s => s.length > 4)
-            );
-            remainingSteps.push(...newSteps);
-            console.error(`[agent] Replan added ${newSteps.length} step(s)`);
-        }
-    }
+        if (lastErr && lastErr.stepIndex === totalStepsDone) {
+            const errorType = lastErr.type;
+            console.error(`[agent] Error detected: ${errorType}`);
 
-    // ── Final validation pipeline ─────────────────────────────────────────────────────────────────────────
-    const pipeline = await runValidationPipeline(
+            // Try deterministic recovery first (0 LLM)
+            const recoveryTools = handleFailureDeterministically(errorType, project, execState);
+            if (recoveryTools) {
+                console.error(`[agent] ⚡ Deterministic recovery for ${errorType}`);
+                const { results: rResults } = await executeToolsDirect(recoveryTools, mcp, execState);
+                executionContext += "\n" + rResults.join("\n");
+            } else if (replanCount < MAX_REPLANS && costState.llmCalls < MAX_LLM_CALLS_PER_RUN) {
+                // LLM replan fallback
+                replanCount++;
+                console.error(`[agent] Replanning (attempt ${replanCount}/${MAX_REPLANS})...`);
+                const replan = await updatePlan(
+                    enrichedPrompt, remainingSteps, executionContext,
+                    errorType, project, costState, promptIntent, execState
+                );
+                if (replan) {
+                    remainingSteps = enforceAnalyzeBeforeBuild(
+                        replan
+                            .split("\n")
+                            .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
+                            .filter(s => s.length > 4)
+                    );
+                    console.error(`[agent] Replan produced ${remainingSteps.length} new steps`);
+                }
+            }
+        }
+    } // end while
+
+    // ── End-of-run validation pipeline ────────────────────────────────────────────────
+    const validation = await runValidationPipeline(
         promptIntent, project, execState, costState, mcp, prompt, executionContext
     );
 
-    // Inject any final reviewer issues as extra steps (last-chance recovery)
-    if (pipeline.issues?.length > 0 && remainingSteps.length === 0) {
-        console.error(`[agent] Final reviewer has ${pipeline.issues.length} issue(s) — logged for next run`);
+    // Inject final reviewer issues as extra steps if run ended early with budget
+    if (
+        !reviewerIssuesInjected &&
+        validation.reviewer?.verdict === "has_issues" &&
+        validation.issues?.length > 0 &&
+        totalStepsDone < MAX_STEPS &&
+        costState.llmCalls < MAX_LLM_CALLS_PER_RUN
+    ) {
+        const finalSteps = issuesAsSteps(validation.issues);
+        console.error(`[agent] 🔍 Post-run reviewer injecting ${finalSteps.length} fix step(s)`);
+        // Run them immediately as a mini-loop
+        for (const fixStep of finalSteps) {
+            if (totalStepsDone >= MAX_STEPS) break;
+            totalStepsDone++;
+            emitStep(totalStepsDone, fixStep);
+            const stepMemory = await queryMemory(project, fixStep, { minConfidence: 0.7, execState });
+            const stateBlock = formatStateForPrompt(execState);
+            const fixCtx     = executionContext + (stateBlock ? `\n\n[Execution state]:\n${stateBlock}` : "");
+            const { ok: fok, parsed: fp } = await executeWithRetry(
+                fixStep, fixCtx, project, stepMemory, costState, execState
+            );
+            if (!fok || fp?.skipped || fp?.done) continue;
+            try {
+                const fResult    = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
+                const fText      = fResult?.content?.map(c => c.text || "").join("\n") || "";
+                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "\n..." : fText;
+                execState.recordToolCall(fp.tool, fp.args, fText, totalStepsDone);
+                executionContext += `\n\n[${fp.tool}]:\n${fTruncated}`;
+            } catch (err) {
+                console.error(`[agent] Fix step tool error: ${err.message}`);
+            }
+        }
     }
 
-    collector.endRun(successfulSteps >= 2, execState);
-    if (successfulSteps >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
+    // ── Persist training data for this run ───────────────────────────────────────────────
+    const runSuccess = execState.filesModified.size > 0 && !execState.lastError();
+    collector.endRun(runSuccess, execState);
+
+    // ── Memory extraction (async, non-blocking) ─────────────────────────────────────
+    if (successfulSteps >= 2) {
+        extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => {});
+    }
 
     console.error(`\n─── Agent finished ───`);
     console.error(`  Steps done:   ${totalStepsDone}`);
     console.error(`  Successful:   ${successfulSteps}`);
     console.error(`  LLM calls:    ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
+    console.error(`  Tokens:       ~${estimatedTokens(costState).toLocaleString()}`);
     console.error(`  Files read:   ${[...execState.filesRead].join(", ") || "none"}`);
     console.error(`  Files mod:    ${[...execState.filesModified].join(", ") || "none"}`);
-    console.error(`  Validation:   heuristic=${pipeline.heuristic.passed} build=${pipeline.build.passed}`);
-}
-
-// ─── CLI entry point (when run directly: node src/agent/agent.js) ───────────────────────────────
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question("Prompt: ", async (input) => {
-        rl.close();
-        try {
-            await runAgent(input.trim());
-        } catch (err) {
-            console.error("Agent error:", err.message);
-            process.exit(1);
-        }
-    });
+    console.error(`  Validation:   heuristic=${validation.heuristic?.passed}, build=${validation.build?.passed}`);
+    if (validation.reviewer) {
+        console.error(`  Reviewer:     ${validation.reviewer.verdict} (confident: ${validation.reviewer.confident})`);
+    }
 }

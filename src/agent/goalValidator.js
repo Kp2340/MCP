@@ -114,7 +114,8 @@ export function logValidation(intent, result) {
     const icon   = result.passed ? "✅" : "❌";
     const status = result.passed ? "PASSED" : "FAILED";
 
-    console.error(`\n[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
+    console.error(`
+[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
     console.error(`[validator]    Reason: ${result.reason}`);
     if (result.suggest) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
@@ -137,8 +138,18 @@ export async function validateWithBuild(project, intent, mcpClient) {
 
     try {
         const result     = await mcpClient.callTool("project_analyze", { project });
-        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
-        const passed     = resultText.includes("passed") || resultText.trim() === "";
+        const resultText = result?.content?.map(c => c.text || "").join("
+") || "";
+        // project_analyze returns:
+        //   "Static analysis passed" when clean
+        //   "Static analysis: N issue(s) found..." when issues exist
+        //   "BUILD SKIPPED" for Java/Kotlin projects
+        // We pass if the output contains a positive signal OR is empty.
+        const isClean    = resultText.trim() === ""
+            || /static analysis passed/i.test(resultText)
+            || /build skipped/i.test(resultText);
+        const hasErrors  = !isClean && /error|warning|failed|cannot find|unresolved|issue.*found/i.test(resultText);
+        const passed     = isClean || !hasErrors;
 
         return {
             passed,

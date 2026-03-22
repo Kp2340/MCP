@@ -6,10 +6,9 @@
  *   Java/Kotlin    — skipped (compiler handles it)
  *   Python/Odoo    — basic syntax check via `python -m py_compile`
  *   Go             — `go vet ./...`
- *   Other          — scan for obvious issues (file existence)
  *
- * TypeScript check now fires for ANY node-based project with a tsconfig.json
- * (not just nextjs/react-vite — also plain nodejs TypeScript projects).
+ * stripComments() removes block and line comments before import extraction
+ * so that JSDoc examples don't produce false-positive broken-import warnings.
  */
 
 import fs from "fs";
@@ -24,7 +23,9 @@ const NODE_TYPES     = new Set(["nextjs", "react-vite", "nodejs"]);
 const JAVA_TYPES     = new Set(["spring-boot", "liferay-backend", "gradle"]);
 const PYTHON_TYPES   = new Set(["django", "odoo", "python"]);
 
-// ── Alias loader ────────────────────────────────────────────────────────────
+const NL = "\n";
+
+// ── Alias loader ──────────────────────────────────────────────────────────────────
 function loadAliases(projectRoot) {
     const aliases = {};
     for (const cfgFile of ["tsconfig.json", "jsconfig.json"]) {
@@ -47,7 +48,7 @@ function loadAliases(projectRoot) {
     return aliases;
 }
 
-// ── Import resolver ─────────────────────────────────────────────────────────
+// ── Import resolver ─────────────────────────────────────────────────────────────────
 function resolveImport(fromFile, importPath, aliases = {}) {
     for (const [prefix, bases] of Object.entries(aliases)) {
         if (importPath.startsWith(prefix)) {
@@ -64,20 +65,63 @@ function resolveImport(fromFile, importPath, aliases = {}) {
     return RESOLVABLE_EXT.some(ext => fs.existsSync(base + ext));
 }
 
+// ── Comment stripper ────────────────────────────────────────────────────────────────
+// Removes block comments (/* ... */) and line comments (// ...)
+// before import extraction so JSDoc examples don't cause false positives.
+function stripComments(content) {
+    let result = "";
+    let i = 0;
+    const len = content.length;
+    while (i < len) {
+        // Block comment: /* ... */
+        if (content[i] === "/" && content[i + 1] === "*") {
+            i += 2;
+            while (i < len && !(content[i] === "*" && content[i + 1] === "/")) i++;
+            i += 2;
+            continue;
+        }
+        // Line comment: // ...
+        if (content[i] === "/" && content[i + 1] === "/") {
+            while (i < len && content[i] !== NL) i++;
+            continue;
+        }
+        // String literals — preserve their delimiters but skip internals
+        if (content[i] === "'" || content[i] === '"' || content[i] === "`") {
+            const quote = content[i];
+            result += content[i++];
+            while (i < len) {
+                if (content[i] === "\\" && i + 1 < len) {
+                    result += content[i] + content[i + 1];
+                    i += 2;
+                    continue;
+                }
+                result += content[i];
+                if (content[i++] === quote) break;
+            }
+            continue;
+        }
+        result += content[i++];
+    }
+    return result;
+}
+
+// ── Import extractor ────────────────────────────────────────────────────────────────
 function extractImports(content) {
     const specifiers = [];
-    const patterns = [
+    const stripped   = stripComments(content);
+    const patterns   = [
         /import\s+.*?from\s+['"](.*?)['"];/g,
         /require\s*\(\s*['"](.*?)['"]\s*\)/g,
         /import\s*\(\s*['"](.*?)['"]\s*\)/g
     ];
     for (const re of patterns) {
         let m;
-        while ((m = re.exec(content)) !== null) specifiers.push(m[1]);
+        while ((m = re.exec(stripped)) !== null) specifiers.push(m[1]);
     }
     return specifiers;
 }
 
+// ── Broken import checker ───────────────────────────────────────────────────────────────
 function checkBrokenImports(projectRoot) {
     const issues  = [];
     const aliases = loadAliases(projectRoot);
@@ -90,8 +134,7 @@ function checkBrokenImports(projectRoot) {
                 walk(path.join(dir, item.name));
                 continue;
             }
-            const ext = path.extname(item.name);
-            if (!JS_EXTENSIONS.has(ext)) continue;
+            if (!JS_EXTENSIONS.has(path.extname(item.name))) continue;
             const full = path.join(dir, item.name);
             let content;
             try { content = fs.readFileSync(full, "utf8"); } catch { continue; }
@@ -106,6 +149,7 @@ function checkBrokenImports(projectRoot) {
     return issues;
 }
 
+// ── Syntax checker (JS/JSX/MJS via node --check) ─────────────────────────────────
 function collectJsFiles(projectRoot) {
     const files = [];
     function walk(dir) {
@@ -132,7 +176,7 @@ function checkSyntax(projectRoot) {
         const batch  = files.slice(i, i + SYNTAX_BATCH_SIZE);
         const result = spawnSync("node", ["--check", ...batch], { encoding: "utf8" });
         if (result.status !== 0 && result.stderr) {
-            result.stderr.trim().split("\n").forEach(line => {
+            result.stderr.trim().split(NL).forEach(line => {
                 const m = line.match(/^(.+?):(\d+):\d+:(.+)$/);
                 if (m) issues.push({ file: path.relative(projectRoot, m[1]), issue: `line ${m[2]}:${m[3].trim()}` });
             });
@@ -141,23 +185,18 @@ function checkSyntax(projectRoot) {
     return issues;
 }
 
-/**
- * TypeScript check — now fires for ANY node-based project with tsconfig.json,
- * not just nextjs/react-vite. Covers plain nodejs TypeScript projects too.
- */
+// ── TypeScript checker ───────────────────────────────────────────────────────────────────
 function checkTypeScript(projectRoot, projectType) {
     if (!NODE_TYPES.has(projectType)) return [];
     const tsconfigPath = path.join(projectRoot, "tsconfig.json");
     if (!fs.existsSync(tsconfigPath)) return [];
-
     const result = spawnSync(
         "npx", ["tsc", "--noEmit", "--pretty", "false"],
         { cwd: projectRoot, encoding: "utf8", timeout: 60000 }
     );
     const output = ((result.stdout || "") + (result.stderr || "")).trim();
     if (!output) return [];
-
-    return output.split("\n")
+    return output.split(NL)
         .filter(l => l.includes("error TS"))
         .slice(0, 20)
         .map(l => {
@@ -168,15 +207,10 @@ function checkTypeScript(projectRoot, projectType) {
         });
 }
 
-/**
- * Python syntax check via `python -m py_compile`.
- * Works for Django, Odoo, and generic Python projects.
- * Collects .py files, runs them through py_compile one batch at a time.
- */
+// ── Python syntax checker ───────────────────────────────────────────────────────────────
 function checkPythonSyntax(projectRoot) {
     const issues = [];
     const files  = [];
-
     function walk(dir) {
         let items;
         try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -190,8 +224,6 @@ function checkPythonSyntax(projectRoot) {
         }
     }
     walk(projectRoot);
-
-    // Run up to 50 files at a time through py_compile
     for (let i = 0; i < files.length && i < 200; i += 50) {
         const batch  = files.slice(i, i + 50);
         const result = spawnSync(
@@ -199,42 +231,29 @@ function checkPythonSyntax(projectRoot) {
             { cwd: projectRoot, encoding: "utf8", timeout: 30000 }
         );
         if (result.status !== 0 && result.stderr) {
-            result.stderr.trim().split("\n").forEach(line => {
-                // py_compile: File "/path/file.py", line N
+            result.stderr.trim().split(NL).forEach(line => {
                 const m = line.match(/File "(.+?)", line (\d+)/);
-                if (m) {
-                    issues.push({
-                        file:  path.relative(projectRoot, m[1]),
-                        issue: `line ${m[2]}: SyntaxError`
-                    });
-                }
+                if (m) issues.push({ file: path.relative(projectRoot, m[1]), issue: `line ${m[2]}: SyntaxError` });
             });
         }
     }
     return issues;
 }
 
-/**
- * Go vet — runs `go vet ./...` for Go projects.
- */
+// ── Go vet ────────────────────────────────────────────────────────────────────────────
 function checkGoVet(projectRoot) {
-    const goMod = path.join(projectRoot, "go.mod");
-    if (!fs.existsSync(goMod)) return [];
-
+    if (!fs.existsSync(path.join(projectRoot, "go.mod"))) return [];
     const result = spawnSync(
         "go", ["vet", "./..."],
         { cwd: projectRoot, encoding: "utf8", timeout: 60000 }
     );
     if (result.status === 0) return [];
-
-    const output = (result.stderr || result.stdout || "").trim();
-    return output.split("\n").filter(Boolean).slice(0, 20).map(line => ({
-        file: "go",
-        issue: line.trim()
-    }));
+    return (result.stderr || result.stdout || "").trim()
+        .split(NL).filter(Boolean).slice(0, 20)
+        .map(line => ({ file: "go", issue: line.trim() }));
 }
 
-/** MCP tool handler */
+// ── MCP tool handler ────────────────────────────────────────────────────────────────────
 export function analyzeProject({ project }) {
     const config = getProject(project);
     const root   = config.root;
@@ -245,16 +264,15 @@ export function analyzeProject({ project }) {
     const isPython = PYTHON_TYPES.has(type);
     const isGo     = type === "go";
 
-    const brokenImports = isNode  ? checkBrokenImports(root) : [];
-    const syntaxErrors  = isNode  ? checkSyntax(root)        : [];
-    const tsErrors      = isNode  ? checkTypeScript(root, type) : [];
-    const pyErrors      = isPython ? checkPythonSyntax(root) : [];
-    const goErrors      = isGo    ? checkGoVet(root)         : [];
-
-    // Java/Kotlin/unknown — just confirm analysis ran
     if (isJava) {
         return { content: [{ type: "text", text: `Static analysis skipped for ${type} — compiler handles type checking. Run project_build to verify.` }] };
     }
+
+    const brokenImports = isNode   ? checkBrokenImports(root)      : [];
+    const syntaxErrors  = isNode   ? checkSyntax(root)              : [];
+    const tsErrors      = isNode   ? checkTypeScript(root, type)    : [];
+    const pyErrors      = isPython ? checkPythonSyntax(root)        : [];
+    const goErrors      = isGo     ? checkGoVet(root)               : [];
 
     const total = brokenImports.length + syntaxErrors.length + tsErrors.length + pyErrors.length + goErrors.length;
 
@@ -262,7 +280,7 @@ export function analyzeProject({ project }) {
         return { content: [{ type: "text", text: `Static analysis passed — no issues found. (${type} project)` }] };
     }
 
-    const lines = [`Static analysis: ${total} issue(s) found in ${type} project\n`];
+    const lines = [`Static analysis: ${total} issue(s) found in ${type} project${NL}`];
 
     if (brokenImports.length > 0) {
         lines.push(`Broken imports (${brokenImports.length}):`);
@@ -285,5 +303,5 @@ export function analyzeProject({ project }) {
         goErrors.forEach(e => lines.push(`  ${e.issue}`));
     }
 
-    return { content: [{ type: "text", text: lines.join("\n") }] };
+    return { content: [{ type: "text", text: lines.join(NL) }] };
 }

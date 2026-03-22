@@ -243,10 +243,11 @@ export async function queryMemory(project, prompt, opts = {}) {
                 if (e.confidence) line += ` [conf: ${e.confidence.toFixed(1)}]`;
                 return line;
             })
-            .join("\n- ");
+            .join("- ");
 
 
-    } catch {
+    } catch (err) {
+        console.error("[memory] queryMemory error:", err.message);
         return returnStructured ? [] : "";
     }
 }

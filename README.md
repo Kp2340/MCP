@@ -1,17 +1,27 @@
 # AI Dev MCP
 
-AI Dev MCP is a **local autonomous coding environment** that enables AI models to safely interact with real software projects using the **Model Context Protocol (MCP)**.
+AI Dev MCP is a **local autonomous coding agent** that enables AI models to safely read, modify, build, and test real software projects using the **Model Context Protocol (MCP)**.
 
-It allows an AI agent to:
+## What it does
 
-* explore large codebases
-* perform semantic code search
-* read and modify files
-* run project builds
-* automatically fix compilation errors
-* analyze project dependencies
+- Explores large codebases with semantic vector search
+- Plans and executes multi-step coding tasks autonomously
+- Reads and modifies files with targeted str_replace (not full rewrites)
+- Runs project builds and auto-fixes compilation errors
+- Runs your test suite and verifies fixes pass tests
+- Analyzes import dependencies and project structure
+- Stores long-term architecture memory per project
+- Reviews its own changes mid-run and injects corrections
+- Provides a live Web UI at `/ui` for job management
+- Exposes 20 MCP tools to Claude Desktop, Cursor, Windsurf, Gemini CLI
+- VS Code extension with diff review, Accept/Reject, right-click commands
+- IntelliJ plugin with diff viewer and workspace path auto-detection
 
-All components run **locally**, ensuring privacy, security, and full control over development workflows.
+All components run **locally** — your code never leaves your machine.
+
+## Version
+
+v5.3.0 (MCP-4.1 / MCP-4.2 / MCP-4.3)
 
 ---
 

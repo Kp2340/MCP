@@ -1,17 +1,19 @@
 {
   "name": "mcp",
-  "version": "1.0.0",
+  "version": "5.4.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "start":           "node src/index.js",
     "start:http":      "cross-env TRANSPORT=http node src/index.js",
     "start:stdio":     "cross-env TRANSPORT=stdio node src/index.js",
+    "dev":             "cross-env LOG_LEVEL=DEBUG node src/index.js",
     "tunnel":          "cloudflared tunnel --url http://localhost:3001",
     "ngrok":           "ngrok http 3001",
     "test":            "vitest run",
     "test:watch":      "vitest",
-    "test:coverage":   "vitest run --coverage"
+    "test:coverage":   "vitest run --coverage",
+    "index":           "node src/vector/runIndex.js"
   },
   "repository": {
     "type": "git",

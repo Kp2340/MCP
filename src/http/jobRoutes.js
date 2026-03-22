@@ -13,17 +13,18 @@
  *   GET  /jobs         List all jobs
  *   GET  /queue        Queue status
  *   GET  /diff/:id     Git diff of changes made by a completed job (for review panel)
- *   POST /revert/:id   Undo — git reset --hard HEAD~1 (reject changes)
+ *   POST /revert/:id   Undo agent changes (safe git revert by default, ?hard=true for reset)
  */
 
 import path        from "path";
 import { spawnSync } from "child_process";
 import { enqueue, getJob, listJobs, getQueueStatus,
-         subscribeToJob, unsubscribeFromJob, emitJobStep } from "./queue.js";
+         subscribeToJob, unsubscribeFromJob, emitJobStep, cancelJob } from "./queue.js";
 import { createLogger }                from "../core/logger.js";
 import { runAgent }                    from "../agent/agentRunner.js";
-import { registerDynamicProject,
-         listProjects, getProject }    from "../core/projectRegistry.js";
+import { registerDynamicProject, saveProject,
+         listProjects, getProject, listDynamicProjects } from "../core/projectRegistry.js";
+import { createCheckpoint }           from "../git/checkpoint.js";
 
 const log = createLogger("job-routes");
 
@@ -40,10 +41,19 @@ export function attachJobRoutes(app) {
             return res.status(400).json({ error: "path (string) is required — send your workspace root path" });
         }
 
+        // Validate projectPath is not a traversal or suspiciously short
+        if (projectPath.includes("..") || projectPath.includes("\0") || projectPath.trim().length < 3) {
+            return res.status(400).json({ error: "Invalid project path" });
+        }
+
         // Derive project name securely from path — caller cannot inject a name
         const project = path.basename(projectPath)
             .replace(/[^a-zA-Z0-9-_]/g, "-")
             .toLowerCase();
+
+        if (!project || project.length < 1) {
+            return res.status(400).json({ error: "Cannot derive project name from path" });
+        }
 
         // Auto-register project from path if not already known
         if (!listProjects().includes(project)) {
@@ -58,6 +68,17 @@ export function attachJobRoutes(app) {
         const runner = async (job) => {
             log.info(`Running agent | job=${job.id} | project=${project}`);
             const emit = (step, detail) => emitJobStep(job.id, step, detail);
+
+            // Create a git stash checkpoint before the agent touches any files.
+            // This gives users a guaranteed rollback point beyond the last commit.
+            try {
+                const proj = getProject(project);
+                const cp   = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
+                if (cp.stashed) log.info(`Checkpoint stash created: ${cp.ref} for job ${job.id}`);
+            } catch (cpErr) {
+                log.warn(`Checkpoint failed (non-fatal): ${cpErr.message}`);
+            }
+
             await runAgent(`${prompt} project: ${project}`, emit);
             return `Agent completed task for project: ${project}`;
         };
@@ -108,17 +129,23 @@ export function attachJobRoutes(app) {
         res.flushHeaders();
 
         if (job.status === "completed") {
-            res.write(`event: completed\ndata: ${JSON.stringify(job)}\n\n`);
+            res.write(`event: completed
+data: ${JSON.stringify(job)}
+
+`);
             return res.end();
         }
         if (job.status === "failed") {
-            res.write(`event: failed\ndata: ${JSON.stringify(job)}\n\n`);
+            res.write(`event: failed
+data: ${JSON.stringify(job)}
+
+`);
             return res.end();
         }
 
         subscribeToJob(jobId, res);
         const heartbeat = setInterval(() => {
-            try { res.write(":heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+            try { res.write(":heartbeat"); } catch { clearInterval(heartbeat); }
         }, 15000);
         req.on("close", () => {
             clearInterval(heartbeat);
@@ -151,9 +178,9 @@ export function attachJobRoutes(app) {
             // File-level summary: M modified, A added, D deleted
             const filesRaw = spawnSync("git", ["diff", "--name-status", "HEAD~1", "HEAD"],
                 { cwd: root, encoding: "utf-8" }).stdout || "";
-            const files = filesRaw.trim().split("\n").filter(Boolean).map(line => {
-                const [status, ...parts] = line.split("\t");
-                return { status: status.trim(), path: parts.join("\t") };
+            const files = filesRaw.trim().split("").filter(Boolean).map(line => {
+                const [status, ...parts] = line.split("	");
+                return { status: status.trim(), path: parts.join("	") };
             });
 
             res.json({ jobId: job.id, project: job.project, commitHash, commitMsg, commitTime, files, diff });
@@ -164,28 +191,106 @@ export function attachJobRoutes(app) {
     });
 
     // ── POST /revert/:id ───────────────────────────────────────────────────────
-    // Reverts the last commit made by a job — called when user clicks "Reject".
-    // Uses git reset --hard HEAD~1 to fully discard the agent's changes.
+    // Reverts the last commit made by a job using git revert (safe) or git reset.
+    // Default: git revert HEAD --no-edit  (creates an undo commit, preserves history)
+    // ?hard=true: git reset --hard HEAD~1  (destructive — only if caller confirms)
     app.post("/revert/:id", (req, res) => {
         const job = getJob(req.params.id);
         if (!job) return res.status(404).json({ error: `Job ${req.params.id} not found` });
         if (job.status !== "completed") {
             return res.status(400).json({ error: `Job is ${job.status} — can only revert completed jobs` });
         }
+
+        const useHardReset = req.query.hard === "true";
+
         try {
-            const proj   = getProject(job.project);
-            const result = spawnSync("git", ["reset", "--hard", "HEAD~1"],
+            const proj = getProject(job.project);
+
+            // Check there IS a commit to revert (repo must have at least 1 commit)
+            const logCheck = spawnSync("git", ["log", "--oneline", "-1"],
                 { cwd: proj.root, encoding: "utf-8" });
-            if (result.status !== 0) {
-                return res.status(500).json({ error: result.stderr || "git reset failed" });
+            if (!logCheck.stdout?.trim()) {
+                return res.status(400).json({ error: "No commits to revert" });
             }
-            log.info(`Reverted job ${job.id} | project=${job.project}`);
-            res.json({ ok: true, message: `Reverted changes for job ${job.id}` });
+
+            let result;
+            if (useHardReset) {
+                // Destructive: wipes the commit AND working tree changes
+                result = spawnSync("git", ["reset", "--hard", "HEAD~1"],
+                    { cwd: proj.root, encoding: "utf-8" });
+            } else {
+                // Safe default: creates a new revert commit, history preserved
+                result = spawnSync("git", ["revert", "HEAD", "--no-edit"],
+                    { cwd: proj.root, encoding: "utf-8" });
+            }
+
+            if (result.status !== 0) {
+                return res.status(500).json({ error: result.stderr || "git revert failed" });
+            }
+
+            const mode = useHardReset ? "hard-reset" : "safe-revert";
+            log.info(`Reverted job ${job.id} | project=${job.project} | mode=${mode}`);
+            res.json({ ok: true, mode, message: `Reverted changes for job ${job.id} (${mode})` });
         } catch (err) {
             log.error(`POST /revert/${req.params.id} error: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
 
-    log.info("Job routes attached: POST /run  GET /status  GET /stream  GET /diff  POST /revert");
+    // ── POST /cancel/:id ───────────────────────────────────────────────────────
+    // Cancel a queued (pending) job before it starts.
+    app.post("/cancel/:id", (req, res) => {
+        const cancelled = cancelJob(req.params.id);
+        if (!cancelled) {
+            const job = getJob(req.params.id);
+            if (!job) return res.status(404).json({ error: `Job ${req.params.id} not found` });
+            return res.status(400).json({ error: `Cannot cancel job in state "${job.status}" — only pending jobs can be cancelled` });
+        }
+        res.json({ ok: true, message: `Job ${req.params.id} cancelled` });
+    });
+
+    // ── GET /api/projects ─────────────────────────────────────────────────────
+    // List all registered projects with their config.
+    app.get("/api/projects", (_req, res) => {
+        try {
+            const names   = listProjects();
+            const dynamic = listDynamicProjects();
+            const dynamicNames = new Set(dynamic.map(d => d.name));
+            const projects = names.map(name => {
+                try {
+                    const p = getProject(name);
+                    return {
+                        name,
+                        root:         p.root,
+                        type:         p.type,
+                        buildCommand: p.buildCommand || "",
+                        dynamic:      dynamicNames.has(name)
+                    };
+                } catch {
+                    return { name, error: "Could not load config" };
+                }
+            });
+            res.json({ count: projects.length, projects });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ── POST /api/projects ────────────────────────────────────────────────────
+    // Register a new project at runtime.
+    app.post("/api/projects", (req, res) => {
+        const { name, path: rootPath, type, persist } = req.body || {};
+        if (!name || typeof name !== "string") return res.status(400).json({ error: "name (string) required" });
+        if (!rootPath || typeof rootPath !== "string") return res.status(400).json({ error: "path (string) required" });
+        if (rootPath.includes("..") || rootPath.includes("\0")) return res.status(400).json({ error: "Invalid path" });
+        try {
+            const proj = registerDynamicProject(name, rootPath, type ? { type } : {});
+            if (persist) saveProject(name);
+            res.status(201).json({ ok: true, name, type: proj.type, root: proj.root, persisted: !!persist });
+        } catch (err) {
+            res.status(400).json({ error: err.message });
+        }
+    });
+
+    log.info("Job routes attached: POST /run  GET /status  GET /stream  GET /diff  POST /revert  POST /cancel  GET|POST /api/projects");
 }

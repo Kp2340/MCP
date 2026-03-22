@@ -9,8 +9,8 @@ const log = createLogger("patch");
 export function applyPatch({ project, patch }) {
     const root = getProject(project).root;
 
-    // Security: reject patches containing path traversal sequences
-    if (patch.includes("../") || patch.includes("..\\\\" )) {
+    // Security: reject patches containing path traversal sequences (Unix and Windows)
+    if (patch.includes("../") || patch.includes("..\\")) {
         throw new Error("Unsafe patch: path traversal sequences are not allowed.");
     }
 
@@ -30,7 +30,8 @@ export function applyPatch({ project, patch }) {
         );
 
         if (result.status !== 0) {
-            throw new Error(`Patch validation failed:\n${(result.stderr || result.stdout || "").trim()}`);
+            throw new Error(`Patch validation failed:
+${(result.stderr || result.stdout || "").trim()}`);
         }
 
         // Dry run passed — now actually apply
@@ -40,7 +41,8 @@ export function applyPatch({ project, patch }) {
         );
 
         if (applyResult.status !== 0) {
-            throw new Error(`Patch apply failed:\n${(applyResult.stderr || applyResult.stdout || "").trim()}`);
+            throw new Error(`Patch apply failed:
+${(applyResult.stderr || applyResult.stdout || "").trim()}`);
         }
 
         log.info(`Patch applied for "${project}"`);

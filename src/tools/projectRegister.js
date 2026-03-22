@@ -42,14 +42,12 @@ export async function registerProject({ name, path: rootPath, type, persist = fa
     }
 
     // Trigger background index — don't await, let it run async
-    // so the registration response is instant
-    const shouldIndex = [
-        ".js", ".jsx", ".ts", ".tsx",
-        ".java", ".kt", ".py", ".go", ".rb", ".rs"
-    ].some(ext =>
-        (config.indexExtensions?.length === 0) ||
-        config.indexExtensions?.includes(ext)
-    );
+    // so the registration response is instant.
+    // Index when: indexExtensions is empty (means "all files") OR contains a known code ext.
+    const CODE_EXTENSIONS = [".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".py", ".go", ".rb", ".rs"];
+    const exts = config.indexExtensions || [];
+    const shouldIndex = exts.length === 0   // empty = index everything
+        || CODE_EXTENSIONS.some(ext => exts.includes(ext));
 
     if (shouldIndex) {
         log.info(`Triggering background index for "${name}"...`);

@@ -72,7 +72,10 @@ export class MCPClient {
 
         const data = await this._json("/run", {
             method: "POST",
-            body:   JSON.stringify({ prompt, project }),
+            // Server /run expects { prompt, path } — it derives the project name from the path.
+            // If caller passes a short project name (not a path), we send it as-is and let
+            // the server resolve it. For absolute paths, path is the right field.
+            body:   JSON.stringify({ prompt, path: project }),
         });
 
         return data.id;
@@ -198,12 +201,15 @@ export class MCPClient {
 
     /** @private */
     _parseSSEBuffer(buffer, onMessage) {
-        const parts = buffer.split("\n\n");
+        const parts = buffer.split("
+
+");
         // Last part may be incomplete — keep it
         const incomplete = parts.pop();
 
         for (const block of parts) {
-            const lines = block.split("\n");
+            const lines = block.split("
+");
             let event = "message";
             let data  = null;
 

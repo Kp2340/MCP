@@ -4,7 +4,9 @@
     "type": "liferay-backend",
     "buildCommand": "gradlew build",
     "branchPrefix": "ZB",
-    "indexExtensions": [".java"]
+    "indexExtensions": [
+      ".java"
+    ]
   },
   "zeveal-frontend": {
     "root": "C:/Users/kushp/liferay-workspace/zeveal-ui-3/zeveal-ui",
@@ -25,14 +27,18 @@
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
     "branchPrefix": "DB",
-    "indexExtensions": [".java"]
+    "indexExtensions": [
+      ".java"
+    ]
   },
   "whatsapp-backend": {
     "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp",
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
     "branchPrefix": "WB",
-    "indexExtensions": [".java"]
+    "indexExtensions": [
+      ".java"
+    ]
   },
   "whatsapp-frontend": {
     "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp UI",
@@ -49,10 +55,10 @@
     "indexExtensions": []
   },
   "mcp": {
-    "root": "C:/Users/kushp/IdeaProjects/mcp",
+    "root": "C:\\Users\\kushp\\IdeaProjects\\MCP",
     "type": "nodejs",
     "buildCommand": "",
-    "branchPrefix": "MCP",
+    "branchPrefix": "M",
     "indexExtensions": []
   }
 }

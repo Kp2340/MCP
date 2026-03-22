@@ -142,6 +142,17 @@ export class ExecutionState {
                 if (isNew) this.filesCreated.add(p);
                 this.filesModified.add(p);
                 this.filesRead.add(p);  // modified files were implicitly read too
+
+                // CRITICAL: invalidate the read cache for this file.
+                // After a str_replace, the cached content is stale.
+                // The next project_read_files call must hit disk for fresh content.
+                const readCacheKey = `project_read_files::${JSON.stringify({ project: paths[0]?.split?.('/')[0], paths: [p] })}`;
+                // Invalidate any cache entry whose key contains this path
+                for (const key of this._toolCache.keys()) {
+                    if (key.includes(`"${p}"`) || key.includes(p)) {
+                        this._toolCache.delete(key);
+                    }
+                }
             });
         }
 

@@ -4,83 +4,67 @@ import { queryMemory } from "../vector/memory.js";
 import {
     TOOL_CHAIN_TEMPLATES,
     MAX_LLM_CALLS_PER_RUN,
-    CHARS_PER_TOKEN
+    CHARS_PER_TOKEN,
+    LLM_MODEL,
+    NUM_PREDICT,
+    KEYWORD_STEMS
 } from "../core/constants.js";
 import { formatStateForPrompt } from "./executionState.js";
 import { generateDirectFix, extractErrorFilePath } from "./errorFixer.js";
 
-// ─── Tool-level deterministic failure recovery ───────────────────────────────
-// Each entry maps a failure type → array of { tool, args } objects.
-// These are executed DIRECTLY by agent.js — zero LLM involvement.
-// args with value "__ERROR_QUERY__" are resolved at call time from execState.
+const MODEL = LLM_MODEL;
 
+// ─── Deterministic failure recovery tools ────────────────────────────────────────────────
 export const DETERMINISTIC_RECOVERY_TOOLS = {
-    // Deep recovery: search → read broken file → errorFixer patch → analyze → build
     import_error: (project, execState) => {
-        const errText  = execState.lastError()?.text || "";
-        const modName  = errText.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] ||
-                         errText.match(/unresolved.*?:\s*(\S+)/i)?.[1] || "import";
-        const filePath = extractErrorFilePath(execState);
+        const errText   = execState.lastError()?.text || "";
+        const modName   = errText.match(/['"](\S+)['"]|module '([^']+)'/)?.[1] ||
+                          errText.match(/unresolved.*?:\s*(\S+)/i)?.[1] || "import";
+        const filePath  = extractErrorFilePath(execState);
         const directFix = generateDirectFix(project, execState);
-        const steps = [
-            { tool: "project_search", args: { project, query: modName } }
-        ];
+        const steps     = [{ tool: "project_search", args: { project, query: modName } }];
         if (filePath && !execState.hasRead(filePath))
             steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
         if (directFix) steps.push(directFix);
-        steps.push({ tool: "project_analyze",       args: { project } });
-        steps.push({ tool: "project_build_and_fix",  args: { project } });
+        steps.push({ tool: "project_analyze",      args: { project } });
+        steps.push({ tool: "project_build_and_fix", args: { project } });
         return steps;
     },
-
     syntax_error: (project, execState) => {
         const filePath = extractErrorFilePath(execState);
-        const steps = [{ tool: "project_analyze", args: { project } }];
+        const steps    = [{ tool: "project_analyze", args: { project } }];
         if (filePath && !execState.hasRead(filePath))
             steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
         steps.push({ tool: "project_build_and_fix", args: { project } });
         return steps;
     },
-
     build_failure: (project, execState) => {
         const filePath = extractErrorFilePath(execState);
-        const steps = [{ tool: "project_analyze", args: { project } }];
+        const steps    = [{ tool: "project_analyze", args: { project } }];
         if (filePath && !execState.hasRead(filePath))
             steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
         steps.push({ tool: "project_build_and_fix", args: { project } });
         return steps;
     },
-
     not_found: (project, execState) => [
         { tool: "project_search",  args: { project, query: execState.lastError()?.text?.substring(0, 60) || "" } },
         { tool: "project_analyze", args: { project } }
     ],
-
     runtime_error: (project, execState) => {
         const filePath  = extractErrorFilePath(execState);
         const directFix = generateDirectFix(project, execState);
-        const steps = [{ tool: "project_analyze", args: { project } }];
+        const steps     = [{ tool: "project_analyze", args: { project } }];
         if (filePath && !execState.hasRead(filePath))
             steps.push({ tool: "project_read_files", args: { project, paths: [filePath] } });
         if (directFix) steps.push(directFix);
         steps.push({ tool: "project_build_and_fix", args: { project } });
         return steps;
     },
-
     permission_error: (project, _execState) => [
         { tool: "project_scan", args: { project } }
     ]
 };
 
-/**
- * Returns a tool-level recovery plan for a known failure type.
- * Returns null if no deterministic recovery exists (→ fall through to LLM).
- *
- * @param {string}         failureType
- * @param {string}         project
- * @param {ExecutionState} execState
- * @returns {Array<{tool:string,args:object}>|null}
- */
 export function handleFailureDeterministically(failureType, project, execState) {
     const factory = DETERMINISTIC_RECOVERY_TOOLS[failureType];
     if (!factory) return null;
@@ -89,43 +73,29 @@ export function handleFailureDeterministically(failureType, project, execState) 
     return toolSteps;
 }
 
-import { LLM_MODEL, NUM_PREDICT, KEYWORD_STEMS } from "../core/constants.js";
-const MODEL = LLM_MODEL;
-
-// ─── Real token estimator ────────────────────────────────────────────────────
+// ─── Token estimator ────────────────────────────────────────────────────────────────────
 export function estimateTokens(...texts) {
     const totalChars = texts.reduce((sum, t) => sum + (t ? t.length : 0), 0);
     return Math.ceil(totalChars / CHARS_PER_TOKEN);
 }
 
-// ─── Shared context builder ─────────────────────────────────────────────────
+// ─── Shared context builder ───────────────────────────────────────────────────────────────
 async function buildPlannerContext(project, intent = null) {
     const projects = listProjects().join(", ");
     let memoryContext = "";
-
     if (project) {
-        // Filter memory by intent type when we know it — avoids injecting
-        // backend patterns into a frontend step and vice versa.
         const filterType = intent === "ui"  ? "architecture" :
                            intent === "api" ? "architecture" :
                            intent === "fix" ? "fix"          : null;
-
-        const memory = await queryMemory(project, "", {
-            returnStructured: true,
-            filterType
-        });
-
+        const memory = await queryMemory(project, "", { returnStructured: true, filterType });
         if (memory && memory.length > 0) {
             const lines = memory
-                .map(m =>
-                    `  [${m.type || "pattern"}] ${m.pattern || m.text}` +
-                    (m.files?.length ? ` (files: ${m.files.slice(0, 3).join(", ")})` : "")
-                )
+                .map(m => `  [${m.type || "pattern"}] ${m.pattern || m.text}` +
+                    (m.files?.length ? ` (files: ${m.files.slice(0, 3).join(", ")})` : ""))
                 .join("\n");
             memoryContext = `\nKnown architecture patterns for this project:\n${lines}\n`;
         }
     }
-
     return { projects, memoryContext };
 }
 
@@ -133,32 +103,24 @@ const TOOL_REFERENCE = `Available MCP tools:
 - project_scan          — list files/folders
 - project_search        — ripgrep text search
 - project_find_symbol   — find class or function by name
-- project_read_files    — read file contents
-- project_str_replace   — targeted search-and-replace edit (PREFER for small changes)
-- project_apply_changes — write full file and commit (use only for new files)
+- project_read_files    — read file contents (re-read after modifying!)
+- project_str_replace   — targeted search-and-replace (PREFER for edits)
+- project_apply_changes — write full file and commit (new files only)
 - project_build_and_fix — build and auto-fix errors
 - project_analyze       — static analysis before build
+- project_test          — run test suite
 
 Rules:
 - Always read relevant files before modifying them
+- Re-read a file after modifying it before the next str_replace on it
 - Use project_find_symbol to locate components before reading them
 - Prefer project_str_replace over project_apply_changes for small edits
 - ALWAYS run project_analyze before project_build_and_fix
 - After applying code changes ALWAYS run project_build_and_fix
 - Return ONLY numbered steps, one per line, no explanation`;
 
-// ─── Context-aware heuristic planner ─────────────────────────────────────────
-/**
- * Tries to match a prompt against tool-chain templates using:
- *   1. keyword hits
- *   2. project type filter
- *   3. intent hint from retriever (ui/api/fix/general)
- *   4. ExecutionState error bias — active error type boosts matching templates (+2)
- *
- * Returns template steps if confident match found, or null.
- */
+// ─── Heuristic planner ───────────────────────────────────────────────────────────────────
 function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null, activeErrorType = null) {
-    // Normalize stems so "creating" matches "create", "fixing" matches "fix", etc.
     let lower = prompt.toLowerCase();
     for (const [stem, canonical] of Object.entries(KEYWORD_STEMS)) {
         lower = lower.replace(new RegExp(`\\b${stem}\\b`, "g"), canonical);
@@ -166,226 +128,127 @@ function tryHeuristicPlan(prompt, projectType = null, retrieverIntent = null, ac
     let bestTemplate = null;
     let bestScore    = 0;
 
-    // Error type → implied intent map for bias scoring
     const ERROR_INTENT_MAP = {
-        import_error:     "fix",
-        syntax_error:     "fix",
-        build_failure:    "fix",
-        runtime_error:    "fix",
-        not_found:        "fix",
-        permission_error: "fix"
+        import_error: "fix", syntax_error: "fix", build_failure: "fix",
+        runtime_error: "fix", not_found: "fix", permission_error: "fix"
     };
     const errorImpliedIntent = activeErrorType ? ERROR_INTENT_MAP[activeErrorType] : null;
 
     for (const template of TOOL_CHAIN_TEMPLATES) {
-        // Skip templates scoped to other project types
-        if (template.projectTypes && projectType &&
-            !template.projectTypes.includes(projectType)) {
-            continue;
-        }
-
+        if (template.projectTypes && projectType && !template.projectTypes.includes(projectType)) continue;
         const keywordHits = template.keywords.filter(kw => lower.includes(kw)).length;
         if (keywordHits === 0) continue;
-
-        // Intent bonus: +1 if retriever intent matches template intent
         const intentBonus = (retrieverIntent && retrieverIntent === template.intent) ? 1 : 0;
-
-        // ExecutionState error bias: +2 if active error type implies this template's intent
-        const errorBias = (errorImpliedIntent && template.intent === errorImpliedIntent) ? 2 : 0;
-
-        const score = keywordHits + intentBonus + errorBias;
-
-        if (score > bestScore) {
-            bestScore    = score;
-            bestTemplate = template;
-        }
+        const errorBias   = (errorImpliedIntent && template.intent === errorImpliedIntent) ? 2 : 0;
+        const score       = keywordHits + intentBonus + errorBias;
+        if (score > bestScore) { bestScore = score; bestTemplate = template; }
     }
 
-    // Require ≥2 total score to avoid false positives
     if (bestScore >= 2 && bestTemplate) {
         const biasLabel = activeErrorType ? `, errBias=${activeErrorType}` : "";
-        console.error(
-            `[planner] Heuristic: "${bestTemplate.name}" ` +
-            `(score=${bestScore}, type=${projectType || "any"}, intent=${retrieverIntent || "none"}${biasLabel}) — skipping LLM`
-        );
+        console.error(`[planner] Heuristic: "${bestTemplate.name}" (score=${bestScore}, type=${projectType || "any"}, intent=${retrieverIntent || "none"}${biasLabel}) — skipping LLM`);
         return bestTemplate.steps;
     }
-
     return null;
 }
 
-
-// ─── Project type lookup ─────────────────────────────────────────────────────────
 function getProjectType(project) {
-    try {
-        return getProject(project)?.type || null;
-    } catch {
-        return null;
-    }
+    try { return getProject(project)?.type || null; } catch { return null; }
 }
 
-/**
- * Initial plan creation.
- *
- * @param {string}         prompt
- * @param {string}         [project]
- * @param {object}         [costState]        — { llmCalls } mutated in place
- * @param {string}         [retrieverIntent]  — intent label from retriever
- * @param {ExecutionState} [execState]        — active state; triggers hard override
- * @returns {string}  newline-separated numbered steps
- */
+// ─── createPlan ───────────────────────────────────────────────────────────────────────
 export async function createPlan(prompt, project = null, costState = null, retrieverIntent = null, execState = null) {
     const projectType     = getProjectType(project);
     const activeError     = execState?.lastError();
     const activeErrorType = activeError?.type || null;
 
-    // ── HARD OVERRIDE ──────────────────────────────────────────────────────────
-    // Active classified error → skip heuristic AND LLM entirely.
-    // Return deterministic tool steps immediately as text so the step queue
-    // and agent.js enforceAnalyzeBeforeBuild() still work correctly.
-    // agent.js re-resolves these via handleFailureDeterministically + executeToolsDirect.
+    // Hard override: active error → deterministic plan (0 LLM)
     if (activeError && activeErrorType && DETERMINISTIC_RECOVERY_TOOLS[activeErrorType]) {
         console.error(`[planner] ⚡ HARD OVERRIDE: active ${activeErrorType} — forcing deterministic plan (no LLM)`);
         const toolSteps = DETERMINISTIC_RECOVERY_TOOLS[activeErrorType](project || "unknown", execState);
         return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("\n");
     }
 
-    // 1. Context-aware heuristic (zero LLM cost)
+    // Heuristic (0 LLM)
     const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
-    if (heuristicSteps) {
-        return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
-    }
+    if (heuristicSteps) return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
 
-
-    // 2. Cost guard
+    // Cost guard
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
         console.error("[planner] LLM call budget exhausted — using minimal fallback plan");
         return "1. Run static analysis\n2. Run build and fix";
     }
 
-    // 3. LLM plan — memory filtered by intent
+    // LLM plan
     const { projects, memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
 
-    const planPrompt = `You are a deterministic software planning agent (MCP-3.5).
+    const stateBlock = execState ? formatStateForPrompt(execState) : "";
+
+    const planPrompt = `You are a deterministic software planning agent.
 Your goal: produce the MINIMUM steps needed to complete the task correctly.
 
-## HARD OVERRIDE
-If execution state contains ANY error:
-- DO NOT generate a full plan
-- DO NOT expand steps
-- ONLY output deterministic recovery steps
-
-Recovery rules:
-- import_error  \u2192 search \u2192 read \u2192 str_replace \u2192 analyze
-- syntax_error  \u2192 read \u2192 str_replace \u2192 analyze
-- build_failure \u2192 analyze \u2192 str_replace \u2192 build
-
-## PLANNING RULES
-1. ALWAYS start with project_analyze if the task involves modifying code
-2. ALWAYS use project_search or project_find_symbol BEFORE project_read_files
-3. NEVER read the same file twice \u2014 list all reads in one step
-4. ALWAYS prefer project_str_replace for edits (not apply_changes)
-5. End with project_analyze to verify no regressions
-6. Maximum 8 steps. If you need more, you're overplanning.
-
-## EXECUTION STATE CONSTRAINTS
-- DO NOT read files already read
-- DO NOT modify files already modified unless fixing a new error
-- Prioritize fixing the latest error before doing anything else
-
-## PRIORITY ORDER
-1. Deterministic recovery (if error) \u2192 no LLM planning needed
-2. Tool-chain execution (direct tool match)
-3. Targeted edits (read \u2192 patch \u2192 verify)
-4. LLM reasoning (last resort)
-
-## ERROR RECOVERY (never plan these \u2014 use deterministic recovery)
-- import_error  \u2192 search \u2192 read \u2192 str_replace \u2192 analyze
-- syntax_error  \u2192 read \u2192 str_replace \u2192 analyze
-- build_failure \u2192 analyze \u2192 str_replace \u2192 build
-
 Available projects: ${projects}
-Project type: ${projectType || "unknown"}
+Current project: ${project || "unknown"}
+
 ${memoryContext}
+${stateBlock ? `Execution state so far:\n${stateBlock}\n` : ""}
+
 ${TOOL_REFERENCE}
 
-Task:
-${prompt}
+Task: ${prompt}
 
-Return ONLY numbered steps. Each step = one tool action. No explanation.
-- After applying code changes ALWAYS run project_build_and_fix
-- Return ONLY numbered steps, one per line, no explanation`;
+Output ONLY numbered steps, one per line, no explanation:`;
 
-    return await askLLM(MODEL, planPrompt, { temperature: 0.2, num_predict: 800 });
+    try {
+        const raw = await askLLM(MODEL, planPrompt, { temperature: 0.1, num_predict: NUM_PREDICT.planner });
+        return raw.trim() || "1. Run static analysis\n2. Run build and fix";
+    } catch (err) {
+        console.error("[planner] createPlan LLM error:", err.message);
+        return "1. Run static analysis\n2. Run build and fix";
+    }
 }
 
-
-
-
-
-/**
- * Adaptive replanning.
- * Now includes execution state for much better recovery reasoning.
- *
- * @param {string[]}       remainingSteps
- * @param {string}         failedStep
- * @param {string}         failureReason
- * @param {string}         context
- * @param {string}         [project]
- * @param {object}         [costState]
- * @param {ExecutionState} [execState]
- * @returns {string[]}
- */
+// ─── updatePlan ───────────────────────────────────────────────────────────────────────
 export async function updatePlan(
-    remainingSteps, failedStep, failureReason, context,
-    project = null, costState = null, execState = null
+    originalPrompt, remainingSteps, executionContext,
+    errorType, project, costState, retrieverIntent, execState
 ) {
-    if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
-        console.error("[planner] LLM budget exhausted during replan — safe fallback");
-        return ["Run static analysis", "Run build and fix to verify"];
-    }
+    if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) return null;
 
-    const projectType = getProjectType(project);
-
-    // Extract failure type from execState for targeted recovery
-    const lastError   = execState?.lastError();
-    const failureType = lastError?.type || "unknown";
-
-    const { projects, memoryContext } = await buildPlannerContext(project);
+    const { memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
 
-    // Format execution state for prompt injection
-    const stateBlock = execState
-        ? `\nExecution state:\n${formatStateForPrompt(execState)}\n`
-        : "";
+    const stateBlock = formatStateForPrompt(execState);
 
-    const replanPrompt = `You are a senior software planning agent doing mid-run correction.
+    const replanPrompt = `You are a deterministic software planning agent doing a MID-RUN REPLAN.
+The original task hit an error. Generate ONLY the minimal additional steps to recover and complete.
 
-Available projects: ${projects}
-Project type: ${projectType || "unknown"}
-${memoryContext}
-${TOOL_REFERENCE}
+Original task: ${originalPrompt.substring(0, 300)}
+
+Execution state:
 ${stateBlock}
-Execution context so far:
-${context.substring(0, 1200)}
 
-Failed step: ${failedStep}
-Failure type: ${failureType}
-Failure reason: ${failureReason.substring(0, 500)}
+Error type: ${errorType}
 
-Remaining steps that were planned:
-${remainingSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+Remaining steps (now possibly invalid):
+${remainingSteps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join("\n") || "none"}
 
-Revise the remaining plan to recover from this ${failureType} failure.
-Return ONLY numbered steps, one per line, no explanation.
-Do NOT repeat already-completed steps.
-`;
+Recent context:
+${executionContext.substring(executionContext.length - 1500)}
 
-    const revised = await askLLM(MODEL, replanPrompt, { temperature: 0.2, num_predict: 600 });
+${TOOL_REFERENCE}
 
-    return revised
-        .split("\n")
-        .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
-        .filter(s => s.length > 4);
+Output ONLY numbered steps to recover and complete. Maximum 5 steps. No explanation.`;
+
+    try {
+        const raw   = await askLLM(MODEL, replanPrompt, { temperature: 0.1, num_predict: 300 });
+        const lines = raw.split("\n")
+            .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
+            .filter(s => s.length > 4);
+        return lines.length > 0 ? lines.join("\n") : null;
+    } catch (err) {
+        console.error("[planner] updatePlan error:", err.message);
+        return null;
+    }
 }

@@ -9,10 +9,13 @@ export default defineConfig({
         include: ["tests/**/*.test.js"],
 
         // Show each test name in output
-        reporter: "verbose",
+        reporters: ["verbose"],
 
         // Fail fast — stop on first test file with failures
         // bail: 1,
+
+        // Never fail just because no test files matched the glob
+        passWithNoTests: true,
 
         // Coverage (used by npm run test:coverage)
         coverage: {

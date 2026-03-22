@@ -52,11 +52,17 @@ export function scanProject({ project, extensions = [], maxDepth = 5 }) {
 
     const projectRoot = getProject(project).root;
 
-    const files = walkDir(
-        projectRoot,
-        projectRoot,
-        { extensions, maxDepth }
-    );
+    let files;
+    try {
+        files = walkDir(projectRoot, projectRoot, { extensions, maxDepth });
+    } catch (err) {
+        return {
+            content: [{
+                type: "text",
+                text: `Error scanning project root: ${err.message}`
+            }]
+        };
+    }
 
     return {
         content: [
