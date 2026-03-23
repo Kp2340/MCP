@@ -41,11 +41,11 @@ export function attachJobRoutes(app) {
     // Legacy field:  { prompt: "...", path: "/abs/path" } ← still accepted but
     //                the basename is used ONLY to look up a pre-registered project;
     //                the path itself is NEVER used as a filesystem root.
-    app.post("/run", (req, res) => {
-        const { prompt, project: projectParam, path: legacyPath } = req.body || {};
+    app.post("/run", async (req, res) => {
+        const {prompt, project: projectParam, path: legacyPath} = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
-            return res.status(400).json({ error: "prompt (string) is required" });
+            return res.status(400).json({error: "prompt (string) is required"});
         }
 
         // Resolve the project name from the request.
@@ -65,7 +65,7 @@ export function attachJobRoutes(app) {
         }
 
         if (!project || project.length < 1) {
-            return res.status(400).json({ error: "Cannot resolve project name" });
+            return res.status(400).json({error: "Cannot resolve project name"});
         }
 
         // ── SECURITY GATE ────────────────────────────────────────────────────
@@ -74,11 +74,25 @@ export function attachJobRoutes(app) {
         // We never auto-register from a client-supplied path.
         if (!listProjects().includes(project)) {
             log.warn(`Rejected unknown project "${project}" from ${req.ip} (user: ${req.user})`);
-            return res.status(403).json({
-                error: `Project "${project}" is not registered on this server.`,
-                hint:  "Ask the server admin to add it to projects.json, or use project_register.",
-                knownProjects: listProjects()   // help the caller pick a valid name
-            });
+
+            // Give a helpful specific error: if the caller sent a path and that path
+            // doesn't exist on this machine, explain the remote-machine problem clearly.
+            let hint = "Ask the server admin to add it to projects.json.";
+            if (legacyPath && typeof legacyPath === "string") {
+                const { default: fs } = await import("fs");
+                const { default: nodePath } = await import("path");
+                const absPath = nodePath.resolve(legacyPath.trim());
+                if (!fs.existsSync(absPath)) {
+                    hint = `The path "${legacyPath}" does not exist on this server machine. ` +
+                        `This server runs on a different computer — you cannot use your local path here. ` +
+                        `Ask the server admin to clone/copy your project to the server and add it to projects.json.`;
+                }
+            }
+
+            const { config } = await import("../core/config.js");
+            const body = { error: `Project "${project}" is not registered on this server.`, hint };
+            if (config.EXPOSE_PROJECT_LIST) body.knownProjects = listProjects();
+            return res.status(403).json(body);
         }
 
         const runner = async (job) => {
@@ -89,7 +103,7 @@ export function attachJobRoutes(app) {
             // This gives users a guaranteed rollback point beyond the last commit.
             try {
                 const proj = getProject(project);
-                const cp   = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
+                const cp = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
                 if (cp.stashed) log.info(`Checkpoint stash created: ${cp.ref} for job ${job.id}`);
             } catch (cpErr) {
                 log.warn(`Checkpoint failed (non-fatal): ${cpErr.message}`);
@@ -99,19 +113,19 @@ export function attachJobRoutes(app) {
             return `Agent completed task for project: ${project}`;
         };
 
-        const job    = enqueue(prompt, project, runner);
+        const job = enqueue(prompt, project, runner);
         const status = getQueueStatus();
         log.info(`Enqueued job ${job.id} | project=${project} | queue_depth=${status.pending + (status.running ? 1 : 0)}`);
 
         res.status(202).json({
-            id:        job.id,
-            status:    job.status,
+            id: job.id,
+            status: job.status,
             project,
-            position:  status.pending,
+            position: status.pending,
             createdAt: job.createdAt,
             streamUrl: `/stream/${job.id}`,
             statusUrl: `/status/${job.id}`,
-            diffUrl:   `/diff/${job.id}`
+            diffUrl: `/diff/${job.id}`
         });
     });
 

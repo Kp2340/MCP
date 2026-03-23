@@ -35,7 +35,7 @@ function optional(key, defaultValue) {
     return process.env[key] || defaultValue;
 }
 
-// ── Parse multi-key format: "alice:key1,bob:key2" or legacy "singlekey" ────────────
+// Parse multi-key format: "alice:key1,bob:key2" or legacy "singlekey"
 function parseApiKeys(raw) {
     if (!raw) return {};
     if (!raw.includes(":")) return { default: raw.trim() };
@@ -50,47 +50,66 @@ function parseApiKeys(raw) {
     return map;
 }
 
-// ── Parse IP allowlist: "192.168.1.50,192.168.1.51" ───────────────────────────
+// Parse IP allowlist: "192.168.1.50,192.168.1.51"
 function parseIpAllowlist(raw) {
     if (!raw) return [];
     return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+// Parse allowed roots: "C:/Users/kushp/IdeaProjects,C:/Work"
+function parseAllowedRoots(raw) {
+    if (!raw) return [];
+    return raw.split(",")
+        .map(s => s.trim().replace(/[\\/]+$/, ""))  // strip trailing slashes
+        .filter(Boolean)
+        .map(s => path.resolve(s));                  // normalise to absolute
 }
 
 const rawKeys = optional("API_KEYS", "") || optional("API_KEY", "");
 const keyMap  = parseApiKeys(rawKeys);
 
 export const config = {
-    // ── Server ───────────────────────────────────────────────────────────────
-PORT:     parseInt(optional("PORT", "3001"), 10),
+    // Server
+    PORT:     parseInt(optional("PORT", "3001"), 10),
     BASE_URL: optional("BASE_URL", "http://localhost:3001"),
 
-    // ── Auth ───────────────────────────────────────────────────────────────
+    // Auth
     API_KEY_MAP: keyMap,
     API_KEY:     Object.values(keyMap)[0] || "",
 
-    // ── IP allowlist ─────────────────────────────────────────────────────────
+    // IP allowlist
     IP_ALLOWLIST: parseIpAllowlist(optional("IP_ALLOWLIST", "")),
 
-    // ── Rate limiting ───────────────────────────────────────────────────────
+    // Rate limiting
     RATE_LIMIT_PER_MIN: parseInt(optional("RATE_LIMIT_PER_MIN", "10"), 10),
 
-    // ── LLM ───────────────────────────────────────────────────────────────────
+    // LLM
     OLLAMA_HOST: optional("OLLAMA_HOST", "http://localhost:11434"),
     LLM_MODEL:   optional("LLM_MODEL",   "qwen2.5-coder:7b"),
 
-    // ── Vector DB ───────────────────────────────────────────────────────────────
+    // Vector DB
     CHROMA_HOST: optional("CHROMA_HOST", "localhost"),
     CHROMA_PORT: parseInt(optional("CHROMA_PORT", "8000"), 10),
 
-    // ── Queue ──────────────────────────────────────────────────────────────────
+    // Queue
     JOB_TIMEOUT_MS: parseInt(optional("JOB_TIMEOUT_MS", "300000"), 10),
 
-    // ── CORS ─────────────────────────────────────────────────────────────────
+    // CORS
     CORS_ORIGIN: optional("CORS_ORIGIN", "*"),
 
-    // ── Security ──────────────────────────────────────────────────────────────
+    // Security
     EXPOSE_PROJECT_LIST: optional("EXPOSE_PROJECT_LIST", "false") === "true",
 
-    // ── Transport ──────────────────────────────────────────────────────────────
+    // Allowlist of directory prefixes that project_register may use.
+    // If non-empty, any registration attempt outside these roots is rejected.
+    // Example: ALLOWED_ROOTS=C:/Users/kushp/IdeaProjects,C:/Users/kushp/Work
+    ALLOWED_ROOTS: parseAllowedRoots(optional("ALLOWED_ROOTS", "")),
+
+    // When true, project_register via the MCP tool is completely disabled.
+    // Remote callers can only use projects pre-listed in projects.json.
+    // STRONGLY recommended: true for any server exposed to the public internet.
+    DISABLE_REMOTE_REGISTER: optional("DISABLE_REMOTE_REGISTER", "false") === "true",
+
+    // Transport
     TRANSPORT: optional("TRANSPORT", "http"),
 };

@@ -356,6 +356,29 @@ The MCP server includes safeguards to prevent unsafe file access:
 
 ---
 
+# Teammate / Friend Setup
+
+Every developer runs their **own copy** of the MCP server on their **own laptop**.
+The server reads YOUR local files — your code never leaves your machine.
+
+```
+Claude / VS Code / IntelliJ
+        │  MCP calls over HTTPS
+        ▼
+https://your-tunnel.trycloudflare.com
+        │  Cloudflare free tunnel
+        ▼
+  YOUR Laptop : localhost:3001
+  ├─ MCP Server
+  ├─ ChromaDB
+  └─ Your projects
+```
+
+For friends / teammates, share the repo and point them to **[TEAMMATE_SETUP.md](TEAMMATE_SETUP.md)**.
+They run `start-friend.bat` which handles everything including a free Cloudflare tunnel.
+
+---
+
 # License
 
 MIT License

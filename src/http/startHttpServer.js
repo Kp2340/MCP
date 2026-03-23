@@ -22,7 +22,8 @@ import { authMiddleware, ipAllowlistMiddleware, rateLimitMiddleware } from './au
 import { attachMcpRoutes }    from './mcpRouter.js';
 import { attachJobRoutes }    from './jobRoutes.js';
 import { attachHealthRoutes } from './healthRoutes.js';
-import { attachUiRoutes }     from './uiRoutes.js';
+import { attachUiRoutes }       from './uiRoutes.js';
+import { attachWorkspaceRoutes } from './workspaceRoutes.js';
 import { runStartupChecks }   from './startupChecks.js';
 import { drainQueue }         from './queue.js';
 import { config }             from '../core/config.js';
@@ -56,10 +57,10 @@ export function startHttpServer(mcpServer) {
     // Rate-limit only /run — it triggers expensive agent + LLM runs
     app.use('/run', rateLimitMiddleware);
 
-    attachJobRoutes(app);   // POST /run  GET /status /stream /diff /jobs /queue
-                            // POST /cancel/:id  POST /revert/:id
-                            // GET|POST /api/projects
-    attachUiRoutes(app);    // GET /ui
+    attachJobRoutes(app);        // POST /run  GET /status /stream /diff /jobs /queue
+                                 // POST /cancel/:id  POST /revert/:id
+    attachWorkspaceRoutes(app);  // POST /workspace/push  GET /workspace/pull/:p  DELETE /workspace/:p
+    attachUiRoutes(app);         // GET /ui
 
     // ── 404 fallback ─────────────────────────────────────────────────────────
     app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

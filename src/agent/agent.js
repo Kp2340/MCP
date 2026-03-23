@@ -11,6 +11,9 @@ import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { executeUiEdit } from "./uiEditExecutor.js";
 import { reviewChanges } from "./reviewer.js";
 import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
+import { compilePrompt }         from "./promptCompiler.js";
+import { selfCritique }          from "./selfCritique.js";
+import { buildSymbolGraph, findDependents, invalidateGraph } from "../analysis/symbolGraph.js";
 import {
     COMPRESS_EVERY_N_STEPS,
     COMPRESS_MAX_CHARS,
@@ -64,7 +67,11 @@ ${context.substring(0, COMPRESS_MAX_CHARS)}`;
     trackChars(costState, summary);
 
     console.error("[agent] Context compressed.");
-    return `[Compressed context summary]:\n${summary}\n\nExecution state:\n${stateBlock}`;
+    return `[Compressed context summary]:
+${summary}
+
+Execution state:
+${stateBlock}`;
 }
 
 // ─── Memory extraction ───────────────────────────────────────────────────────────
@@ -104,18 +111,60 @@ function enforceAnalyzeBeforeBuild(steps) {
     return injected;
 }
 
-// ─── Step executor with retry ────────────────────────────────────────────────────────
-async function executeWithRetry(step, context, project, memoryCtx, costState, execState) {
+// ─── Step executor with retry + self-critique + prompt compiler ──────────────────────
+async function executeWithRetry(step, context, project, memoryCtx, costState, execState, ragChunks, taskDescription) {
     let lastError = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) console.error(`[agent] Retry ${attempt}/${MAX_RETRIES - 1}: ${step}`);
-        const action = await executeStep(step, context, project, memoryCtx, costState, execState);
+
+        // Compile an optimal structured context for this specific step
+        const { prompt: compiledContext, stats } = compilePrompt({
+            step,
+            project,
+            taskDescription:  taskDescription || step,
+            ragChunks:        Array.isArray(ragChunks) ? ragChunks : [context],
+            memoryContext:    memoryCtx || "",
+            executionLog:     context || "",
+            execState,
+            tokenBudget:      3500,
+        });
+
+        if (attempt === 0) {
+            console.error(`[prompt-compiler] tokens=${stats.totalTokens} sections=${stats.sections.join(",")} files=[${stats.filesFetched.join(",")||"none"}]`);
+        }
+
+        const action = await executeStep(step, compiledContext, project, memoryCtx, costState, execState);
         trackChars(costState, action);
+
         try {
             const extracted = extractJSON(action);
             if (!extracted.startsWith("{")) { lastError = `Non-JSON: ${extracted.substring(0, 80)}`; continue; }
             const parsed = JSON.parse(extracted);
             if (parsed.skipped) return { ok: true, parsed };
+
+            // Self-critique: verify tool call correctness before executing
+            if (parsed.tool && parsed.args) {
+                const critique = await selfCritique(parsed, step, project, costState, false);
+                if (!critique.ok) {
+                    console.error(`[self-critique] Rejected: ${critique.reason}`);
+                    // For str_replace failures, auto-inject a re-read step
+                    if (parsed.tool === "project_str_replace") {
+                        const filesToRead = (parsed.args.edits || []).map(e => e.path).filter(Boolean);
+                        if (filesToRead.length > 0) {
+                            console.error(`[self-critique] Auto-injecting re-read of: ${filesToRead.join(", ")}`);
+                            return { ok: true, parsed: { tool: "project_read_files", args: { project, paths: filesToRead } } };
+                        }
+                    }
+                    lastError = `Self-critique failed: ${critique.reason}`;
+                    continue;
+                }
+            }
+
+            // Invalidate symbol graph after any file modification
+            if (parsed.tool === "project_str_replace" || parsed.tool === "project_apply_changes") {
+                invalidateGraph(project);
+            }
+
             return { ok: true, parsed };
         } catch (err) { lastError = err.message; }
     }
@@ -134,7 +183,9 @@ export async function runAgent(prompt, emit = null) {
     const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch {} };
 
     console.error("Project:", project);
-    console.error("\nCreating plan...\n");
+    console.error("
+Creating plan...
+");
 
     const costState = makeCostState();
     const execState = makeExecutionState();
@@ -145,7 +196,11 @@ export async function runAgent(prompt, emit = null) {
     const planContext    = await retrieveContext(prompt, project, execState);
     trackChars(costState, planContext);
 
-    const enrichedPrompt = `User request:\n${prompt}\n\nRelevant code context:\n${planContext}`;
+    const enrichedPrompt = `User request:
+${prompt}
+
+Relevant code context:
+${planContext}`;
 
     // ── Fast path: direct tool-chain template match (0 LLM calls) ──────────────────────
     const matchedTemplate = TOOL_CHAIN_TEMPLATES.find(t => {
@@ -156,7 +211,8 @@ export async function runAgent(prompt, emit = null) {
     });
 
     if (matchedTemplate) {
-        console.error(`\n[agent] ⚡ Template "${matchedTemplate.name}" matched — executing directly`);
+        console.error(`
+[agent] ⚡ Template "${matchedTemplate.name}" matched — executing directly`);
 
         let chainResult;
         if (matchedTemplate.name === "ui_edit") {
@@ -166,7 +222,8 @@ export async function runAgent(prompt, emit = null) {
         }
         const { results, success, stepsRun } = chainResult;
         if (success || stepsRun > 0) {
-            const executionContext = results.join("\n");
+            const executionContext = results.join("
+");
             collector.startRun(prompt);
             collector.endRun(stepsRun >= 2, execState);
             if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
@@ -174,7 +231,8 @@ export async function runAgent(prompt, emit = null) {
             const validation = validateGoal(promptIntent, execState);
             logValidation(promptIntent, validation);
 
-            console.error(`\n─── Agent finished (direct chain) ───`);
+            console.error(`
+─── Agent finished (direct chain) ───`);
             console.error(`  Steps:       ${stepsRun} (template: ${matchedTemplate.name})`);
             console.error(`  LLM calls:   ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
             console.error(`  Files read:  ${[...execState.filesRead].join(", ") || "none"}`);
@@ -188,11 +246,14 @@ export async function runAgent(prompt, emit = null) {
     const initialPlan = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
     trackChars(costState, initialPlan);
 
-    console.error("\nInitial Plan:\n" + initialPlan);
+    console.error("
+Initial Plan:
+" + initialPlan);
 
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
-            .split("\n")
+            .split("
+")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4)
     );
@@ -225,7 +286,8 @@ export async function runAgent(prompt, emit = null) {
         const step = remainingSteps.shift();
         totalStepsDone++;
 
-        console.error(`\n[${totalStepsDone}] ${step}`);
+        console.error(`
+[${totalStepsDone}] ${step}`);
         console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
         emitStep(totalStepsDone, step);
 
@@ -244,13 +306,22 @@ export async function runAgent(prompt, emit = null) {
         const stepContext = await retrieveContext(step, project, execState);
         const stateBlock  = formatStateForPrompt(execState);
         const fullContext = executionContext +
-            (stateBlock  ? `\n\n[Execution state]:\n${stateBlock}`  : "") +
-            (stepContext ? `\n\n[Relevant code]:\n${stepContext}` : "");
+            (stateBlock  ? `
+
+[Execution state]:
+${stateBlock}`  : "") +
+            (stepContext ? `
+
+[Relevant code]:
+${stepContext}` : "");
 
         trackChars(costState, fullContext, stepMemory);
 
+        // Collect RAG chunks as array so PromptCompiler can score them per-step
+        const ragChunks = [stepContext, planContext].filter(Boolean);
+
         const { ok, parsed, error } = await executeWithRetry(
-            step, fullContext, project, stepMemory, costState, execState
+            step, fullContext, project, stepMemory, costState, execState, ragChunks, prompt
         );
 
         if (!ok) {
@@ -272,7 +343,9 @@ export async function runAgent(prompt, emit = null) {
         if (parsed.tool === "__deterministic_recovery__" && Array.isArray(parsed.toolSteps)) {
             console.error(`[agent] ⚡ Deterministic recovery: ${parsed.toolSteps.length} direct tool calls`);
             const { results } = await executeToolsDirect(parsed.toolSteps, mcp, execState);
-            executionContext += "\n" + results.join("\n");
+            executionContext += "
+" + results.join("
+");
             successfulSteps++;
             continue;
         }
@@ -286,14 +359,17 @@ export async function runAgent(prompt, emit = null) {
         const cached = execState.getCachedResult(toolName, toolArgs);
         if (cached) {
             console.error(`[agent] ⚡ Cache hit: ${toolName} — skipping duplicate call`);
-            executionContext += `\n[${toolName} cached]:\n${cached.substring(0, 500)}`;
+            executionContext += `
+[${toolName} cached]:
+${cached.substring(0, 500)}`;
             continue;
         }
 
         let resultText = "";
         try {
             const result = await mcp.callTool(toolName, toolArgs);
-            resultText   = result?.content?.map(c => c.text || "").join("\n") || "";
+            resultText   = result?.content?.map(c => c.text || "").join("
+") || "";
         } catch (err) {
             console.error(`[agent] Tool error (${toolName}): ${err.message}`);
             resultText = `Tool error: ${err.message}`;
@@ -301,11 +377,15 @@ export async function runAgent(prompt, emit = null) {
 
         // Truncate very long results to keep context manageable
         const truncated = resultText.length > 4000
-            ? resultText.substring(0, 4000) + "\n...[truncated]"
+            ? resultText.substring(0, 4000) + "
+...[truncated]"
             : resultText;
 
         execState.recordToolCall(toolName, toolArgs, resultText, totalStepsDone);
-        executionContext += `\n\n[${toolName}]:\n${truncated}`;
+        executionContext += `
+
+[${toolName}]:
+${truncated}`;
         trackChars(costState, truncated);
         successfulSteps++;
 
@@ -349,7 +429,9 @@ export async function runAgent(prompt, emit = null) {
             if (recoveryTools) {
                 console.error(`[agent] ⚡ Deterministic recovery for ${errorType}`);
                 const { results: rResults } = await executeToolsDirect(recoveryTools, mcp, execState);
-                executionContext += "\n" + rResults.join("\n");
+                executionContext += "
+" + rResults.join("
+");
             } else if (replanCount < MAX_REPLANS && costState.llmCalls < MAX_LLM_CALLS_PER_RUN) {
                 // LLM replan fallback
                 replanCount++;
@@ -361,7 +443,8 @@ export async function runAgent(prompt, emit = null) {
                 if (replan) {
                     remainingSteps = enforceAnalyzeBeforeBuild(
                         replan
-                            .split("\n")
+                            .split("
+")
                             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
                             .filter(s => s.length > 4)
                     );
@@ -393,17 +476,25 @@ export async function runAgent(prompt, emit = null) {
             emitStep(totalStepsDone, fixStep);
             const stepMemory = await queryMemory(project, fixStep, { minConfidence: 0.7, execState });
             const stateBlock = formatStateForPrompt(execState);
-            const fixCtx     = executionContext + (stateBlock ? `\n\n[Execution state]:\n${stateBlock}` : "");
+            const fixCtx     = executionContext + (stateBlock ? `
+
+[Execution state]:
+${stateBlock}` : "");
             const { ok: fok, parsed: fp } = await executeWithRetry(
                 fixStep, fixCtx, project, stepMemory, costState, execState
             );
             if (!fok || fp?.skipped || fp?.done) continue;
             try {
                 const fResult    = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
-                const fText      = fResult?.content?.map(c => c.text || "").join("\n") || "";
-                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "\n..." : fText;
+                const fText      = fResult?.content?.map(c => c.text || "").join("
+") || "";
+                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "
+..." : fText;
                 execState.recordToolCall(fp.tool, fp.args, fText, totalStepsDone);
-                executionContext += `\n\n[${fp.tool}]:\n${fTruncated}`;
+                executionContext += `
+
+[${fp.tool}]:
+${fTruncated}`;
             } catch (err) {
                 console.error(`[agent] Fix step tool error: ${err.message}`);
             }
@@ -419,7 +510,8 @@ export async function runAgent(prompt, emit = null) {
         extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => {});
     }
 
-    console.error(`\n─── Agent finished ───`);
+    console.error(`
+─── Agent finished ───`);
     console.error(`  Steps done:   ${totalStepsDone}`);
     console.error(`  Successful:   ${successfulSteps}`);
     console.error(`  LLM calls:    ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);

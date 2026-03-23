@@ -2,7 +2,7 @@
   "name": "aidev-mcp",
   "displayName": "AI Dev MCP",
   "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "kush-patel",
   "license": "MIT",
   "icon": "icon.png",
@@ -31,7 +31,9 @@
       { "command": "aidevmcp.openSettings", "title": "MCP: Open Settings",    "category": "AI Dev MCP" },
       { "command": "aidevmcp.fixThis",      "title": "MCP: Fix This",         "category": "AI Dev MCP", "icon": "$(tools)" },
       { "command": "aidevmcp.explainThis",  "title": "MCP: Explain This",     "category": "AI Dev MCP", "icon": "$(info)" },
-      { "command": "aidevmcp.addTests",     "title": "MCP: Add Tests",        "category": "AI Dev MCP", "icon": "$(beaker)" }
+      { "command": "aidevmcp.addTests",       "title": "MCP: Add Tests",             "category": "AI Dev MCP", "icon": "$(beaker)" },
+      { "command": "aidevmcp.syncWorkspace",   "title": "MCP: Sync Workspace to Server", "category": "AI Dev MCP", "icon": "$(cloud-upload)" },
+      { "command": "aidevmcp.pullWorkspace",   "title": "MCP: Pull Changes from Server", "category": "AI Dev MCP", "icon": "$(cloud-download)" }
     ],
     "configuration": {
       "title": "AI Dev MCP",

@@ -1,6 +1,6 @@
-// AI Dev MCP — VS Code Extension v1.3.0
-// MCP-4.1: health check, enriched prompt with selected code, safe revert dialog,
-//          job history tab, right-click context menu, reviewer issue feedback
+// AI Dev MCP — VS Code Extension v1.5.0
+// v1.5.0: workspace sync — push local folder to remote server, run job, pull changes back
+//         so remote users can use a shared server without running their own instance
 
 "use strict";
 const vscode = require("vscode");
@@ -48,6 +48,37 @@ class MCPClient {
     }
     async listJobs(status)      { return this._json(`/jobs${status ? `?status=${status}` : ""}`); }
     async getQueue()            { return this._json("/queue"); }
+
+    // ── Workspace sync ───────────────────────────────────────────────────────
+    // Push a zip buffer to the server; returns { project, fileCount, message }
+    async pushWorkspace(projectName, zipBuffer) {
+        const url  = `${this.baseUrl}/workspace/push?project=${encodeURIComponent(projectName)}`;
+        const res  = await fetch(url, {
+            method:  "POST",
+            headers: { "x-api-key": this.apiKey, "Content-Type": "application/octet-stream" },
+            body:    zipBuffer,
+        });
+        if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            throw new Error(`Push failed ${res.status}: ${body}`);
+        }
+        return res.json();
+    }
+
+    // Pull changed files as zip ArrayBuffer
+    async pullWorkspace(projectName) {
+        const url = `${this.baseUrl}/workspace/pull/${encodeURIComponent(projectName)}`;
+        const res = await fetch(url, { headers: { "x-api-key": this.apiKey } });
+        if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            throw new Error(`Pull failed ${res.status}: ${body}`);
+        }
+        return res.arrayBuffer();
+    }
+
+    async deleteWorkspace(projectName) {
+        return this._json(`/workspace/${encodeURIComponent(projectName)}`, { method: "DELETE" });
+    }
 
     async stream(jobId, onMessage) {
         const res = await fetch(`${this.baseUrl}/stream/${jobId}`, {
@@ -108,6 +139,35 @@ class MCPClient {
     }
 }
 
+// ─── Zip helpers (Node built-ins only, no extra deps) ────────────────────────
+// We use the system `powershell Compress-Archive` on Windows to create zips
+// and `Expand-Archive` to extract them. This avoids any npm dependency.
+const cp   = require("child_process");
+const fs   = require("fs");
+const os   = require("os");
+const path = require("path");
+
+function zipFolder(srcDir, destZip) {
+    return new Promise((resolve, reject) => {
+        const ps = cp.spawn("powershell", [
+            "-NoProfile", "-Command",
+            `Compress-Archive -Force -Path '${srcDir}\\*' -DestinationPath '${destZip}'`
+        ]);
+        ps.on("close", code => code === 0 ? resolve() : reject(new Error(`zip exit ${code}`)));
+    });
+}
+
+function unzipTo(zipPath, destDir) {
+    return new Promise((resolve, reject) => {
+        fs.mkdirSync(destDir, { recursive: true });
+        const ps = cp.spawn("powershell", [
+            "-NoProfile", "-Command",
+            `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${destDir}'`
+        ]);
+        ps.on("close", code => code === 0 ? resolve() : reject(new Error(`unzip exit ${code}`)));
+    });
+}
+
 // ─── Extension state ──────────────────────────────────────────────────────────
 let out;           // OutputChannel
 let bar;           // StatusBarItem
@@ -118,6 +178,114 @@ let healthTimer = null;
 function cfg()        { return vscode.workspace.getConfiguration("aidevmcp"); }
 function log(msg)     { const t = new Date().toISOString().slice(0,19).replace("T"," "); out.appendLine(`[${t}] ${msg}`); }
 function wsPath()     { return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null; }
+function projName()   {
+    const override = cfg().get("defaultProject");
+    if (override) return override.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    const p = wsPath();
+    return p ? path.basename(p).toLowerCase().replace(/[^a-z0-9_-]/g, "-") : null;
+}
+
+// ─── Workspace sync commands ──────────────────────────────────────────────────
+
+/** Push the current workspace folder to the remote server as a zip, then optionally run a prompt. */
+async function cmdSyncWorkspace() {
+    const localDir = wsPath();
+    if (!localDir) { vscode.window.showErrorMessage("Open a folder first (File > Open Folder)"); return; }
+    const c = buildClient();
+    if (!c) { vscode.window.showErrorMessage("Set your API key in Settings > AI Dev MCP"); return; }
+    const project = projName();
+
+    const prompt = await vscode.window.showInputBox({
+        prompt: `Prompt for the AI agent (project: ${project}) — leave empty to just sync files`,
+        placeHolder: "e.g. Add a contact form to the homepage",
+    });
+    if (prompt === undefined) return; // cancelled
+
+    await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `MCP Sync: ${project}`,
+        cancellable: false,
+    }, async progress => {
+        const tmpZip = path.join(os.tmpdir(), `mcp-${project}-${Date.now()}.zip`);
+        try {
+            // 1. Zip the workspace
+            progress.report({ message: "Zipping workspace..." });
+            await zipFolder(localDir, tmpZip);
+            const zipBuffer = fs.readFileSync(tmpZip);
+            log(`Pushing ${project} to server (${(zipBuffer.length / 1024).toFixed(0)} KB)...`);
+
+            // 2. Push to server
+            progress.report({ message: "Uploading to server..." });
+            const pushResult = await c.pushWorkspace(project, zipBuffer);
+            log(`Push OK: ${pushResult.fileCount} files on server`);
+
+            if (!prompt) {
+                vscode.window.showInformationMessage(`✓ Synced ${pushResult.fileCount} files to server as "${project}". No prompt given — files are ready for future jobs.`);
+                return;
+            }
+
+            // 3. Submit the job
+            progress.report({ message: "Running AI agent..." });
+            const job = await c.runTask(prompt, project);
+            log(`Job started: ${job.id}`);
+
+            // 4. Stream progress
+            progress.report({ message: `Job ${job.id} running...` });
+            await c.waitForCompletion(job.id, msg => {
+                if (msg.event === "step") {
+                    const txt = msg.data?.message || msg.data || "";
+                    progress.report({ message: String(txt).slice(0, 80) });
+                    log(`step: ${txt}`);
+                }
+            });
+
+            // 5. Pull changes back
+            progress.report({ message: "Downloading changes..." });
+            const zipAb  = await c.pullWorkspace(project);
+            const outZip = path.join(os.tmpdir(), `mcp-${project}-pull-${Date.now()}.zip`);
+            fs.writeFileSync(outZip, Buffer.from(zipAb));
+            await unzipTo(outZip, localDir);
+            fs.unlinkSync(outZip);
+
+            log(`Pull complete — changes applied to ${localDir}`);
+            vscode.window.showInformationMessage(`✓ Agent finished. Changes applied to your workspace.`);
+        } catch (err) {
+            log(`syncWorkspace error: ${err.message}`);
+            vscode.window.showErrorMessage(`MCP Sync failed: ${err.message}`);
+        } finally {
+            try { fs.unlinkSync(tmpZip); } catch {}
+        }
+    });
+}
+
+/** Pull latest files from the server workspace back to the local folder (without running a job). */
+async function cmdPullWorkspace() {
+    const localDir = wsPath();
+    if (!localDir) { vscode.window.showErrorMessage("Open a folder first"); return; }
+    const c = buildClient();
+    if (!c) { vscode.window.showErrorMessage("Set your API key in Settings > AI Dev MCP"); return; }
+    const project = projName();
+
+    await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `MCP Pull: ${project}`,
+        cancellable: false,
+    }, async progress => {
+        try {
+            progress.report({ message: "Downloading from server..." });
+            const zipAb  = await c.pullWorkspace(project);
+            const outZip = path.join(os.tmpdir(), `mcp-${project}-pull-${Date.now()}.zip`);
+            fs.writeFileSync(outZip, Buffer.from(zipAb));
+            await unzipTo(outZip, localDir);
+            fs.unlinkSync(outZip);
+            log(`Pull complete for ${project}`);
+            vscode.window.showInformationMessage(`✓ Changes pulled from server into your workspace.`);
+        } catch (err) {
+            log(`pullWorkspace error: ${err.message}`);
+            vscode.window.showErrorMessage(`MCP Pull failed: ${err.message}`);
+        }
+    });
+}
 
 function buildClient() {
     const c = cfg();
@@ -669,7 +837,9 @@ ${ctx.selectedText}
             } catch (err) { vscode.window.showErrorMessage(`Queue check failed: ${err.message}`); }
         }),
 
-        vscode.commands.registerCommand("aidevmcp.openSettings", () => {
+        vscode.commands.registerCommand("aidevmcp.syncWorkspace", cmdSyncWorkspace));
+    ctx.subscriptions.push(vscode.commands.registerCommand("aidevmcp.pullWorkspace",  cmdPullWorkspace));
+    ctx.subscriptions.push(vscode.commands.registerCommand("aidevmcp.openSettings", () => {
             vscode.commands.executeCommand("workbench.action.openSettings", "aidevmcp");
         }),
 

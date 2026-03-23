@@ -45,6 +45,18 @@ export function runStartupChecks() {
         log.warn("  Add API_KEYS=user:secret to .env to require authentication.");
     }
 
+    // ── Remote registration warning
+    if (!config.DISABLE_REMOTE_REGISTER && isExposed) {
+        if (config.ALLOWED_ROOTS.length > 0) {
+            log.warn("project_register is enabled but restricted to:");
+            config.ALLOWED_ROOTS.forEach(r => log.warn(`  ${r}`));
+        } else {
+            log.warn("SECURITY: DISABLE_REMOTE_REGISTER=false and no ALLOWED_ROOTS set.");
+            log.warn("  Any API-key holder can register and operate on ANY path on this machine.");
+            log.warn("  Set DISABLE_REMOTE_REGISTER=true in .env (recommended for public servers).");
+        }
+    }
+
     // ── Training collection status ───────────────────────────────────────────────────────
     const collectEnabled = process.env.COLLECT_TRAINING_DATA === "1";
     if (collectEnabled) {

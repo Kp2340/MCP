@@ -1,25 +1,24 @@
 /**
  * src/core/projectRegistry.js
  *
+ * SECURITY MODEL
+ * ──────────────
+ * Clients (IDE extensions, API callers) may only reference projects by their
+ * registered name (e.g. "jsv", "decorom-backend"). They CANNOT supply arbitrary
+ * filesystem paths — doing so would let any API-key holder point the agent at
+ * any directory on the server machine.
+ *
  * Two-tier project registry:
  *
  *   Tier 1 — Static (projects.json)
  *     Pre-configured projects with known roots, types, build commands.
  *     Hot-reloaded on every call — no restart needed after editing.
  *
- *   Tier 2 — Dynamic (in-memory, runtime only)
- *     Projects registered on-the-fly when an unknown project name is passed.
- *     Two ways a dynamic project gets created:
- *
- *       a) The "project" value IS a filesystem path (absolute, or starts with ./ or ../)
- *          → used directly as root, type auto-detected
- *
- *       b) The "project" value is a short name but NOT in projects.json
- *          → registerProject() must be called explicitly first
- *          → OR: tool calls pass a special "path" hint via registerDynamicProject()
- *
- *     Dynamic entries are never written to disk. They live as long as the server process.
- *     They CAN be persisted to projects.json via saveProject().
+ *   Tier 2 — Dynamic (in-memory, server-side only)
+ *     Registered at runtime via registerDynamicProject() called from server-side
+ *     code (project_register MCP tool). Client-supplied paths are NEVER used.
+ *     Optionally restricted to ALLOWED_ROOTS directories (set in .env).
+ *     Dynamic entries are never written to disk unless saveProject() is called.
  *
  * Project shape:
  *   {
@@ -82,17 +81,16 @@ function makeBranchPrefix(name) {
         .substring(0, 5) || "AI";
 }
 
-// ── Core: resolve a project by name (or path) ─────────────────────────────────
+// ── Core: resolve a project by name ──────────────────────────────────────────
 /**
  * Returns the project config for `name`.
  *
  * Resolution order:
  *   1. Static projects.json
  *   2. Dynamic in-memory registry
- *   3. If `name` looks like a filesystem path → auto-register and return
- *   4. Throw with helpful message
+ *   3. Throw — clients may NOT auto-register via this function
  *
- * @param {string} name  project name OR absolute path
+ * @param {string} name  registered project name (e.g. "jsv", "decorom-backend")
  * @returns {object}     project config
  */
 export function getProject(name) {
