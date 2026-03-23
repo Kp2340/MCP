@@ -1,15 +1,8 @@
 /**
  * src/agent/mcpClient.js  —  In-process MCP tool client (v2)
  *
- * Previous version spawned a child `node src/index.js` process for every agent
- * job. This doubled RAM usage (two full Node runtimes, two ChromaDB clients,
- * two embedder instances) and added ~30s of cold-start latency per job.
- *
- * This version calls the tool functions directly in-process — same Node.js
- * runtime, zero spawn overhead, ~50% less RAM per job.
- *
- * The public API is identical: callTool(name, args) returns the same
- * { content: [{ type, text }] } shape the old stdio client returned.
+ * Calls tool functions directly in-process — zero spawn overhead, ~50% less RAM.
+ * Public API: callTool(name, args) → { content: [{ type, text }] }
  */
 
 import { scanProject }       from "../tools/scanProject.js";
@@ -35,11 +28,12 @@ import { storeMemory, queryMemory } from "../vector/memory.js";
 import { createLogger } from "../core/logger.js";
 
 const log = createLogger("mcp-client");
+const NL  = "\n";
 
-// Wrap a tool result so it always has the standard { content: [{ type, text }] } shape
+// Ensure result always has { content: [{ type, text }] } shape
 function wrap(result) {
-    if (!result) return { content: [{ type: "text", text: "" }] };
-    if (result.content) return result;  // already shaped correctly
+    if (!result)          return { content: [{ type: "text", text: "" }] };
+    if (result.content)   return result;
     return { content: [{ type: "text", text: String(result) }] };
 }
 
@@ -47,58 +41,65 @@ export class MCPClient {
 
     /**
      * Call an MCP tool by name, in-process.
-     * Returns { content: [{ type: "text", text: string }] }
+     * @param {string} name
+     * @param {object} args
+     * @returns {{ content: Array<{ type: string, text: string }> }}
      */
     async callTool(name, args = {}) {
         try {
             switch (name) {
-                case "project_register":        return wrap(await registerProject(args));
-                case "project_scan":            return wrap(await scanProject(args));
-                case "project_read_files":      return wrap(await readFiles(args));
-                case "project_apply_changes":   return wrap(await applyChanges(args));
-                case "project_str_replace":     return wrap(await projectStrReplace(args));
-                case "project_search":          return wrap(await searchProject(args));
-                case "project_apply_patch":     return wrap(await applyPatch(args));
-                case "project_build":           return wrap(await buildProject(args));
-                case "project_index":           return wrap(await projectIndex(args));
-                case "project_find_symbol":     return wrap(await projectFindSymbol(args));
-                case "project_build_and_fix":   return wrap(await runAutoFix(args.project).then(r => ({
-                    content: [{ type: "text", text: r.success
+
+                case "project_register":      return wrap(await registerProject(args));
+                case "project_scan":          return wrap(await scanProject(args));
+                case "project_read_files":    return wrap(await readFiles(args));
+                case "project_apply_changes": return wrap(await applyChanges(args));
+                case "project_str_replace":   return wrap(await projectStrReplace(args));
+                case "project_search":        return wrap(await searchProject(args));
+                case "project_apply_patch":   return wrap(await applyPatch(args));
+                case "project_build":         return wrap(await buildProject(args));
+                case "project_index":         return wrap(await projectIndex(args));
+                case "project_find_symbol":   return wrap(await projectFindSymbol(args));
+                case "project_analyze":       return wrap(await analyzeProject(args));
+                case "project_test":          return wrap(await testProject(args));
+                case "project_diff":          return wrap(await projectDiff(args));
+                case "project_git_log":       return wrap(await projectGitLog(args));
+
+                case "project_build_and_fix": {
+                    const r = await runAutoFix(args.project);
+                    return { content: [{ type: "text", text: r.success
                         ? `Build fixed in ${r.attempts} attempt(s)`
-                        : `Build failed after ${r.attempts} attempts` }]
-                })));
-                case "project_analyze":         return wrap(await analyzeProject(args));
-                case "project_test":            return wrap(await testProject(args));
-                case "project_diff":            return wrap(await projectDiff(args));
-                case "project_git_log":         return wrap(await projectGitLog(args));
-                case "project_list":            return { content: [{ type: "text",
-                    text: listProjects().join("
-") || "No projects registered." }] };
+                        : `Build failed after ${r.attempts} attempts` }] };
+                }
+
+                case "project_list": {
+                    const names = listProjects();
+                    return { content: [{ type: "text",
+                        text: names.length ? names.join(NL) : "No projects registered." }] };
+                }
 
                 case "project_dependency_graph": {
                     const proj  = getProject(args.project);
                     const graph = await buildDependencyGraph(proj.root);
-                    return wrap({ content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] });
+                    return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
                 }
 
                 case "project_semantic_search": {
                     const embedding = await embed(args.query);
                     const results   = await queryCodebase(embedding, args.project, 8);
-                    return wrap({ content: [{ type: "text", text: results.join("
-
----
-
-") || "No results." }] });
+                    const sep       = NL + NL + "---" + NL + NL;
+                    return { content: [{ type: "text",
+                        text: results.length ? results.join(sep) : "No results." }] };
                 }
 
                 case "project_memory_store": {
                     await storeMemory(args.project, args.text, args.tag || "general");
-                    return wrap({ content: [{ type: "text", text: "Memory stored." }] });
+                    return { content: [{ type: "text", text: "Memory stored." }] };
                 }
 
                 case "project_memory_query": {
                     const result = await queryMemory(args.project, args.prompt, { returnStructured: false });
-                    return wrap({ content: [{ type: "text", text: result || "No relevant memories found." }] });
+                    return { content: [{ type: "text",
+                        text: result || "No relevant memories found." }] };
                 }
 
                 default:
@@ -106,8 +107,8 @@ export class MCPClient {
             }
         } catch (err) {
             log.error(`callTool(${name}) error: ${err.message}`);
-            // Return error as content so the agent can see and react to it
-            return { content: [{ type: "text", text: `Tool error (${name}): ${err.message}` }], isError: true };
+            return { content: [{ type: "text",
+                text: `Tool error (${name}): ${err.message}` }], isError: true };
         }
     }
 }

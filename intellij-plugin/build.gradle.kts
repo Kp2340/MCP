@@ -4,7 +4,7 @@ plugins {
 }
 
 group   = "in.decorom"
-version = "1.1.0"
+version = "1.2.0"
 
 kotlin {
     jvmToolchain(17)
@@ -28,7 +28,7 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        version = "1.1.0"
+        version = "1.2.0"
         ideaVersion {
             sinceBuild = "241"
             untilBuild = provider { null }

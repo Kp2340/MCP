@@ -61,11 +61,14 @@ class MCPClient {
             const { done, value } = await reader.read();
             if (done) break;
             buf += decoder.decode(value, { stream: true });
-            const parts = buf.split("\n\n");
+            const parts = buf.split("
+
+");
             buf = parts.pop();
             for (const block of parts) {
                 let event = "message", data = null;
-                for (const line of block.split("\n")) {
+                for (const line of block.split("
+")) {
                     if (line.startsWith("event:")) event = line.slice(6).trim();
                     if (line.startsWith("data:"))  data  = line.slice(5).trim();
                 }
@@ -118,9 +121,9 @@ function wsPath()     { return vscode.workspace.workspaceFolders?.[0]?.uri.fsPat
 
 function buildClient() {
     const c = cfg();
-    const url = c.get("baseUrl") || process.env.MCP_BASE_URL || "";
+    const url = c.get("baseUrl") || process.env.MCP_BASE_URL || "https://ai.decorom.in";
     const key = c.get("apiKey")  || process.env.MCP_API_KEY  || "";
-    if (!url || !key) return null;
+    if (!key) return null;   // URL has a sensible default; key is always required
     return new MCPClient({ baseUrl: url, apiKey: key });
 }
 
@@ -133,7 +136,7 @@ function setBar(text, tip, color) {
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 async function checkHealth() {
-    const url = cfg().get("baseUrl") || "";
+    const url = cfg().get("baseUrl") || process.env.MCP_BASE_URL || "https://ai.decorom.in";
     if (!url) { setBar("$(plug) MCP", "Set baseUrl in Settings → AI Dev MCP"); return; }
     try {
         const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) });
@@ -169,9 +172,15 @@ function enrichPrompt(raw) {
     const parts = [];
     if (ctx.filePath)     parts.push(`[File: ${ctx.filePath}]`);
     if (ctx.selectedText) parts.push(
-        `[Selected ${ctx.language} — line ${ctx.line}]:\n\`\`\`${ctx.language}\n${ctx.selectedText.substring(0, 2000)}\n\`\`\``
+        `[Selected ${ctx.language} — line ${ctx.line}]:
+\`\`\`${ctx.language}
+${ctx.selectedText.substring(0, 2000)}
+\`\`\``
     );
-    return parts.length ? `${parts.join("\n")}\n\n${raw}` : raw;
+    return parts.length ? `${parts.join("
+")}
+
+${raw}` : raw;
 }
 
 // ─── Webview HTML ─────────────────────────────────────────────────────────────
@@ -364,7 +373,8 @@ function renderDiff(data) {
   content.innerHTML = '';
   const rawDiff = data.diff || '';
   let currentFile = null, block = null;
-  rawDiff.split('\n').forEach(line => {
+  rawDiff.split('
+').forEach(line => {
     if (line.startsWith('diff --git')) {
       if (block) content.appendChild(block);
       block = document.createElement('div'); block.className = 'diff-file-block';
@@ -613,7 +623,10 @@ function activate(context) {
         vscode.commands.registerCommand("aidevmcp.fixThis", async () => {
             const ctx = getEditorCtx();
             if (!ctx?.selectedText) { vscode.window.showInformationMessage("Select code to fix first."); return; }
-            const prompt = `Fix the following code:\n\`\`\`${ctx.language}\n${ctx.selectedText}\n\`\`\``;
+            const prompt = `Fix the following code:
+\`\`\`${ctx.language}
+${ctx.selectedText}
+\`\`\``;
             openPanel(context);
             await new Promise(r => setTimeout(r, 300));
             panel?.webview.postMessage({ type: "injectPrompt", prompt });
@@ -623,7 +636,10 @@ function activate(context) {
         vscode.commands.registerCommand("aidevmcp.explainThis", async () => {
             const ctx = getEditorCtx();
             if (!ctx?.selectedText) { vscode.window.showInformationMessage("Select code to explain first."); return; }
-            const prompt = `Explain what this code does:\n\`\`\`${ctx.language}\n${ctx.selectedText}\n\`\`\``;
+            const prompt = `Explain what this code does:
+\`\`\`${ctx.language}
+${ctx.selectedText}
+\`\`\``;
             openPanel(context);
             await new Promise(r => setTimeout(r, 300));
             panel?.webview.postMessage({ type: "injectPrompt", prompt });
@@ -635,7 +651,10 @@ function activate(context) {
             const target = ctx?.selectedText || (ctx?.filePath ? `file: ${ctx.filePath}` : null);
             if (!target) { vscode.window.showInformationMessage("Open a file or select code first."); return; }
             const prompt = ctx.selectedText
-                ? `Write unit tests for this code:\n\`\`\`${ctx.language}\n${ctx.selectedText}\n\`\`\``
+                ? `Write unit tests for this code:
+\`\`\`${ctx.language}
+${ctx.selectedText}
+\`\`\``
                 : `Add unit tests for the file: ${ctx.filePath}`;
             openPanel(context);
             await new Promise(r => setTimeout(r, 300));

@@ -1,75 +1,75 @@
 package `in`.decorom.mcp
 
 import com.intellij.openapi.options.Configurable
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.Insets
+import java.awt.Dimension
+import java.awt.Font
 import javax.swing.*
 
 class McpSettingsComponent : Configurable {
 
-    private val baseUrlField = JTextField(32)
-    private val apiKeyField  = JPasswordField(32)
-    private val projectField = JTextField(32)
+    private val baseUrlField    = JTextField()
+    private val apiKeyField     = JPasswordField()
+    private val projectField    = JTextField()
 
     override fun getDisplayName() = "AI Dev MCP"
 
-    override fun createComponent(): JPanel {
-        val panel = JPanel(GridBagLayout())
-        val lc = GridBagConstraints().apply {
-            anchor = GridBagConstraints.WEST
-            insets = Insets(4, 4, 4, 8)
-            gridx  = 0
-        }
-        val fc = GridBagConstraints().apply {
-            fill    = GridBagConstraints.HORIZONTAL
-            weightx = 1.0
-            insets  = Insets(4, 0, 4, 4)
-            gridx   = 1
+    override fun createComponent(): JComponent {
+        val settings = McpSettings.instance
+        baseUrlField.text    = settings.baseUrl
+        apiKeyField.text     = settings.apiKey
+        projectField.text    = settings.defaultProject
+
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
         }
 
-        fun addRow(label: String, field: JComponent, hint: String, row: Int) {
-            lc.gridy = row; panel.add(JLabel(label), lc)
-            fc.gridy = row; panel.add(field, fc)
-            val hc = GridBagConstraints().apply {
-                gridx = 1; gridy = row + 1; fill = GridBagConstraints.HORIZONTAL
-                weightx = 1.0; insets = Insets(0, 0, 6, 4)
-            }
-            panel.add(JLabel("<html><small><i>$hint</i></small></html>"), hc)
+        fun label(text: String) = JLabel(text).also { it.alignmentX = 0f }
+        fun hint(text: String)  = JLabel("<html><small>$text</small></html>").also {
+            it.foreground = java.awt.Color.GRAY; it.alignmentX = 0f
+        }
+        fun field(f: JTextField) = f.also {
+            it.maximumSize = Dimension(Int.MAX_VALUE, 32); it.alignmentX = 0f
         }
 
-        addRow("Server URL:", baseUrlField, "e.g. http://localhost:3001 or your ngrok / Tailscale URL", 0)
-        addRow("API Key:",    apiKeyField,  "Matches API_KEY in your server .env file", 2)
-        addRow("Default Project:", projectField, "Leave blank — auto-detected from open project folder name", 4)
+        panel.add(label("Server URL"))
+        panel.add(hint("Default: ${McpSettings.DEFAULT_BASE_URL}"))
+        panel.add(field(baseUrlField))
+        panel.add(Box.createVerticalStrut(10))
 
-        panel.add(JPanel(), GridBagConstraints().apply {
-            gridy = 6; weighty = 1.0; fill = GridBagConstraints.VERTICAL
-        })
+        panel.add(label("API Key"))
+        panel.add(hint("Required — sent as x-api-key header on every request."))
+        panel.add(apiKeyField.also { it.maximumSize = Dimension(Int.MAX_VALUE, 32); it.alignmentX = 0f })
+        panel.add(Box.createVerticalStrut(10))
 
-        reset()
+        panel.add(label("Default Project Path (optional)"))
+        panel.add(hint("Leave empty to auto-detect from the open project folder."))
+        panel.add(field(projectField))
+
         return panel
     }
 
     override fun isModified(): Boolean {
         val s = McpSettings.instance
-        return baseUrlField.text.trim()            != s.baseUrl ||
-               String(apiKeyField.password).trim() != s.apiKey  ||
-               projectField.text.trim()            != s.defaultProject
+        return baseUrlField.text.trim() != s.baseUrl ||
+               String(apiKeyField.password).trim() != s.apiKey ||
+               projectField.text.trim() != s.defaultProject
     }
 
     override fun apply() {
-        McpSettings.instance.apply {
-            baseUrl        = baseUrlField.text.trim().trimEnd('/')
-            apiKey         = String(apiKeyField.password).trim()
-            defaultProject = projectField.text.trim()
-        }
+        val s = McpSettings.instance
+        val url = baseUrlField.text.trim()
+        s.baseUrl        = url.ifEmpty { McpSettings.DEFAULT_BASE_URL }
+        s.apiKey         = String(apiKeyField.password).trim()
+        s.defaultProject = projectField.text.trim()
     }
 
     override fun reset() {
-        McpSettings.instance.also {
-            baseUrlField.text = it.baseUrl
-            apiKeyField.text  = it.apiKey
-            projectField.text = it.defaultProject
-        }
+        val s = McpSettings.instance
+        baseUrlField.text = s.baseUrl
+        apiKeyField.text  = s.apiKey
+        projectField.text = s.defaultProject
     }
+
+    override fun disposeUIResources() {}
 }

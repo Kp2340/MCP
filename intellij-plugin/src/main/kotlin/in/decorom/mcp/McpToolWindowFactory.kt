@@ -7,8 +7,9 @@ import com.intellij.ui.content.ContentFactory
 
 class McpToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val window  = McpToolWindow(project)
-        val content = ContentFactory.getInstance().createContent(window.panel, "", false)
+        val win     = McpToolWindow(project)
+        val content = ContentFactory.getInstance()
+            .createContent(win.panel, "", false)
         toolWindow.contentManager.addContent(content)
     }
 }

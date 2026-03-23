@@ -1,6 +1,5 @@
 package `in`.decorom.mcp
 
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -11,107 +10,193 @@ import javax.swing.*
 
 class McpToolWindow(private val project: Project) {
 
-    val panel = JPanel(BorderLayout(8, 8))
+    val panel: JPanel = JPanel(BorderLayout(8, 8)).also { it.border = BorderFactory.createEmptyBorder(8, 8, 8, 8) }
 
     private val promptField  = JTextField()
+    private val pathField    = JTextField()
     private val runButton    = JButton("▶  Run")
     private val clearButton  = JButton("Clear")
     private val logArea      = JTextArea().apply {
-        isEditable    = false
-        font          = Font("Monospaced", Font.PLAIN, 12)
-        lineWrap      = true
+        isEditable = false
+        font       = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        lineWrap   = true
         wrapStyleWord = true
     }
+    private val scrollPane = JScrollPane(logArea)
 
     init {
+        val settings = McpSettings.instance
+
+        // ── Form ──────────────────────────────────────────────────────────────
         val form = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = BorderFactory.createEmptyBorder(8, 8, 4, 8)
+
+            add(JLabel("Server URL:"))
+            add(JLabel(settings.baseUrl).apply {
+                font = Font(Font.MONOSPACED, Font.PLAIN, 11)
+                foreground = java.awt.Color(100, 200, 100)
+            })
+            add(Box.createVerticalStrut(4))
+
+            add(JLabel("Workspace path (auto-detected):"))
+            add(pathField.apply {
+                preferredSize = Dimension(300, 28)
+                text = project.basePath ?: settings.defaultProject
+                isEditable = true
+            })
+            add(Box.createVerticalStrut(4))
+
             add(JLabel("Prompt:"))
-            add(promptField.apply { maximumSize = Dimension(Int.MAX_VALUE, 28) })
+            add(promptField.apply { preferredSize = Dimension(300, 28) })
             add(Box.createVerticalStrut(6))
-            add(JPanel().apply {
+
+            val btnRow = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
                 add(runButton)
-                add(Box.createHorizontalStrut(6))
+                add(Box.createHorizontalStrut(8))
                 add(clearButton)
-            })
+            }
+            add(btnRow)
         }
 
         panel.add(form, BorderLayout.NORTH)
-        panel.add(JScrollPane(logArea), BorderLayout.CENTER)
+        panel.add(scrollPane, BorderLayout.CENTER)
 
-        projectField.text = McpSettings.instance.defaultProject.ifBlank {
-            project.name.lowercase().replace(Regex("[^a-z0-9\\-_]"), "-")
-        }
+        // ── Health check on panel open ─────────────────────────────────────────
+        Thread {
+            if (settings.apiKey.isBlank()) {
+                SwingUtilities.invokeLater { log("⚠ API key not set — go to Settings → Tools → AI Dev MCP") }
+                return@Thread
+            }
+            val ok = try { McpClient(settings.baseUrl, settings.apiKey).health() } catch (_: Exception) { false }
+            SwingUtilities.invokeLater {
+                log(if (ok) "✓ Connected to ${settings.baseUrl}" else "⚠ Cannot reach ${settings.baseUrl} — check settings")
+            }
+        }.start()
 
         runButton.addActionListener   { onRun() }
         clearButton.addActionListener { logArea.text = "" }
+
+        // Enter key submits prompt
         promptField.addActionListener { onRun() }
     }
 
+    private fun log(msg: String) {
+        val t = java.time.LocalTime.now().toString().take(8)
+        logArea.append("[$t] $msg\n")
+        logArea.caretPosition = logArea.document.length
+    }
+
     private fun onRun() {
-        val settings = McpSettings.instance
-        if (settings.baseUrl.isEmpty() || settings.apiKey.isEmpty()) {
-            Messages.showErrorDialog(project,
-                "Configure Server URL and API Key in Settings → Tools → AI Dev MCP",
-                "AI Dev MCP Not Configured")
+        val settings      = McpSettings.instance
+        val prompt        = promptField.text.trim()
+        val workspacePath = pathField.text.trim().ifEmpty { project.basePath ?: "" }
+
+        if (settings.apiKey.isBlank()) {
+            Messages.showErrorDialog(
+                project,
+                "API key is not set.\n\nGo to Settings → Tools → AI Dev MCP and enter your key for https://ai.decorom.in.",
+                "MCP: API Key Required"
+            )
             return
         }
-        val proj   = projectField.text.trim()
-        val prompt = promptField.text.trim()
-        if (proj.isEmpty() || prompt.isEmpty()) {
-            Messages.showWarningDialog(project, "Enter both a project name and a prompt.", "AI Dev MCP")
+        if (prompt.isEmpty()) {
+            Messages.showWarningDialog(project, "Please enter a prompt.", "MCP")
+            return
+        }
+        if (workspacePath.isEmpty()) {
+            Messages.showWarningDialog(project, "Workspace path is empty — open a project folder first.", "MCP")
             return
         }
 
-        val fullPrompt = injectEditorContext(prompt)
-        val projPath   = project.basePath
-
+        val fullPrompt = enrichPrompt(prompt)
+        logArea.text        = ""
         runButton.isEnabled = false
-        promptField.text    = ""
-        log("▶  Running: \"${fullPrompt.take(80)}${if (fullPrompt.length > 80) "…" else ""}\" on [$proj]")
-        if (projPath != null) log("   Path: $projPath")
-        log("─".repeat(52))
+        log("▶ Prompt: \"${fullPrompt.take(80)}\"")
+        log("  Path:   $workspacePath")
+        log("  Server: ${settings.baseUrl}")
 
         Thread {
             try {
                 val client = McpClient(settings.baseUrl, settings.apiKey)
-                val jobId  = client.runTask(fullPrompt, proj, projPath)
-                log("   Job ID : $jobId")
-                log("   Stream : ${settings.baseUrl}/stream/$jobId")
-                log("─".repeat(52))
+                val jobId  = client.runTask(fullPrompt, workspacePath)
+                SwingUtilities.invokeLater { log("  Job ID: $jobId") }
 
-                var stepCount = 0
                 client.stream(jobId) { event, data ->
                     SwingUtilities.invokeLater {
                         when (event) {
-                            "completed" -> { log("─".repeat(52)); log("✔  Completed: ${data?.toString() ?: ""}"); runButton.isEnabled = true }
-                            "failed"    -> { log("─".repeat(52)); log("✘  Failed: ${data?.toString() ?: ""}");    runButton.isEnabled = true }
-                            "queued"    -> log("   Queued at position ${data?.optInt("position", 0)}")
-                            "started"   -> log("   Agent started")
-                            "step"      -> { stepCount++; log("   [${data?.optInt("step", stepCount) ?: stepCount}] ${data?.optString("detail") ?: data?.toString() ?: ""}") }
-                            else        -> { stepCount++; log("   ${data?.optString("log") ?: data?.optString("result") ?: data?.optString("status") ?: data?.toString() ?: ""}") }
+                            "step"      -> log("→ ${data?.optString("message", "") ?: ""}".trimEnd())
+                            "completed" -> {
+                                log("✔ Completed")
+                                runButton.isEnabled = true
+                                val ans = Messages.showYesNoDialog(
+                                    project,
+                                    "Task completed. View git diff?",
+                                    "MCP Done",
+                                    Messages.getQuestionIcon()
+                                )
+                                if (ans == Messages.YES) showDiff(client, jobId)
+                            }
+                            "failed"    -> {
+                                log("✘ Failed: ${data?.optString("error", "unknown error") ?: "unknown error"}")
+                                runButton.isEnabled = true
+                            }
+                            else        -> data?.let { log(it.toString()) }
                         }
                     }
                 }
             } catch (e: Exception) {
-                SwingUtilities.invokeLater { log("✘  Error: ${e.message}"); runButton.isEnabled = true }
+                SwingUtilities.invokeLater {
+                    log("✘ Error: ${e.message}")
+                    runButton.isEnabled = true
+                }
             }
         }.start()
     }
 
-    private fun injectEditorContext(prompt: String): String {
-        val editor   = FileEditorManager.getInstance(project).selectedTextEditor ?: return prompt
-        val selected = editor.selectionModel.selectedText ?: return prompt
-        val path     = FileDocumentManager.getInstance().getFile(editor.document)?.path ?: "unknown"
-        return "[File: $path]\n```\n$selected\n```\n\n$prompt"
+    private fun showDiff(client: McpClient, jobId: String) {
+        Thread {
+            try {
+                val diff = client.getDiff(jobId).optString("diff", "(no diff)")
+                SwingUtilities.invokeLater {
+                    val area = JTextArea(diff).apply {
+                        font      = Font(Font.MONOSPACED, Font.PLAIN, 12)
+                        isEditable = false
+                    }
+                    val scroll = JScrollPane(area).apply { preferredSize = Dimension(700, 450) }
+                    val ans = Messages.showOkCancelDialog(
+                        project, "", "Git Diff — Job $jobId",
+                        "Revert (safe)", "Close", Messages.getWarningIcon()
+                    )
+                    if (ans == Messages.OK) {
+                        Thread {
+                            try {
+                                client.revert(jobId, hard = false)
+                                SwingUtilities.invokeLater { log("↩ Reverted safely (git revert commit).") }
+                            } catch (e: Exception) {
+                                SwingUtilities.invokeLater { log("✘ Revert error: ${e.message}") }
+                            }
+                        }.start()
+                    }
+                }
+            } catch (e: Exception) {
+                SwingUtilities.invokeLater { log("✘ Diff error: ${e.message}") }
+            }
+        }.start()
     }
 
-    private fun log(msg: String) {
-        SwingUtilities.invokeLater {
-            logArea.append("$msg\n")
-            logArea.caretPosition = logArea.document.length
+    /** Prepend selected text + file path from the active editor. */
+    private fun enrichPrompt(raw: String): String {
+        val editor   = FileEditorManager.getInstance(project).selectedTextEditor ?: return raw
+        val document = editor.document
+        val selection = editor.selectionModel
+        val filePath  = FileEditorManager.getInstance(project)
+            .selectedFiles.firstOrNull()?.path ?: return raw
+        val parts = mutableListOf("[File: $filePath]")
+        if (selection.hasSelection()) {
+            val lang = filePath.substringAfterLast('.', "")
+            parts += "[Selected $lang]:\n```$lang\n${selection.selectedText?.take(2000)}\n```"
         }
+        return "${parts.joinToString("\n")}\n\n$raw"
     }
 }

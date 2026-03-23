@@ -60,6 +60,17 @@ export function attachMcpRoutes(app, mcpServer) {
 
     app.delete("/mcp", (_req, res) => res.status(200).end());
 
+    // GET /mcp — required by mcp-remote for discovery handshake
+    // Returns 405 with correct Allow header so mcp-remote knows to use POST
+    app.get("/mcp", (_req, res) => {
+        res.setHeader("Allow", "GET, POST, DELETE");
+        res.status(405).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Use POST /mcp to send MCP requests" },
+            id: null
+        });
+    });
+
     // ── Legacy SSE transport ────────────────────────────────────────────────────────────
     app.get("/sse", async (req, res) => {
         const publicBase = resolvePublicBase(req);

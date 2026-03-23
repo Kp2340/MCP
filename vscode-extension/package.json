@@ -2,7 +2,7 @@
   "name": "aidev-mcp",
   "displayName": "AI Dev MCP",
   "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "kush-patel",
   "license": "MIT",
   "icon": "icon.png",
@@ -38,14 +38,14 @@
       "properties": {
         "aidevmcp.baseUrl": {
           "type": "string",
-          "default": "",
-          "markdownDescription": "Base URL of your AI Dev MCP server. Example: `http://192.168.1.50:3001` or your ngrok/Tailscale URL. See the [setup guide](https://github.com/Kp2340/MCP#readme) to run the server.",
+          "default": "https://ai.decorom.in",
+          "markdownDescription": "Base URL of your AI Dev MCP server. Defaults to `https://ai.decorom.in`. Override with a local address like `http://192.168.1.50:3001` or your ngrok/Tailscale URL.",
           "order": 1
         },
         "aidevmcp.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "API key for your server (`API_KEY` in your server `.env` file). All requests are authenticated with this key.",
+          "markdownDescription": "API key for `https://ai.decorom.in` (or your self-hosted server). Set `API_KEY` in your server `.env`. All requests send this as the `x-api-key` header.",
           "order": 2
         },
         "aidevmcp.defaultProject": {

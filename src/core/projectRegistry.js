@@ -103,30 +103,19 @@ export function getProject(name) {
     // 2. Dynamic
     if (dynamicProjects.has(name)) return dynamicProjects.get(name);
 
-    // 3. Looks like a path? Auto-register
-    const looksLikePath =
-        path.isAbsolute(name) ||
-        name.startsWith("./") ||
-        name.startsWith("../") ||
-        (process.platform === "win32" && /^[A-Za-z]:[/\\]/.test(name));
-
-    if (looksLikePath) {
-        if (!fs.existsSync(name)) {
-            throw new Error(`Path does not exist: "${name}"`);
-        }
-        return _autoRegister(name, path.basename(name));
-    }
-
-    // 4. Not found anywhere
+    // 3. Not found anywhere — never auto-register from an arbitrary path here.
+    //    All path-based registration must go through registerDynamicProject()
+    //    which is only callable server-side (via project_register MCP tool).
     const known = [
         ...Object.keys(statics),
-        ...Array.from(dynamicProjects.keys())
+        ...Array.from(dynamicProjects.keys()).filter(k => !path.isAbsolute(k))
     ];
     throw new Error(
-        `Project not found: "${name}".\n` +
-        `Known projects: ${known.join(", ")}\n` +
-        `Tip: pass the absolute path as the project name to auto-register it,\n` +
-        `     e.g. project: "C:/Projects/my-odoo" — or call project_register first.`
+        `Project not found: "${name}".
+` +
+        `Known projects: ${known.join(", ")}
+` +
+        `Tip: ask the server admin to add it to projects.json or call project_register.`
     );
 }
 
@@ -151,8 +140,10 @@ function _autoRegister(rootPath, suggestedName) {
     dynamicProjects.set(rootPath, config);
 
     console.error(
-        `[registry] Auto-registered dynamic project: "${safeName}"\n` +
-        `  root: ${rootPath}\n` +
+        `[registry] Auto-registered dynamic project: "${safeName}"
+` +
+        `  root: ${rootPath}
+` +
         `  type: ${detected.type}  build: "${config.buildCommand}"`
     );
 

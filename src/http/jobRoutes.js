@@ -31,38 +31,54 @@ const log = createLogger("job-routes");
 export function attachJobRoutes(app) {
 
     // ── POST /run ──────────────────────────────────────────────────────────────
+    //
+    // SECURITY: Only pre-registered project names (from projects.json or
+    // server-side project_register) are accepted. Arbitrary filesystem paths
+    // from clients are NEVER trusted — doing so would allow any API-key holder
+    // to point the agent at any directory on this machine.
+    //
+    // Clients send: { prompt: "...", project: "jsv" }   ← project name only
+    // Legacy field:  { prompt: "...", path: "/abs/path" } ← still accepted but
+    //                the basename is used ONLY to look up a pre-registered project;
+    //                the path itself is NEVER used as a filesystem root.
     app.post("/run", (req, res) => {
-        const { prompt, path: projectPath } = req.body || {};
+        const { prompt, project: projectParam, path: legacyPath } = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
             return res.status(400).json({ error: "prompt (string) is required" });
         }
-        if (!projectPath || typeof projectPath !== "string") {
-            return res.status(400).json({ error: "path (string) is required — send your workspace root path" });
-        }
 
-        // Validate projectPath is not a traversal or suspiciously short
-        if (projectPath.includes("..") || projectPath.includes("\0") || projectPath.trim().length < 3) {
-            return res.status(400).json({ error: "Invalid project path" });
+        // Resolve the project name from the request.
+        // Accept either `project` (preferred) or derive from basename of `path` (legacy).
+        let project;
+        if (projectParam && typeof projectParam === "string") {
+            project = projectParam.trim().toLowerCase().replace(/[^a-zA-Z0-9-_]/g, "-");
+        } else if (legacyPath && typeof legacyPath === "string") {
+            // Legacy: IDE sent an absolute path. Use basename as the lookup key ONLY.
+            project = path.basename(legacyPath.trim())
+                .replace(/[^a-zA-Z0-9-_]/g, "-")
+                .toLowerCase();
+        } else {
+            return res.status(400).json({
+                error: "project (string) is required — send the registered project name, e.g. \"jsv\""
+            });
         }
-
-        // Derive project name securely from path — caller cannot inject a name
-        const project = path.basename(projectPath)
-            .replace(/[^a-zA-Z0-9-_]/g, "-")
-            .toLowerCase();
 
         if (!project || project.length < 1) {
-            return res.status(400).json({ error: "Cannot derive project name from path" });
+            return res.status(400).json({ error: "Cannot resolve project name" });
         }
 
-        // Auto-register project from path if not already known
+        // ── SECURITY GATE ────────────────────────────────────────────────────
+        // Project MUST be pre-registered on the server (projects.json or
+        // explicit server-side project_register call).
+        // We never auto-register from a client-supplied path.
         if (!listProjects().includes(project)) {
-            try {
-                registerDynamicProject(project, projectPath);
-                log.info(`Auto-registered "${project}" from path: ${projectPath}`);
-            } catch (err) {
-                return res.status(400).json({ error: `Cannot register project: ${err.message}` });
-            }
+            log.warn(`Rejected unknown project "${project}" from ${req.ip} (user: ${req.user})`);
+            return res.status(403).json({
+                error: `Project "${project}" is not registered on this server.`,
+                hint:  "Ask the server admin to add it to projects.json, or use project_register.",
+                knownProjects: listProjects()   // help the caller pick a valid name
+            });
         }
 
         const runner = async (job) => {

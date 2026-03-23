@@ -2,7 +2,7 @@
   <id>in.decorom.mcp</id>
   <name>AI Dev MCP</name>
   <vendor url="https://github.com/Kp2340/MCP">kush-patel</vendor>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
 
   <description><![CDATA[
     <p>Connect IntelliJ IDEA to your self-hosted AI coding agent.</p>
@@ -20,6 +20,13 @@
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>1.2.0</h3>
+    <ul>
+      <li>Default server URL pre-set to <b>https://ai.decorom.in</b></li>
+      <li>API key stored securely via persistent settings; validated before every request</li>
+      <li>Clear button in panel, Enter key submits prompt</li>
+      <li>Server URL shown in panel so you always know what you are connected to</li>
+    </ul>
     <h3>1.1.0</h3>
     <ul>
       <li>Auto-detects project root path</li>
