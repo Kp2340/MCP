@@ -66,10 +66,20 @@ export async function registerProject({ name, path: rootPath, type, persist = fa
     }
 
     // SECURITY GATE 3: if ALLOWED_ROOTS is set, path must be within those roots.
+    // Use case-insensitive comparison on Windows, forward-slash normalised everywhere.
     if (config.ALLOWED_ROOTS.length > 0) {
-        const allowed = config.ALLOWED_ROOTS.some(r =>
-            resolvedRoot === r || resolvedRoot.startsWith(r + path.sep)
-        );
+        const isWindows   = process.platform === "win32";
+        const normTarget  = resolvedRoot.replace(/\\/g, "/");
+        const normCompare = (p) => {
+            const s = path.resolve(p).replace(/\\/g, "/");
+            return isWindows ? s.toLowerCase() : s;
+        };
+        const normTargetCmp = isWindows ? normTarget.toLowerCase() : normTarget;
+
+        const allowed = config.ALLOWED_ROOTS.some(r => {
+            const nr = normCompare(r);
+            return normTargetCmp === nr || normTargetCmp.startsWith(nr + "/");
+        });
         if (!allowed) {
             log.warn(`project_register blocked: "${resolvedRoot}" is outside ALLOWED_ROOTS [${config.ALLOWED_ROOTS.join(", ")}]`);
             throw new Error(

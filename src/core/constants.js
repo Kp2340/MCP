@@ -1,4 +1,4 @@
-// ── Model config — env-driven values delegate to config.js (single source of truth)
+// Model config
 import { config } from "./config.js";
 export const LLM_MODEL          = config.LLM_MODEL;
 export const LLM_TEMPERATURE    = 0.1;
@@ -6,19 +6,19 @@ export const OLLAMA_HOST        = config.OLLAMA_HOST;
 export const CHROMA_HOST        = config.CHROMA_HOST;
 export const CHROMA_PORT        = config.CHROMA_PORT;
 
-// ── Embedding model versioning — bump when swapping models to avoid stale vectors
+// Embedding model versioning
 export const EMBEDDING_MODEL    = "Xenova/all-MiniLM-L6-v2";
-export const EMBEDDING_VERSION  = "v1";  // appended to collection names
+export const EMBEDDING_VERSION  = "v1";
 
-// ── Dynamic num_predict budgets per call type ──────────────────────────────
+// Dynamic num_predict budgets per call type
 export const NUM_PREDICT = {
-    planner:    600,
-    executor:   512,
+    planner:        600,
+    executor:       512,
     executor_apply: 2048,
-    compressor: 400,
-    reviewer:   300,
-    memory:     120,
-    autofix:    4096
+    compressor:     400,
+    reviewer:       300,
+    memory:         120,
+    autofix:        4096
 };
 
 export const IGNORE_FOLDERS = [
@@ -46,33 +46,36 @@ export const INDEXABLE_EXTENSIONS = [
 export const MAX_FILE_SIZE     = 12000;
 export const BUILD_TIMEOUT_MS  = 120000;
 
-// ── Memory layer ───────────────────────────────────────────────────────
+// Memory layer
 export const MEMORY_COLLECTION_PREFIX = "memory_";
 export const MEMORY_MAX_RESULTS       = 3;
 export const MEMORY_MAX_SNIPPET       = 400;
+// Cap on how many entries are fetched in a single memory.get() call.
+// Prevents OOM on large collections (fixes memory query performance issue).
+export const MEMORY_QUERY_LIMIT       = 50;
 
-// ── Context compression ───────────────────────────────────────────────
+// Context compression
 export const COMPRESS_EVERY_N_STEPS = 3;
 export const COMPRESS_MAX_CHARS     = 6000;
 
-// ── Cost-aware agent ──────────────────────────────────────────────────
+// Cost-aware agent
 export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
 
 export const CHARS_PER_TOKEN = 4;
 
-// ── Memory eviction ─────────────────────────────────────────────────────
-export const MEMORY_MAX_ENTRIES       = 200;
-export const MEMORY_EVICT_BATCH       = 20;
+// Memory eviction
+export const MEMORY_MAX_ENTRIES = 200;
+export const MEMORY_EVICT_BATCH = 20;
 
-// ── Syntax batch check ──────────────────────────────────────────────────
-export const SYNTAX_BATCH_SIZE        = 50;
+// Syntax batch check
+export const SYNTAX_BATCH_SIZE = 50;
 
-// ── Incremental index ────────────────────────────────────────────────────
-export const INDEX_CACHE_FILE         = ".ai-dev-index-cache.json";
+// Incremental index
+export const INDEX_CACHE_FILE = ".ai-dev-index-cache.json";
 
-// ── Tool-chain templates ────────────────────────────────────────────────
+// Tool-chain templates
 // projectTypes: null = works for ANY project type
 export const TOOL_CHAIN_TEMPLATES = [
     {
@@ -104,8 +107,18 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "add_api",
-        keywords:    ["add api", "new endpoint", "add route", "create endpoint", "add service method", "implement api", "similar api"],
-        projectTypes: null,   // was spring-boot/liferay/nodejs — now works for ALL
+        keywords:    [
+            "add api", "new endpoint", "add route", "create endpoint",
+            "add service method", "implement api", "similar api",
+            "endpoint",     // standalone -- lets multi-word prompts score >=2
+            "add endpoint", // covers "add a new endpoint" after stem expansion
+            "service",      // covers "user service", "api service"
+            "controller",   // covers Spring/Express controllers
+            "handler",
+            "rest api",
+            "graphql"
+        ],
+        projectTypes: null,
         intent:      "api",
         steps: [
             "Find the relevant controller or service symbol",
@@ -161,9 +174,6 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "read_only",
-        // IMPORTANT: keywords must be specific enough to never match action prompts.
-        // 'explain', 'how does', 'describe' are safe — they signal read-only intent.
-        // 'analyze', 'show me', 'what is' are removed — too generic, match fix tasks.
         keywords:    ["explain", "how does", "describe", "walk me through", "what does", "find api"],
         projectTypes: null,
         intent:      "general",
@@ -216,17 +226,55 @@ export const TOOL_CHAIN_TEMPLATES = [
     }
 ];
 
-// ── Keyword synonyms for heuristic planner (stem → canonical) ────────────────
+// Keyword synonyms for heuristic planner (stem -> canonical)
+// Maps gerund / past-tense / plural / British variant forms to the canonical
+// keyword that appears in TOOL_CHAIN_TEMPLATES.keywords so stem normalisation fires.
 export const KEYWORD_STEMS = {
-    "creating": "create",
-    "adding":   "add",
-    "fixing":   "fix",
-    "building": "build",
-    "updating": "update",
-    "deleting": "delete",
-    "removing": "remove",
-    "refactoring": "refactor",
-    "renaming":  "rename",
-    "testing":   "test",
-    "analyzing": "analyze"
+    // core CRUD verbs
+    "creating":     "create",
+    "created":      "create",
+    "adding":       "add",
+    "added":        "add",
+    "fixing":       "fix",
+    "fixed":        "fix",
+    "building":     "build",
+    "built":        "build",
+    "updating":     "update",
+    "updated":      "update",
+    "deleting":     "delete",
+    "deleted":      "delete",
+    "removing":     "remove",
+    "removed":      "remove",
+    "refactoring":  "refactor",
+    "refactored":   "refactor",
+    "renaming":     "rename",
+    "renamed":      "rename",
+    "testing":      "test",
+    "tested":       "test",
+    "analyzing":    "analyze",
+    "analysing":    "analyze",
+    "analysed":     "analyze",
+    "analyzed":     "analyze",
+    // API-specific aliases
+    "endpoints":    "endpoint",
+    "routes":       "route",
+    "services":     "service",
+    "controllers":  "controller",
+    "handlers":     "handler",
+    "implementing": "implement",
+    "implemented":  "implement",
+    // migration aliases
+    "migrating":    "migration",
+    "migrations":   "migration",
+    "columns":      "column",
+    "tables":       "table",
+    // test aliases
+    "tests":        "test",
+    "specs":        "test",
+    "spec":         "test",
+    // explain / describe aliases
+    "explaining":   "explain",
+    "described":    "describe",
+    "describing":   "describe",
+    "finding":      "find",
 };

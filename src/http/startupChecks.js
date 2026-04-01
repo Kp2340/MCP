@@ -10,6 +10,7 @@
 import os   from "os";
 import { config } from "../core/config.js";
 import { createLogger } from "../core/logger.js";
+import { isOllamaAvailable } from "../agent/ollamaClient.js";
 
 const log = createLogger("startup");
 
@@ -27,7 +28,7 @@ function getNetworkIp() {
     return null;
 }
 
-export function runStartupChecks() {
+export async function runStartupChecks() {
     const networkIp = getNetworkIp();
     const isExposed = networkIp !== null;  // machine has at least one non-loopback interface
 
@@ -62,6 +63,22 @@ export function runStartupChecks() {
     if (collectEnabled) {
         log.info("Training data collection ENABLED — successful runs will be logged to data/training/runs.jsonl");
     }
+
+    // ── Ollama liveness probe (async, non-blocking) ──────────────────────────────────
+    isOllamaAvailable().then(({ available, models, error }) => {
+        if (available) {
+            log.info(`Ollama reachable at ${config.OLLAMA_HOST}`);
+            if (models.length > 0) {
+                log.info(`  Available models: ${models.join(", ")}`);
+            } else {
+                log.warn(`  No models found. Run: ollama pull qwen2.5-coder:7b`);
+            }
+        } else {
+            log.warn(`Ollama NOT reachable at ${config.OLLAMA_HOST} — agent will fail when LLM is needed.`);
+            if (error) log.warn(`  Error: ${error}`);
+            log.warn(`  Make sure Ollama is running: ollama serve`);
+        }
+    }).catch(err => log.warn(`Ollama probe failed: ${err.message}`));
 
     // ── Summary line ───────────────────────────────────────────────────────────────────────────────────
     log.info(`AI Dev MCP server started | transport=${config.TRANSPORT} | port=${config.PORT} | cors=${config.CORS_ORIGIN} | auth=${hasKeys ? "enabled" : "disabled"}`);

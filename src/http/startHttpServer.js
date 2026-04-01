@@ -86,6 +86,8 @@ export function startHttpServer(mcpServer) {
         log.info(`  MCP HTTP:  http://localhost:${config.PORT}/mcp`);
         log.info(`  MCP SSE:   http://localhost:${config.PORT}/sse`);
         log.info(`  Health:    http://localhost:${config.PORT}/health`);
+        log.info(`  Deep diag: http://localhost:${config.PORT}/api/health/deep`);
+        log.info(`  Tool stats:http://localhost:${config.PORT}/api/tool-stats`);
         log.info(`  Projects:  http://localhost:${config.PORT}/api/projects`);
     });
 

@@ -20,7 +20,10 @@ const MAX_SNIPPET = 600;
 const MAX_RESULTS = 5;
 const FETCH_N     = 10;
 
-let indexing = false;
+// NOTE: the old module-level `indexing = false` flag was a concurrency bug:
+// if two concurrent retrievals both found a missing index, the second one
+// would skip indexing (flag already true) and then fail on queryCodebase again.
+// Replaced by per-project deduplication in runIndexCore.js via requestDeduplicator.
 
 // ─── Intent rules (shared with memory filtering) ─────────────────────────────────
 const INTENT_RULES = [
@@ -101,7 +104,8 @@ function deduplicate(docs, threshold = 0.8) {
 
 // ─── Compressor ──────────────────────────────────────────────────────────────
 function compress(doc) {
-    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc || "";
+    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "
+..." : doc || "";
 }
 
 // ─── ExecutionState-aware scoring helpers ────────────────────────────────────
@@ -151,16 +155,27 @@ export async function retrieveContext(prompt, project = null, execState = null) 
         let docs;
         try {
             docs = await queryCodebase(embedding, project, FETCH_N);
-        } catch {
-            if (project && !indexing) {
-                indexing = true;
-                console.error("\n[retriever] Vector index missing. Building automatically...\n");
-                const config = getProject(project);
-                await indexProject(config.root, project);
-                console.error("\n[retriever] Vector index built.\n");
-                indexing = false;
+        } catch (err) {
+            // Vector index missing or ChromaDB hiccup — build/rebuild automatically.
+            // indexProject() is deduplicated internally: concurrent calls for the same
+            // project share one build instead of launching parallel rebuilds.
+            if (project) {
+                console.error("
+[retriever] Vector index missing or stale — rebuilding automatically...
+");
+                const projConfig = getProject(project);
+                await indexProject(projConfig.root, project);
+                console.error("
+[retriever] Vector index rebuilt.
+");
             }
-            docs = await queryCodebase(embedding, project, FETCH_N);
+            // Retry once after rebuild; if it still fails, return empty context
+            try {
+                docs = await queryCodebase(embedding, project, FETCH_N);
+            } catch (retryErr) {
+                console.error("[retriever] Index rebuild did not resolve query error:", retryErr.message);
+                return "";
+            }
         }
 
         if (!docs || docs.length === 0) return "";
@@ -180,7 +195,11 @@ export async function retrieveContext(prompt, project = null, execState = null) 
 
         useful.sort((a, b) => b.score - a.score);
         const unique = deduplicate(useful.map(s => s.doc));
-        return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
+        return unique.slice(0, MAX_RESULTS).map(compress).join("
+
+---
+
+");
 
     } catch (err) {
         console.error("[retriever] Error:", err.message);

@@ -23,6 +23,7 @@ import {
     MEMORY_MAX_SNIPPET,
     MEMORY_MAX_ENTRIES,
     MEMORY_EVICT_BATCH,
+    MEMORY_QUERY_LIMIT,
     CHROMA_HOST,
     CHROMA_PORT,
     EMBEDDING_VERSION
@@ -64,8 +65,9 @@ async function evictIfNeeded(collection) {
         const count = await collection.count();
         if (count <= MEMORY_MAX_ENTRIES) return;
 
-        // Fetch all metadatas to find lowest confidence × recency score
-        const all  = await collection.get({ include: ["metadatas"] });
+        // Fetch a capped sample of metadatas to find lowest confidence x recency score.
+        // MEMORY_QUERY_LIMIT prevents unbounded memory fetch on large collections.
+        const all  = await collection.get({ include: ["metadatas"], limit: MEMORY_QUERY_LIMIT });
         const now  = Date.now();
         const scored = (all.ids || []).map((id, i) => {
             const meta  = all.metadatas?.[i] || {};

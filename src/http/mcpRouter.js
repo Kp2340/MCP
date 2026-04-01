@@ -18,6 +18,7 @@ import { SSEServerTransport }            from "@modelcontextprotocol/sdk/server/
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createLogger }                  from "../core/logger.js";
 import { config }                        from "../core/config.js";
+import { logToolCall }                   from "../core/toolLogger.js";
 
 const log = createLogger("mcp-router");
 
@@ -40,6 +41,40 @@ export function attachMcpRoutes(app, mcpServer) {
     // enableJsonResponse:true makes every response immediate JSON — no open connections.
     // sessionIdGenerator:undefined = stateless, no Mcp-Session-Id tracking.
     app.post("/mcp", async (req, res) => {
+        // ── Tool Logger: intercept JSON-RPC tools/call before SDK dispatch ───────────────
+        // This is the cleanest hook point: body is parsed, transport not yet started.
+        // Captures: WHO (caller IP / session), WHICH tool, WHEN, HOW LONG, result status.
+        const body       = req.body || {};
+        const isToolCall = body.method === "tools/call";
+        const toolName   = isToolCall ? (body.params?.name   ?? "unknown") : null;
+        const toolArgs   = isToolCall ? (body.params?.arguments ?? {})     : null;
+        const caller     = req.headers["mcp-session-id"]
+            || req.headers["x-session-id"]
+            || req.headers["x-forwarded-for"]?.split(",")[0].trim()
+            || req.ip
+            || "http-client";
+        const startedAt  = isToolCall ? Date.now() : null;
+
+        if (isToolCall) {
+            // Monkey-patch res.json to capture the response payload after dispatch
+            const origJson = res.json.bind(res);
+            res.json = function loggedJson(payload) {
+                res.json = origJson;   // restore before calling original (re-entrant safety)
+                const rpcErr = payload?.error;
+                logToolCall({
+                    toolName,
+                    args:        toolArgs,
+                    caller,
+                    startedAt,
+                    success:     !rpcErr,
+                    error:       rpcErr ? `[${rpcErr.code}] ${rpcErr.message}` : undefined,
+                    resultBytes: Buffer.byteLength(JSON.stringify(payload ?? ""), "utf8")
+                });
+                return origJson(payload);
+            };
+        }
+        // ───────────────────────────────────────────────────────────────────────
+
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
             enableJsonResponse:  true,
@@ -49,6 +84,10 @@ export function attachMcpRoutes(app, mcpServer) {
             await mcpServer.connect(transport);
             await transport.handleRequest(req, res, req.body);
         } catch (err) {
+            if (isToolCall) {
+                // Transport-level crash: log the failure before re-throwing
+                logToolCall({ toolName, args: toolArgs, caller, startedAt, success: false, error: err.message });
+            }
             log.error("/mcp error:", err.message);
             if (!res.headersSent) res.status(500).json({
                 jsonrpc: "2.0",

@@ -16,14 +16,23 @@
  * WHAT WAS SAID (LLM context).
  */
 
-// ─── Failure classifier ───────────────────────────────────────────────────────
+// ─── Failure classifier ───────────────────────────────────────────────────────────────────────────────
 // Returns a specific failure category instead of relying on generic
 // "includes('error')" checks. The category is used to guide replanning.
 
 const FAILURE_PATTERNS = [
     {
         type:     "import_error",
-        patterns: [/cannot find module/i, /import.*not found/i, /module not found/i, /unresolved import/i]
+        patterns: [
+            /cannot find module/i,
+            /import.*not found/i,
+            /module not found/i,
+            /unresolved import/i,
+            /has no exported member/i,       // TS: Module '...' has no exported member 'X'
+            /failed to resolve import/i,
+            /err_module_not_found/i,
+            /error ts\d+.*cannot find/i
+        ]
     },
     {
         type:     "syntax_error",
@@ -39,11 +48,25 @@ const FAILURE_PATTERNS = [
     },
     {
         type:     "not_found",
-        patterns: [/not found/i, /does not exist/i, /no such file/i, /404/]
+        patterns: [
+            /not found/i,
+            /does not exist/i,               // "File does not exist: ..."
+            /no such file/i,
+            /404/,
+            /enoent/i,
+            /file not found/i,
+            /cannot find file/i
+        ]
     },
     {
         type:     "permission_error",
-        patterns: [/permission denied/i, /access denied/i, /forbidden/i, /eacces/i]
+        patterns: [
+            /permission denied/i,
+            /access denied/i,
+            /forbidden/i,
+            /eacces/i,
+            /eperm/i
+        ]
     }
 ];
 
@@ -51,12 +74,26 @@ export function classifyFailure(resultText) {
     if (!resultText) return null;
     const lower = resultText.toLowerCase();
 
-    // Quick pre-check — if no failure signals at all, return null
+    // Quick pre-check — if no failure signals at all, return null.
+    // NOTE: must cover ALL pattern categories, not just "error"/"fail":
+    //   - "does not exist" / "enoent" / "no such file" → not_found
+    //   - "eacces" / "permission denied" / "eperm"     → permission_error
+    //   - "has no exported member"                     → import_error (TS)
     const hasFailureSignal =
         lower.includes("error") ||
         lower.includes("fail") ||
         lower.includes("exception") ||
-        lower.includes("not found");
+        lower.includes("not found") ||
+        lower.includes("does not exist") ||
+        lower.includes("no such file") ||
+        lower.includes("enoent") ||
+        lower.includes("eacces") ||
+        lower.includes("eperm") ||
+        lower.includes("permission denied") ||
+        lower.includes("access denied") ||
+        lower.includes("forbidden") ||
+        lower.includes("has no exported member") ||
+        lower.includes("cannot find");
 
     if (!hasFailureSignal) return null;
 
@@ -69,7 +106,7 @@ export function classifyFailure(resultText) {
     return "unknown_error";  // failure signal present but unclassified
 }
 
-// ─── File path extractor ─────────────────────────────────────────────────────
+// ─── File path extractor ──────────────────────────────────────────────────────────────────────────
 // Extracts relative file paths mentioned in tool args or result text.
 function extractPathsFromArgs(tool, args) {
     if (!args) return [];
@@ -80,7 +117,7 @@ function extractPathsFromArgs(tool, args) {
     return paths;
 }
 
-// ─── ExecutionState class ─────────────────────────────────────────────────────
+// ─── ExecutionState class ───────────────────────────────────────────────────────────────────────
 
 /** Normalize path separators to forward slashes for cross-platform consistency. */
 function normalizePath(p) {
@@ -101,13 +138,6 @@ export class ExecutionState {
     }
 
     /**
-     * Update state after a tool call completes.
-     * @param {string} tool        - tool name
-     * @param {object} args        - tool args
-     * @param {string} resultText  - tool result text
-     * @param {number} stepIndex
-     */
-    /**
      * Check if an identical tool call was already made this run.
      * Returns cached result text or null.
      */
@@ -121,6 +151,13 @@ export class ExecutionState {
         this._toolCache.set(key, resultText);
     }
 
+    /**
+     * Update state after a tool call completes.
+     * @param {string} tool        - tool name
+     * @param {object} args        - tool args
+     * @param {string} resultText  - tool result text
+     * @param {number} stepIndex
+     */
     recordToolCall(tool, args, resultText, stepIndex) {
         this.stepCount = stepIndex;
         this.toolsUsed.push({ tool, stepIndex });
@@ -146,8 +183,6 @@ export class ExecutionState {
                 // CRITICAL: invalidate the read cache for this file.
                 // After a str_replace, the cached content is stale.
                 // The next project_read_files call must hit disk for fresh content.
-                const readCacheKey = `project_read_files::${JSON.stringify({ project: paths[0]?.split?.('/')[0], paths: [p] })}`;
-                // Invalidate any cache entry whose key contains this path
                 for (const key of this._toolCache.keys()) {
                     if (key.includes(`"${p}"`) || key.includes(p)) {
                         this._toolCache.delete(key);
@@ -219,7 +254,7 @@ export function formatStateForPrompt(state) {
         lines.push(`Last error: ${last.text.substring(0, 120)}`);
     }
     if (state.toolsUsed.length > 0) {
-        const recent = state.toolsUsed.slice(-4).map(t => t.tool).join(" → ");
+        const recent = state.toolsUsed.slice(-4).map(t => t.tool).join(" \u2192 ");
         lines.push(`Recent tools: ${recent}`);
     }
 

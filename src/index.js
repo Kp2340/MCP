@@ -66,6 +66,7 @@ import { embed }                    from "./vector/embedder.js";
 import { storeMemory, queryMemory } from "./vector/memory.js";
 import { config }                   from "./core/config.js";
 import { createLogger }             from "./core/logger.js";
+import { logToolCall, stats as toolStats, recentCalls } from "./core/toolLogger.js";
 import {corsMiddleware} from "./http/cors.js";
 import {authMiddleware, ipAllowlistMiddleware, rateLimitMiddleware} from "./http/auth.js";
 import {attachHealthRoutes} from "./http/healthRoutes.js";
@@ -86,6 +87,20 @@ const mcpServer = new Server(
 // ───────────────────────────────────────────────────────────────────────
 // Tool definitions (20 tools)
 // ───────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────
+// Tool call logger helper — wraps every tool dispatch with timing + identity
+// ───────────────────────────────────────────────────────────────────────
+/**
+ * Extract a caller identifier from MCP request metadata.
+ * Falls back through: session ID → client ID → "mcp-client".
+ */
+function getCallerFromRequest(request) {
+    return request?._meta?.sessionId
+        || request?._meta?.clientId
+        || request?.params?._meta?.sessionId
+        || "mcp-client";
+}
+
 mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
         {
@@ -379,6 +394,7 @@ Steps:
 // ───────────────────────────────────────────────────────────────────────
 // Tool router
 // ───────────────────────────────────────────────────────────────────────
+// ── CallToolRequestSchema ───────────────────────────────────────────────────────────────────────
 mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args = {} } = req.params;
 
