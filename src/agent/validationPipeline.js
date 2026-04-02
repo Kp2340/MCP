@@ -45,8 +45,10 @@ export async function runValidationPipeline(
     const build = await validateWithBuild(project, intent, mcpClient);
 
     // 3. Reviewer (LLM, gated by budget + file modification count)
+    // Threshold lowered from 2 → 1: single-file changes are the most common case
+    // and the ones most likely to introduce subtle logic errors.
     let reviewer = null;
-    if (execState.filesModified.size >= 2) {
+    if (execState.filesModified.size >= 1) {
         reviewer = await reviewChanges(project, prompt, execState, costState, executionContext);
     }
 
@@ -56,7 +58,8 @@ export async function runValidationPipeline(
 
     // Log unified summary
     const icon = passed ? "✅" : "❌";
-    console.error(`\n[pipeline] ${icon} Final validation: heuristic=${heuristic.passed}, build=${build.passed}${reviewer ? `, reviewer=${reviewer.verdict}` : ""}`);
+    console.error(`
+[pipeline] ${icon} Final validation: heuristic=${heuristic.passed}, build=${build.passed}${reviewer ? `, reviewer=${reviewer.verdict}` : ""}`);
     if (issues.length > 0) {
         console.error(`[pipeline] ⚠ Reviewer issues (${issues.length}): ${issues.slice(0, 3).join(" | ")}`);
     }

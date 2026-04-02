@@ -267,14 +267,35 @@ Initial Plan:
     // reviewerIssuesInjected: inject issues back into queue only once
     let reviewerIssuesInjected   = false;
 
+    // ── Budget exhaustion notifier ────────────────────────────────────────────
+    // Checks costState.budgetExhausted (set by planner.js) and emits a
+    // user-visible SSE warning so IDE extensions can surface it in the UI.
+    // Declared here so it closes over successfulSteps (defined above).
+    let budgetWarnEmitted = false;
+    const checkAndEmitBudgetWarning = () => {
+        if (!budgetWarnEmitted && costState.budgetExhausted) {
+            budgetWarnEmitted = true;
+            const msg = `⚠️ LLM call budget reached (${MAX_LLM_CALLS_PER_RUN} calls). ` +
+                `Agent finishing with static analysis + build only. ` +
+                `Completed ${successfulSteps} steps. Resubmit for a fresh run if needed.`;
+            console.error(`[agent] ${msg}`);
+            emitStep("budget_warning", msg);
+        }
+    };
+
     collector.startRun(prompt);
 
     while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
 
-        // Token budget check
+        // Emit SSE warning if planner signalled budget exhaustion this iteration
+        checkAndEmitBudgetWarning();
+
+        // Token budget check — emit visible warning when budget is exhausted
         const estTokens = estimatedTokens(costState);
         if (estTokens > MAX_TOTAL_TOKENS_PER_RUN) {
-            console.error(`[agent] ⚠️  Token budget exceeded (~${estTokens} tokens). Stopping.`);
+            const msg = `Token budget exceeded (~${estTokens} tokens). Remaining steps skipped — task may be incomplete.`;
+            console.error(`[agent] ⚠️  ${msg}`);
+            emitStep("budget_exhausted", { reason: msg, llmCalls: costState.llmCalls, stepsSkipped: remainingSteps.length });
             break;
         }
 

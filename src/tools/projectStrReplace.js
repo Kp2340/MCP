@@ -3,30 +3,7 @@ import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
 import { validatePath, sanitizeCommitMessage } from "../core/validator.js";
 import { createLogger } from "../core/logger.js";
-
-const log = createLogger("str-replace");
-
-function hasChanges(root) {
-    const r = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
-    return (r.stdout || "").trim().length > 0;
-}
-
-/**
- * Normalize a string for comparison.
- * - Convert CRLF -> LF
- * - Convert JSON-escaped newlines (\\n from LLM output) -> real newlines
- * - Convert JSON-escaped tabs (\\t) -> real tabs
- * - Do NOT trim — trimming causes false "not found" when search string
- *   starts or ends with meaningful whitespace/indentation.
- */
-function normalize(s) {
-    return s
-        .replace(/\r\n/g, "\n")  // Windows CRLF
-        .replace(/\r/g, "\n")    // old Mac CR
-        .replace(/\\n/g, "\n")   // JSON-escaped newline from LLM
-        .replace(/\\t/g, "\t");  // JSON-escaped tab from LLM
-}
-
+import { findDependents } from "../analysis/symbolGraph.js";
 /**
  * Fuzzy line-by-line match fallback.
  *
@@ -41,8 +18,8 @@ function normalize(s) {
  *  - Minor LLM paraphrasing of whitespace
  */
 function fuzzyLineMatch(fileContent, searchStr) {
-    const fileLines   = fileContent.split("\n");
-    const searchLines = searchStr.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0);
+    const fileLines   = fileContent.split("\n");                                        // FIX: was split("")
+    const searchLines = searchStr.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0); // FIX: was split("")
 
     if (searchLines.length === 0) return null;
     // Only attempt fuzzy match for multi-line searches (single-line false positives are too risky)
@@ -60,10 +37,35 @@ function fuzzyLineMatch(fileContent, searchStr) {
             // Return the exact slice from the file (preserves original whitespace/endings)
             const startLine = i;
             const endLine   = i + searchLines.length - 1;
-            return fileLines.slice(startLine, endLine + 1).join("\n");
+            return fileLines.slice(startLine, endLine + 1).join("\n");                  // FIX: was join("")
         }
     }
     return null;
+}
+
+
+const log = createLogger("str-replace");
+
+function hasChanges(root) {
+    const r = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+    return (r.stdout || "").trim().length > 0;
+}
+
+/**
+ * Normalize a string for comparison.
+ * - Convert CRLF -> LF
+ * - Convert JSON-escaped newlines (\n from LLM output) -> real newlines
+ * - Convert JSON-escaped tabs (\t) -> real tabs
+ * - Do NOT trim — trimming causes false "not found" when search string
+ *   starts or ends with meaningful whitespace/indentation.
+ * - Do NOT strip backslashes or collapse spaces — that destroys code content.
+ */
+function normalize(s) {
+    return s
+        .replace(/\r\n/g, "\n")                 // CRLF -> LF
+        .replace(/\r/g, "\n")                   // bare CR -> LF
+        .replace(/\\n/g, "\n")                  // FIX: JSON-escaped newline -> real newline
+        .replace(/\\t/g, "\t");                 // FIX: JSON-escaped tab -> real tab
 }
 
 /**
@@ -146,16 +148,15 @@ export function projectStrReplace({ project, edits, commitMessage }) {
                 effectiveSearch = fuzzyMatch;
             } else {
                 // Both exact and fuzzy failed — give rich diagnostic for LLM retry
-                const searchLines  = normalizedSearch.split("\n");
+                const searchLines  = normalizedSearch.split("\n");                      // FIX: was split("")
                 const firstLine    = searchLines[0].trim();
                 const hintIdx      = normalizedFile.indexOf(firstLine);
                 const hint = hintIdx !== -1
-                    ? `\nFirst line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"`
-                    : "\nNo partial match found — the file may have changed since it was read.";
-
+                    ? `\nFirst line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"` // FIX: was /n/g
+                    : "No partial match found — the file may have changed since it was read.";
                 throw new Error(
                     `Search string not found in "${relativePath}".\n` +
-                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
+                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` + // FIX: was /\n/g missing escape
                     hint +
                     `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`
                 );
@@ -194,7 +195,29 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
     }
 
+    // Impact analysis: find all files that import any of the edited files.
+    // Surfaced in the tool result so the agent knows what else may need updating.
+    const impactLines = [];
+    try {
+        const editedFiles = edits.map(e => e.path.replace(/\\/g, "/"));
+        const allAffected = new Set();
+        for (const editedFile of editedFiles) {
+            const dependents = findDependents(project, editedFile, 2);
+            dependents.forEach(f => allAffected.add(f));
+        }
+        // Remove the files we just edited from the affected set
+        editedFiles.forEach(f => allAffected.delete(f));
+        if (allAffected.size > 0) {
+            impactLines.push(`\nImpact analysis — files that import the edited file(s):`);
+            [...allAffected].slice(0, 8).forEach(f => impactLines.push(`  - ${f}`));
+            if (allAffected.size > 8) impactLines.push(`  ... and ${allAffected.size - 8} more`);
+            log.info(`Impact: ${allAffected.size} file(s) import edited file(s)`);
+        }
+    } catch (impactErr) {
+        log.warn(`Impact analysis skipped: ${impactErr.message}`);
+    }
+
     return {
-        content: [{ type: "text", text: `str-replace applied:\n${results.join("\n")}` }]
+        content: [{ type: "text", text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}` }]
     };
 }

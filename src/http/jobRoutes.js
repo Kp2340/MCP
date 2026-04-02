@@ -28,6 +28,13 @@ import { createCheckpoint }           from "../git/checkpoint.js";
 
 const log = createLogger("job-routes");
 
+/**
+ * Wraps an async route handler so any rejected promise is forwarded to
+ * Express's next(err) — caught by the global error handler in startHttpServer.
+ * Without this wrapper, async throws in route handlers crash silently.
+ */
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 export function attachJobRoutes(app) {
 
     // ── POST /run ──────────────────────────────────────────────────────────────
@@ -41,7 +48,7 @@ export function attachJobRoutes(app) {
     // Legacy field:  { prompt: "...", path: "/abs/path" } ← still accepted but
     //                the basename is used ONLY to look up a pre-registered project;
     //                the path itself is NEVER used as a filesystem root.
-    app.post("/run", async (req, res) => {
+    app.post("/run", asyncRoute(async (req, res) => {
         const {prompt, project: projectParam, path: legacyPath} = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
@@ -127,7 +134,7 @@ export function attachJobRoutes(app) {
             statusUrl: `/status/${job.id}`,
             diffUrl: `/diff/${job.id}`
         });
-    });
+    }));
 
     // ── GET /status/:id ────────────────────────────────────────────────────────
     app.get("/status/:id", (req, res) => {
@@ -186,7 +193,7 @@ data: ${JSON.stringify(job)}
     // ── GET /diff/:id ──────────────────────────────────────────────────────────
     // Returns the git diff of the last commit made by a completed job.
     // IDE extensions call this to populate the Accept/Reject review panel.
-    app.get("/diff/:id", (req, res) => {
+    app.get("/diff/:id", asyncRoute(async (req, res) => {
         const job = getJob(req.params.id);
         if (!job) return res.status(404).json({ error: `Job ${req.params.id} not found` });
         if (job.status !== "completed") {
@@ -218,13 +225,13 @@ data: ${JSON.stringify(job)}
             log.error(`GET /diff/${req.params.id} error: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
-    });
+    }));
 
     // ── POST /revert/:id ───────────────────────────────────────────────────────
     // Reverts the last commit made by a job using git revert (safe) or git reset.
     // Default: git revert HEAD --no-edit  (creates an undo commit, preserves history)
     // ?hard=true: git reset --hard HEAD~1  (destructive — only if caller confirms)
-    app.post("/revert/:id", (req, res) => {
+    app.post("/revert/:id", asyncRoute(async (req, res) => {
         const job = getJob(req.params.id);
         if (!job) return res.status(404).json({ error: `Job ${req.params.id} not found` });
         if (job.status !== "completed") {
@@ -265,7 +272,7 @@ data: ${JSON.stringify(job)}
             log.error(`POST /revert/${req.params.id} error: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
-    });
+    }));
 
     // ── POST /cancel/:id ───────────────────────────────────────────────────────
     // Cancel a queued (pending) job before it starts.

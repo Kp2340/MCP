@@ -5,6 +5,7 @@ import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
 import { validateChangeRequest, sanitizeCommitMessage } from "../core/validator.js";
 import { createLogger } from "../core/logger.js";
+import { findDependents } from "../analysis/symbolGraph.js";
 
 const log = createLogger("apply-changes");
 
@@ -13,7 +14,7 @@ function getNextBranch(root, prefix) {
     const branches = result.stdout || "";
     let max = 0;
     const regex = new RegExp(`${prefix}-(\\d+)`);
-    branches.split("\n").forEach(b => {
+    branches.split(" ").forEach(b => {
         const clean = b.replace("*", "").trim();
         const m = clean.match(regex);
         if (m) {
@@ -72,7 +73,24 @@ export function applyChanges({ project, files, commitMessage, increment }) {
         throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
     }
 
+    // Impact analysis: surface files that import any of the written files
+    const impactLines = [];
+    try {
+        const writtenPaths = files.map(f => f.path.replace(/\\/g, "/"));
+        const allAffected  = new Set();
+        for (const filePath of writtenPaths) {
+            findDependents(project, filePath, 2).forEach(f => allAffected.add(f));
+        }
+        writtenPaths.forEach(f => allAffected.delete(f));
+        if (allAffected.size > 0) {
+            impactLines.push(`
+Impact analysis — files that import the written file(s):`);
+            [...allAffected].slice(0, 8).forEach(f => impactLines.push(`  - ${f}`));
+            if (allAffected.size > 8) impactLines.push(`  ... and ${allAffected.size - 8} more`);
+        }
+    } catch { /* impact analysis is best-effort, never block the commit */ }
+
     return {
-        content: [{ type: "text", text: `Changes committed: ${safeMessage}` }]
+        content: [{ type: "text", text: `Changes committed: ${safeMessage}${impactLines.join(" ")}` }]
     };
 }

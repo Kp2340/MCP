@@ -98,6 +98,13 @@ function walkFiles(dir, base) {
 
 // ── route attachment ──────────────────────────────────────────────────────────
 
+/**
+ * Wraps an async route handler so any rejected promise is forwarded to
+ * Express's next(err) — caught by the global error handler in startHttpServer.
+ * Without this, async throws in route handlers crash silently in Express 4.
+ */
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 export function attachWorkspaceRoutes(app) {
 
     // ── POST /workspace/push ─────────────────────────────────────────────────
@@ -106,7 +113,7 @@ export function attachWorkspaceRoutes(app) {
     //
     // The client sends a zip of the project root. We extract it into
     // data/workspaces/<user>/<project>/ and register it in the project registry.
-    app.post("/workspace/push", async (req, res) => {
+    app.post("/workspace/push", asyncRoute(async (req, res) => {
         const user    = req.user || "anonymous";
         const project = (req.query.project || req.headers["x-project"] || "").trim()
             .replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
@@ -169,7 +176,7 @@ export function attachWorkspaceRoutes(app) {
         } finally {
             try { fs.unlinkSync(tmpZip); } catch {}
         }
-    });
+    }));
 
     // ── GET /workspace/pull/:project ─────────────────────────────────────────
     // Returns the current workspace as a zip file.
