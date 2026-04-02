@@ -41,13 +41,35 @@ const projectsPath  = path.join(__dirname, "../config/projects.json");
 // ── In-memory dynamic registry ────────────────────────────────────────────────
 const dynamicProjects = new Map();   // name → project config
 
-// ── Static loader (hot-reload) ────────────────────────────────────────────────
-function loadStatic() {
+// ── Static cache with fs.watch hot-reload ────────────────────────────────────
+// Previously loadStatic() read + parsed projects.json on every getProject() call.
+// Under load this was unnecessary I/O. Now we cache in memory and invalidate
+// only when the file actually changes on disk.
+let   _staticCache     = null;
+let   _watcherStarted  = false;
+
+function startWatcher() {
+    if (_watcherStarted) return;
+    _watcherStarted = true;
     try {
-        return JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
+        fs.watch(projectsPath, () => {
+            _staticCache = null;   // invalidate — next getProject() reloads
+            console.error("[registry] projects.json changed — cache invalidated");
+        });
     } catch {
-        return {};
+        // File may not exist yet; watcher will be retried on next write via saveProject()
     }
+}
+
+function loadStatic() {
+    if (_staticCache) return _staticCache;
+    try {
+        _staticCache = JSON.parse(fs.readFileSync(projectsPath, "utf-8"));
+    } catch {
+        _staticCache = {};
+    }
+    startWatcher();
+    return _staticCache;
 }
 
 // ── Project type → sensible defaults ─────────────────────────────────────────
@@ -193,6 +215,8 @@ export function saveProject(name) {
     const statics = loadStatic();
     statics[name]  = clean;
     fs.writeFileSync(projectsPath, JSON.stringify(statics, null, 2), "utf-8");
+    _staticCache = null;   // force reload on next access
+    startWatcher();        // ensure watcher is running after first write
     console.error(`[registry] Saved project "${name}" to projects.json`);
 }
 

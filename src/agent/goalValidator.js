@@ -1,5 +1,5 @@
 /**
- * Goal Validator — P1 upgrade
+ * Goal Validator
  *
  * Verifies whether the agent achieved its goal after the main loop finishes.
  * Uses ExecutionState and classified intent to emit a structured verdict.
@@ -8,20 +8,16 @@
  * Future iterations can use the verdict to trigger auto-retry.
  */
 
-// ─── Validators by intent ─────────────────────────────────────────────────────
+// ── Validators by intent ──────────────────────────────────────────────────────
 const VALIDATORS = [
     {
         intent: "fix",
         check(execState) {
             const last = execState.lastError();
             if (!last) return { passed: true, reason: "No errors in execution state after run" };
-
-            // Check if the error was from an early step and later steps succeeded
-            const lastErrStep   = last.stepIndex;
-            const totalSteps    = execState.stepCount;
-            const errorClearedByLaterSteps = totalSteps > lastErrStep + 1;
-
-            if (errorClearedByLaterSteps) {
+            const lastErrStep = last.stepIndex;
+            const totalSteps  = execState.stepCount;
+            if (totalSteps > lastErrStep + 1) {
                 return { passed: true, reason: `Error at step ${lastErrStep} appears resolved by later steps` };
             }
             return {
@@ -44,7 +40,7 @@ const VALIDATORS = [
         intent: "ui",
         check(execState) {
             const uiExtensions = [".jsx", ".tsx", ".vue", ".css", ".scss"];
-            const uiFiles      = [...execState.filesModified].filter(f =>
+            const uiFiles = [...execState.filesModified].filter(f =>
                 uiExtensions.some(ext => f.endsWith(ext)) ||
                 /component|page|layout|screen|style/i.test(f)
             );
@@ -90,13 +86,13 @@ const GENERAL_VALIDATOR = {
     }
 };
 
-// ─── Main export ─────────────────────────────────────────────────────────────
+// ── Main exports ──────────────────────────────────────────────────────────────
 
 /**
  * Validate whether the agent goal was achieved.
  *
- * @param {string}         intent    — from classifyIntentFromPrompt()
- * @param {ExecutionState} execState — final state after run
+ * @param {string}         intent    - from classifyIntentFromPrompt()
+ * @param {ExecutionState} execState - final state after run
  * @returns {{ passed: boolean, reason: string, suggest?: string }}
  */
 export function validateGoal(intent, execState) {
@@ -106,16 +102,11 @@ export function validateGoal(intent, execState) {
 
 /**
  * Print the validation result to stderr in a consistent format.
- *
- * @param {string}  intent
- * @param {object}  result   — { passed, reason, suggest? }
  */
 export function logValidation(intent, result) {
-    const icon   = result.passed ? "✅" : "❌";
+    const icon   = result.passed ? "\u2705" : "\u274C";
     const status = result.passed ? "PASSED" : "FAILED";
-
-    console.error(`
-[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
+    console.error(`\n[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
     console.error(`[validator]    Reason: ${result.reason}`);
     if (result.suggest) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
@@ -131,26 +122,17 @@ export function logValidation(intent, result) {
  * @param {MCPClient} mcpClient
  */
 export async function validateWithBuild(project, intent, mcpClient) {
-    // Read-only intents don't need a build check
     if (intent === "general") {
         return { passed: true, reason: "Read-only intent — build check skipped" };
     }
-
     try {
         const result     = await mcpClient.callTool("project_analyze", { project });
-        const resultText = result?.content?.map(c => c.text || "").join("
-") || "";
-        // project_analyze returns:
-        //   "Static analysis passed" when clean
-        //   "Static analysis: N issue(s) found..." when issues exist
-        //   "BUILD SKIPPED" for Java/Kotlin projects
-        // We pass if the output contains a positive signal OR is empty.
+        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
         const isClean    = resultText.trim() === ""
             || /static analysis passed/i.test(resultText)
             || /build skipped/i.test(resultText);
         const hasErrors  = !isClean && /error|warning|failed|cannot find|unresolved|issue.*found/i.test(resultText);
         const passed     = isClean || !hasErrors;
-
         return {
             passed,
             reason: passed
@@ -158,7 +140,6 @@ export async function validateWithBuild(project, intent, mcpClient) {
                 : `Static analysis issues: ${resultText.substring(0, 200)}`
         };
     } catch (err) {
-        // Non-fatal — build check failing shouldn't block the agent
         return { passed: true, reason: `Build check skipped (error: ${err.message})` };
     }
 }

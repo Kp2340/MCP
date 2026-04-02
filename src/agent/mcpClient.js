@@ -1,7 +1,12 @@
 /**
- * src/agent/mcpClient.js  —  In-process MCP tool client (v2)
+ * src/agent/mcpClient.js  —  In-process MCP tool dispatcher (agent-side)
  *
- * Calls tool functions directly in-process — zero spawn overhead, ~50% less RAM.
+ * Used INTERNALLY by the agent loop (agent.js, validationPipeline.js, etc.).
+ * Calls tool handler functions directly in-process — zero HTTP overhead.
+ *
+ * NOT the same as src/client/mcpClient.js, which is the outward-facing HTTP
+ * SDK for external callers (IDE extensions, scripts, teammate tools).
+ *
  * Public API: callTool(name, args) → { content: [{ type, text }] }
  */
 
@@ -28,7 +33,8 @@ import { storeMemory, queryMemory } from "../vector/memory.js";
 import { createLogger } from "../core/logger.js";
 
 const log = createLogger("mcp-client");
-const NL  = "\n";
+const NL  = "
+";
 
 // Ensure result always has { content: [{ type, text }] } shape
 function wrap(result) {

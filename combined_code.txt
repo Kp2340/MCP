@@ -272,6 +272,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
     "chromadb":                  "^3.3.3",
     "cross-env":                 "^7.0.3",
     "express":                   "^4.21.2",
+    "adm-zip":                   "^0.5.16",
     "node-fetch":                "^3.3.2"
   },
   "devDependencies": {
@@ -1639,6 +1640,7 @@ import { embed }                    from "./vector/embedder.js";
 import { storeMemory, queryMemory } from "./vector/memory.js";
 import { config }                   from "./core/config.js";
 import { createLogger }             from "./core/logger.js";
+import { logToolCall, stats as toolStats, recentCalls } from "./core/toolLogger.js";
 import {corsMiddleware} from "./http/cors.js";
 import {authMiddleware, ipAllowlistMiddleware, rateLimitMiddleware} from "./http/auth.js";
 import {attachHealthRoutes} from "./http/healthRoutes.js";
@@ -1659,6 +1661,20 @@ const mcpServer = new Server(
 // ───────────────────────────────────────────────────────────────────────
 // Tool definitions (20 tools)
 // ───────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────
+// Tool call logger helper — wraps every tool dispatch with timing + identity
+// ───────────────────────────────────────────────────────────────────────
+/**
+ * Extract a caller identifier from MCP request metadata.
+ * Falls back through: session ID → client ID → "mcp-client".
+ */
+function getCallerFromRequest(request) {
+    return request?._meta?.sessionId
+        || request?._meta?.clientId
+        || request?.params?._meta?.sessionId
+        || "mcp-client";
+}
+
 mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
         {
@@ -1952,6 +1968,7 @@ Steps:
 // ───────────────────────────────────────────────────────────────────────
 // Tool router
 // ───────────────────────────────────────────────────────────────────────
+// ── CallToolRequestSchema ───────────────────────────────────────────────────────────────────────
 mcpServer.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args = {} } = req.params;
 
@@ -2327,14 +2344,35 @@ Initial Plan:
     // reviewerIssuesInjected: inject issues back into queue only once
     let reviewerIssuesInjected   = false;
 
+    // ── Budget exhaustion notifier ────────────────────────────────────────────
+    // Checks costState.budgetExhausted (set by planner.js) and emits a
+    // user-visible SSE warning so IDE extensions can surface it in the UI.
+    // Declared here so it closes over successfulSteps (defined above).
+    let budgetWarnEmitted = false;
+    const checkAndEmitBudgetWarning = () => {
+        if (!budgetWarnEmitted && costState.budgetExhausted) {
+            budgetWarnEmitted = true;
+            const msg = `⚠️ LLM call budget reached (${MAX_LLM_CALLS_PER_RUN} calls). ` +
+                `Agent finishing with static analysis + build only. ` +
+                `Completed ${successfulSteps} steps. Resubmit for a fresh run if needed.`;
+            console.error(`[agent] ${msg}`);
+            emitStep("budget_warning", msg);
+        }
+    };
+
     collector.startRun(prompt);
 
     while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
 
-        // Token budget check
+        // Emit SSE warning if planner signalled budget exhaustion this iteration
+        checkAndEmitBudgetWarning();
+
+        // Token budget check — emit visible warning when budget is exhausted
         const estTokens = estimatedTokens(costState);
         if (estTokens > MAX_TOTAL_TOKENS_PER_RUN) {
-            console.error(`[agent] ⚠️  Token budget exceeded (~${estTokens} tokens). Stopping.`);
+            const msg = `Token budget exceeded (~${estTokens} tokens). Remaining steps skipped — task may be incomplete.`;
+            console.error(`[agent] ⚠️  ${msg}`);
+            emitStep("budget_exhausted", { reason: msg, llmCalls: costState.llmCalls, stepsSkipped: remainingSteps.length });
             break;
         }
 
@@ -2874,14 +2912,23 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executionState.js
  * WHAT WAS SAID (LLM context).
  */
 
-// ─── Failure classifier ───────────────────────────────────────────────────────
+// ─── Failure classifier ───────────────────────────────────────────────────────────────────────────────
 // Returns a specific failure category instead of relying on generic
 // "includes('error')" checks. The category is used to guide replanning.
 
 const FAILURE_PATTERNS = [
     {
         type:     "import_error",
-        patterns: [/cannot find module/i, /import.*not found/i, /module not found/i, /unresolved import/i]
+        patterns: [
+            /cannot find module/i,
+            /import.*not found/i,
+            /module not found/i,
+            /unresolved import/i,
+            /has no exported member/i,       // TS: Module '...' has no exported member 'X'
+            /failed to resolve import/i,
+            /err_module_not_found/i,
+            /error ts\d+.*cannot find/i
+        ]
     },
     {
         type:     "syntax_error",
@@ -2897,11 +2944,25 @@ const FAILURE_PATTERNS = [
     },
     {
         type:     "not_found",
-        patterns: [/not found/i, /does not exist/i, /no such file/i, /404/]
+        patterns: [
+            /not found/i,
+            /does not exist/i,               // "File does not exist: ..."
+            /no such file/i,
+            /404/,
+            /enoent/i,
+            /file not found/i,
+            /cannot find file/i
+        ]
     },
     {
         type:     "permission_error",
-        patterns: [/permission denied/i, /access denied/i, /forbidden/i, /eacces/i]
+        patterns: [
+            /permission denied/i,
+            /access denied/i,
+            /forbidden/i,
+            /eacces/i,
+            /eperm/i
+        ]
     }
 ];
 
@@ -2909,12 +2970,26 @@ export function classifyFailure(resultText) {
     if (!resultText) return null;
     const lower = resultText.toLowerCase();
 
-    // Quick pre-check — if no failure signals at all, return null
+    // Quick pre-check — if no failure signals at all, return null.
+    // NOTE: must cover ALL pattern categories, not just "error"/"fail":
+    //   - "does not exist" / "enoent" / "no such file" → not_found
+    //   - "eacces" / "permission denied" / "eperm"     → permission_error
+    //   - "has no exported member"                     → import_error (TS)
     const hasFailureSignal =
         lower.includes("error") ||
         lower.includes("fail") ||
         lower.includes("exception") ||
-        lower.includes("not found");
+        lower.includes("not found") ||
+        lower.includes("does not exist") ||
+        lower.includes("no such file") ||
+        lower.includes("enoent") ||
+        lower.includes("eacces") ||
+        lower.includes("eperm") ||
+        lower.includes("permission denied") ||
+        lower.includes("access denied") ||
+        lower.includes("forbidden") ||
+        lower.includes("has no exported member") ||
+        lower.includes("cannot find");
 
     if (!hasFailureSignal) return null;
 
@@ -2927,7 +3002,7 @@ export function classifyFailure(resultText) {
     return "unknown_error";  // failure signal present but unclassified
 }
 
-// ─── File path extractor ─────────────────────────────────────────────────────
+// ─── File path extractor ──────────────────────────────────────────────────────────────────────────
 // Extracts relative file paths mentioned in tool args or result text.
 function extractPathsFromArgs(tool, args) {
     if (!args) return [];
@@ -2938,7 +3013,7 @@ function extractPathsFromArgs(tool, args) {
     return paths;
 }
 
-// ─── ExecutionState class ─────────────────────────────────────────────────────
+// ─── ExecutionState class ───────────────────────────────────────────────────────────────────────
 
 /** Normalize path separators to forward slashes for cross-platform consistency. */
 function normalizePath(p) {
@@ -2959,13 +3034,6 @@ export class ExecutionState {
     }
 
     /**
-     * Update state after a tool call completes.
-     * @param {string} tool        - tool name
-     * @param {object} args        - tool args
-     * @param {string} resultText  - tool result text
-     * @param {number} stepIndex
-     */
-    /**
      * Check if an identical tool call was already made this run.
      * Returns cached result text or null.
      */
@@ -2979,6 +3047,13 @@ export class ExecutionState {
         this._toolCache.set(key, resultText);
     }
 
+    /**
+     * Update state after a tool call completes.
+     * @param {string} tool        - tool name
+     * @param {object} args        - tool args
+     * @param {string} resultText  - tool result text
+     * @param {number} stepIndex
+     */
     recordToolCall(tool, args, resultText, stepIndex) {
         this.stepCount = stepIndex;
         this.toolsUsed.push({ tool, stepIndex });
@@ -3004,8 +3079,6 @@ export class ExecutionState {
                 // CRITICAL: invalidate the read cache for this file.
                 // After a str_replace, the cached content is stale.
                 // The next project_read_files call must hit disk for fresh content.
-                const readCacheKey = `project_read_files::${JSON.stringify({ project: paths[0]?.split?.('/')[0], paths: [p] })}`;
-                // Invalidate any cache entry whose key contains this path
                 for (const key of this._toolCache.keys()) {
                     if (key.includes(`"${p}"`) || key.includes(p)) {
                         this._toolCache.delete(key);
@@ -3077,7 +3150,7 @@ export function formatStateForPrompt(state) {
         lines.push(`Last error: ${last.text.substring(0, 120)}`);
     }
     if (state.toolsUsed.length > 0) {
-        const recent = state.toolsUsed.slice(-4).map(t => t.tool).join(" → ");
+        const recent = state.toolsUsed.slice(-4).map(t => t.tool).join(" \u2192 ");
         lines.push(`Recent tools: ${recent}`);
     }
 
@@ -3407,7 +3480,7 @@ JSON:`;
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\goalValidator.js
 ========================================
 /**
- * Goal Validator — P1 upgrade
+ * Goal Validator
  *
  * Verifies whether the agent achieved its goal after the main loop finishes.
  * Uses ExecutionState and classified intent to emit a structured verdict.
@@ -3416,20 +3489,16 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\goalValidator.js
  * Future iterations can use the verdict to trigger auto-retry.
  */
 
-// ─── Validators by intent ─────────────────────────────────────────────────────
+// ── Validators by intent ──────────────────────────────────────────────────────
 const VALIDATORS = [
     {
         intent: "fix",
         check(execState) {
             const last = execState.lastError();
             if (!last) return { passed: true, reason: "No errors in execution state after run" };
-
-            // Check if the error was from an early step and later steps succeeded
-            const lastErrStep   = last.stepIndex;
-            const totalSteps    = execState.stepCount;
-            const errorClearedByLaterSteps = totalSteps > lastErrStep + 1;
-
-            if (errorClearedByLaterSteps) {
+            const lastErrStep = last.stepIndex;
+            const totalSteps  = execState.stepCount;
+            if (totalSteps > lastErrStep + 1) {
                 return { passed: true, reason: `Error at step ${lastErrStep} appears resolved by later steps` };
             }
             return {
@@ -3452,7 +3521,7 @@ const VALIDATORS = [
         intent: "ui",
         check(execState) {
             const uiExtensions = [".jsx", ".tsx", ".vue", ".css", ".scss"];
-            const uiFiles      = [...execState.filesModified].filter(f =>
+            const uiFiles = [...execState.filesModified].filter(f =>
                 uiExtensions.some(ext => f.endsWith(ext)) ||
                 /component|page|layout|screen|style/i.test(f)
             );
@@ -3498,13 +3567,13 @@ const GENERAL_VALIDATOR = {
     }
 };
 
-// ─── Main export ─────────────────────────────────────────────────────────────
+// ── Main exports ──────────────────────────────────────────────────────────────
 
 /**
  * Validate whether the agent goal was achieved.
  *
- * @param {string}         intent    — from classifyIntentFromPrompt()
- * @param {ExecutionState} execState — final state after run
+ * @param {string}         intent    - from classifyIntentFromPrompt()
+ * @param {ExecutionState} execState - final state after run
  * @returns {{ passed: boolean, reason: string, suggest?: string }}
  */
 export function validateGoal(intent, execState) {
@@ -3514,16 +3583,11 @@ export function validateGoal(intent, execState) {
 
 /**
  * Print the validation result to stderr in a consistent format.
- *
- * @param {string}  intent
- * @param {object}  result   — { passed, reason, suggest? }
  */
 export function logValidation(intent, result) {
-    const icon   = result.passed ? "✅" : "❌";
+    const icon   = result.passed ? "\u2705" : "\u274C";
     const status = result.passed ? "PASSED" : "FAILED";
-
-    console.error(`
-[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
+    console.error(`\n[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
     console.error(`[validator]    Reason: ${result.reason}`);
     if (result.suggest) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
@@ -3539,26 +3603,17 @@ export function logValidation(intent, result) {
  * @param {MCPClient} mcpClient
  */
 export async function validateWithBuild(project, intent, mcpClient) {
-    // Read-only intents don't need a build check
     if (intent === "general") {
         return { passed: true, reason: "Read-only intent — build check skipped" };
     }
-
     try {
         const result     = await mcpClient.callTool("project_analyze", { project });
-        const resultText = result?.content?.map(c => c.text || "").join("
-") || "";
-        // project_analyze returns:
-        //   "Static analysis passed" when clean
-        //   "Static analysis: N issue(s) found..." when issues exist
-        //   "BUILD SKIPPED" for Java/Kotlin projects
-        // We pass if the output contains a positive signal OR is empty.
+        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
         const isClean    = resultText.trim() === ""
             || /static analysis passed/i.test(resultText)
             || /build skipped/i.test(resultText);
         const hasErrors  = !isClean && /error|warning|failed|cannot find|unresolved|issue.*found/i.test(resultText);
         const passed     = isClean || !hasErrors;
-
         return {
             passed,
             reason: passed
@@ -3566,7 +3621,6 @@ export async function validateWithBuild(project, intent, mcpClient) {
                 : `Static analysis issues: ${resultText.substring(0, 200)}`
         };
     } catch (err) {
-        // Non-fatal — build check failing shouldn't block the agent
         return { passed: true, reason: `Build check skipped (error: ${err.message})` };
     }
 }
@@ -3576,9 +3630,14 @@ export async function validateWithBuild(project, intent, mcpClient) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\mcpClient.js
 ========================================
 /**
- * src/agent/mcpClient.js  —  In-process MCP tool client (v2)
+ * src/agent/mcpClient.js  —  In-process MCP tool dispatcher (agent-side)
  *
- * Calls tool functions directly in-process — zero spawn overhead, ~50% less RAM.
+ * Used INTERNALLY by the agent loop (agent.js, validationPipeline.js, etc.).
+ * Calls tool handler functions directly in-process — zero HTTP overhead.
+ *
+ * NOT the same as src/client/mcpClient.js, which is the outward-facing HTTP
+ * SDK for external callers (IDE extensions, scripts, teammate tools).
+ *
  * Public API: callTool(name, args) → { content: [{ type, text }] }
  */
 
@@ -3605,7 +3664,8 @@ import { storeMemory, queryMemory } from "../vector/memory.js";
 import { createLogger } from "../core/logger.js";
 
 const log = createLogger("mcp-client");
-const NL  = "\n";
+const NL  = "
+";
 
 // Ensure result always has { content: [{ type, text }] } shape
 function wrap(result) {
@@ -3697,14 +3757,60 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\ollamaClient.js
 import fetch from "node-fetch";
 import { OLLAMA_HOST, LLM_TEMPERATURE } from "../core/constants.js";
 
-const OLLAMA_URL = `${OLLAMA_HOST}/api/generate`;
+const OLLAMA_URL  = `${OLLAMA_HOST}/api/generate`;
+const OLLAMA_TAGS = `${OLLAMA_HOST}/api/tags`;
+
+// ── Availability cache ────────────────────────────────────────────────────────
+// Checked once at startup and after failures; avoids hammering Ollama when down.
+let _ollamaAvailable = null;   // null = unknown, true/false = cached result
+let _lastCheck       = 0;
+const CHECK_TTL      = 30_000; // re-check every 30 s
 
 /**
- * Call the local Ollama LLM.
+ * Check whether Ollama is reachable and has at least one model loaded.
+ * Result is cached for CHECK_TTL ms.
  *
- * @param {string} model   - model name, e.g. "qwen2.5-coder:7b"
- * @param {string} prompt  - full prompt string
- * @param {object} opts    - optional overrides: temperature, num_predict
+ * @returns {Promise<{ available: boolean, models: string[], error?: string }>}
+ */
+export async function isOllamaAvailable() {
+    const now = Date.now();
+    if (_ollamaAvailable !== null && now - _lastCheck < CHECK_TTL) {
+        return { available: _ollamaAvailable, models: [] };
+    }
+
+    try {
+        const res = await fetch(OLLAMA_TAGS, {
+            signal: AbortSignal.timeout(5_000)
+        });
+        if (!res.ok) {
+            _ollamaAvailable = false;
+            _lastCheck = now;
+            return { available: false, models: [], error: `HTTP ${res.status}` };
+        }
+        const data   = await res.json();
+        const models = (data.models || []).map(m => m.name);
+        _ollamaAvailable = true;
+        _lastCheck = now;
+        return { available: true, models };
+    } catch (err) {
+        _ollamaAvailable = false;
+        _lastCheck = now;
+        return { available: false, models: [], error: err.message };
+    }
+}
+
+/**
+ * Call the local Ollama LLM with exponential backoff retry.
+ *
+ * Retry schedule: 1st retry after 2 s, 2nd after 4 s.
+ * On AbortError (timeout) the backoff doubles each attempt.
+ *
+ * @param {string} model       - model name, e.g. "qwen2.5-coder:7b"
+ * @param {string} prompt      - full prompt string
+ * @param {object} [opts]      - optional overrides
+ * @param {number} [opts.temperature=0.1]
+ * @param {number} [opts.num_predict=2048]
+ * @param {number} [opts.timeout=180000]   - per-attempt timeout in ms
  */
 export async function askLLM(model, prompt, opts = {}) {
     const body = {
@@ -3712,16 +3818,28 @@ export async function askLLM(model, prompt, opts = {}) {
         prompt,
         stream: false,
         options: {
-            temperature: opts.temperature ?? 0.1,   // Low temp = more deterministic JSON
+            temperature: opts.temperature ?? LLM_TEMPERATURE,
             num_predict: opts.num_predict ?? 2048,
             top_p: 0.9
         }
     };
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-        const controller = new AbortController();
-        const timeoutMs  = opts.timeout ?? 180_000;  // 3 min default; caller can override
-        const timer      = setTimeout(() => controller.abort(), timeoutMs);
+    const baseTimeoutMs = opts.timeout ?? 180_000;  // 3 min default
+    const MAX_ATTEMPTS  = 3;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        // Exponential backoff: 2s, 4s (only on retries)
+        if (attempt > 0) {
+            const waitMs = 2_000 * Math.pow(2, attempt - 1);
+            console.warn(`[ollama] Retry ${attempt}/${MAX_ATTEMPTS - 1} in ${waitMs}ms...`);
+            await new Promise(r => setTimeout(r, waitMs));
+        }
+
+        // Slightly increase timeout on retries to tolerate slow cold-starts
+        const timeoutMs   = baseTimeoutMs * (1 + attempt * 0.5);
+        const controller  = new AbortController();
+        const timer       = setTimeout(() => controller.abort(), timeoutMs);
+
         try {
             const res = await fetch(OLLAMA_URL, {
                 method:  "POST",
@@ -3732,21 +3850,58 @@ export async function askLLM(model, prompt, opts = {}) {
             clearTimeout(timer);
 
             if (!res.ok) {
-                throw new Error(`Ollama HTTP ${res.status}`);
+                // Surface the Ollama error body for better diagnostics
+                let errDetail = `HTTP ${res.status}`;
+                try {
+                    const errBody = await res.text();
+                    if (errBody) errDetail += ` — ${errBody.substring(0, 200)}`;
+                } catch { /* ignore */ }
+
+                // 404 usually means the model isn't pulled yet
+                if (res.status === 404) {
+                    throw new Error(
+                        `Ollama model "${model}" not found. ` +
+                        `Run: ollama pull ${model}`
+                    );
+                }
+                throw new Error(`Ollama ${errDetail}`);
             }
 
-            const data = await res.json();
-            return data.response?.trim() ?? "";
+            const data     = await res.json();
+            const response = data.response?.trim() ?? "";
+
+            // Invalidate availability cache on successful call
+            _ollamaAvailable = true;
+            _lastCheck = Date.now();
+
+            // Warn if model returned empty response (common with wrong prompts)
+            if (!response && attempt === MAX_ATTEMPTS - 1) {
+                console.warn(`[ollama] Empty response from model "${model}" (prompt length: ${prompt.length})`);
+            }
+
+            return response;
 
         } catch (err) {
             clearTimeout(timer);
-            const isAbort = err.name === "AbortError";
-            if (attempt === 2) throw new Error(`LLM failed after 3 attempts: ${isAbort ? `timeout after ${timeoutMs}ms` : err.message}`);
-            console.warn(`LLM retry ${attempt + 1}/3... (${isAbort ? "timeout" : err.message})`);
-            await new Promise(r => setTimeout(r, 2000));
+            const isAbort    = err.name === "AbortError";
+            const isLastTry  = attempt === MAX_ATTEMPTS - 1;
+
+            // Mark Ollama unavailable on connection errors (not on timeouts)
+            if (!isAbort && err.code && ["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT"].includes(err.code)) {
+                _ollamaAvailable = false;
+                _lastCheck = Date.now();
+            }
+
+            if (isLastTry) {
+                const reason = isAbort
+                    ? `timeout after ${Math.round(timeoutMs / 1000)}s`
+                    : err.message;
+                throw new Error(`LLM failed after ${MAX_ATTEMPTS} attempts: ${reason}`);
+            }
         }
     }
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\planner.js
@@ -3845,8 +4000,11 @@ async function buildPlannerContext(project, intent = null) {
             const lines = memory
                 .map(m => `  [${m.type || "pattern"}] ${m.pattern || m.text}` +
                     (m.files?.length ? ` (files: ${m.files.slice(0, 3).join(", ")})` : ""))
-                .join("\n");
-            memoryContext = `\nKnown architecture patterns for this project:\n${lines}\n`;
+                .join("");
+            memoryContext = `
+Known architecture patterns for this project:
+${lines}
+`;
         }
     }
     return { projects, memoryContext };
@@ -3919,16 +4077,18 @@ export async function createPlan(prompt, project = null, costState = null, retri
     if (activeError && activeErrorType && DETERMINISTIC_RECOVERY_TOOLS[activeErrorType]) {
         console.error(`[planner] ⚡ HARD OVERRIDE: active ${activeErrorType} — forcing deterministic plan (no LLM)`);
         const toolSteps = DETERMINISTIC_RECOVERY_TOOLS[activeErrorType](project || "unknown", execState);
-        return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("\n");
+        return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("");
     }
 
     // Heuristic (0 LLM)
     const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
-    if (heuristicSteps) return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+    if (heuristicSteps) return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("");
 
-    // Cost guard
+    // Cost guard — surface to user via costState.budgetExhausted flag so
+    // agent.js can emit a visible SSE warning instead of silently degrading.
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
         console.error("[planner] LLM call budget exhausted — using minimal fallback plan");
+        costState.budgetExhausted = true;  // agent.js reads this to emit user-visible warning
         return "1. Run static analysis\n2. Run build and fix";
     }
 
@@ -3945,7 +4105,9 @@ Available projects: ${projects}
 Current project: ${project || "unknown"}
 
 ${memoryContext}
-${stateBlock ? `Execution state so far:\n${stateBlock}\n` : ""}
+${stateBlock ? `Execution state so far:
+${stateBlock}
+` : ""}
 
 ${TOOL_REFERENCE}
 
@@ -3967,7 +4129,10 @@ export async function updatePlan(
     originalPrompt, remainingSteps, executionContext,
     errorType, project, costState, retrieverIntent, execState
 ) {
-    if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) return null;
+    if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
+        costState.budgetExhausted = true;
+        return null;
+    }
 
     const { memoryContext } = await buildPlannerContext(project, retrieverIntent);
     if (costState) costState.llmCalls++;
@@ -3985,7 +4150,7 @@ ${stateBlock}
 Error type: ${errorType}
 
 Remaining steps (now possibly invalid):
-${remainingSteps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join("\n") || "none"}
+${remainingSteps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join("") || "none"}
 
 Recent context:
 ${executionContext.substring(executionContext.length - 1500)}
@@ -3996,10 +4161,10 @@ Output ONLY numbered steps to recover and complete. Maximum 5 steps. No explanat
 
     try {
         const raw   = await askLLM(MODEL, replanPrompt, { temperature: 0.1, num_predict: 300 });
-        const lines = raw.split("\n")
+        const lines = raw.split("")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4);
-        return lines.length > 0 ? lines.join("\n") : null;
+        return lines.length > 0 ? lines.join("") : null;
     } catch (err) {
         console.error("[planner] updatePlan error:", err.message);
         return null;
@@ -4310,7 +4475,10 @@ const MAX_SNIPPET = 600;
 const MAX_RESULTS = 5;
 const FETCH_N     = 10;
 
-let indexing = false;
+// NOTE: the old module-level `indexing = false` flag was a concurrency bug:
+// if two concurrent retrievals both found a missing index, the second one
+// would skip indexing (flag already true) and then fail on queryCodebase again.
+// Replaced by per-project deduplication in runIndexCore.js via requestDeduplicator.
 
 // ─── Intent rules (shared with memory filtering) ─────────────────────────────────
 const INTENT_RULES = [
@@ -4391,7 +4559,8 @@ function deduplicate(docs, threshold = 0.8) {
 
 // ─── Compressor ──────────────────────────────────────────────────────────────
 function compress(doc) {
-    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "\n..." : doc || "";
+    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "
+..." : doc || "";
 }
 
 // ─── ExecutionState-aware scoring helpers ────────────────────────────────────
@@ -4441,16 +4610,27 @@ export async function retrieveContext(prompt, project = null, execState = null) 
         let docs;
         try {
             docs = await queryCodebase(embedding, project, FETCH_N);
-        } catch {
-            if (project && !indexing) {
-                indexing = true;
-                console.error("\n[retriever] Vector index missing. Building automatically...\n");
-                const config = getProject(project);
-                await indexProject(config.root, project);
-                console.error("\n[retriever] Vector index built.\n");
-                indexing = false;
+        } catch (err) {
+            // Vector index missing or ChromaDB hiccup — build/rebuild automatically.
+            // indexProject() is deduplicated internally: concurrent calls for the same
+            // project share one build instead of launching parallel rebuilds.
+            if (project) {
+                console.error("
+[retriever] Vector index missing or stale — rebuilding automatically...
+");
+                const projConfig = getProject(project);
+                await indexProject(projConfig.root, project);
+                console.error("
+[retriever] Vector index rebuilt.
+");
             }
-            docs = await queryCodebase(embedding, project, FETCH_N);
+            // Retry once after rebuild; if it still fails, return empty context
+            try {
+                docs = await queryCodebase(embedding, project, FETCH_N);
+            } catch (retryErr) {
+                console.error("[retriever] Index rebuild did not resolve query error:", retryErr.message);
+                return "";
+            }
         }
 
         if (!docs || docs.length === 0) return "";
@@ -4470,7 +4650,11 @@ export async function retrieveContext(prompt, project = null, execState = null) 
 
         useful.sort((a, b) => b.score - a.score);
         const unique = deduplicate(useful.map(s => s.doc));
-        return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
+        return unique.slice(0, MAX_RESULTS).map(compress).join("
+
+---
+
+");
 
     } catch (err) {
         console.error("[retriever] Error:", err.message);
@@ -4667,21 +4851,39 @@ function verifyStrReplace(toolCall, projectName) {
         // Check 1: exact match
         if (content.includes(edit.search)) continue;  // ✔ found
 
-        // Check 2: whitespace-normalised match (common LLM mistake: extra spaces, \r\n vs \n)
-        const normaliseWs = s => s.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ");
+        // Check 2: whitespace-normalised match (common LLM mistake: extra spaces, \r
+ vs 
+)
+        // AUTO-CORRECT: instead of failing, extract the verbatim string from the file
+        // and patch the edit in-place so the tool call can proceed without a re-read.
+        const normaliseWs = s => s.replace(/\r
+/g, "
+").replace(/[ 	]+/g, " ");
         const normContent  = normaliseWs(content);
         const normSearch   = normaliseWs(edit.search);
         if (normContent.includes(normSearch)) {
-            // It's a whitespace mismatch — auto-correct the search string
-            // Find the actual text in the file that matches after normalisation
-            const idx       = normContent.indexOf(normSearch);
-            const actualStr = content.substring(idx, idx + edit.search.length + 20);
-            failures.push(`Whitespace mismatch in ${edit.path}. Actual content near match: ${JSON.stringify(actualStr.substring(0, 80))}`);
-            continue;
+            const idx         = normContent.indexOf(normSearch);
+            // Measure the real span in the original (non-normalised) content.
+            // Walk forward from idx until we have accumulated the same number of
+            // non-whitespace characters as normSearch contains.
+            const targetNonWs = normSearch.replace(/\s/g, "").length;
+            let collected = 0;
+            let end = idx;
+            while (end < content.length && collected < targetNonWs) {
+                if (!/\s/.test(content[end])) collected++;
+                end++;
+            }
+            // Extend to include trailing whitespace so replace boundaries are clean
+            while (end < content.length && /[ 	]/.test(content[end])) end++;
+            const actualStr = content.substring(idx, end);
+            console.error(`[self-critique] ⚡ Auto-correcting whitespace mismatch in ${edit.path} (${edit.search.length}→${actualStr.length} chars)`);
+            edit.search = actualStr;   // mutate in-place — caller receives corrected args
+            continue;                  // ✔ corrected, no failure
         }
 
         // Check 3: first line match (maybe the search has extra context at the end)
-        const firstLine = edit.search.split("\n")[0].trim();
+        const firstLine = edit.search.split("
+")[0].trim();
         if (firstLine.length > 10 && content.includes(firstLine)) {
             failures.push(
                 `Search string not found verbatim in ${edit.path}, ` +
@@ -4693,7 +4895,9 @@ function verifyStrReplace(toolCall, projectName) {
 
         failures.push(
             `Search string not found in ${edit.path}. ` +
-            `Search started with: "${edit.search.substring(0, 60).replace(/\n/g, "\\n")}". ` +
+            `Search started with: "${edit.search.substring(0, 60).replace(/
+/g, "\
+")}". ` +
             `The file was likely modified since last read. Re-read it first.`
         );
     }
@@ -4701,7 +4905,8 @@ function verifyStrReplace(toolCall, projectName) {
     if (failures.length > 0) {
         return {
             ok: false,
-            reason: failures.join("\n"),
+            reason: failures.join("
+"),
             suggestion: `Call project_read_files on the affected file(s) first to get current content, then retry str_replace.`
         };
     }
@@ -4794,7 +4999,8 @@ export async function selfCritique(toolCall, step, projectName, costState, useLL
     if (tool === "project_str_replace") {
         const check = verifyStrReplace(toolCall, projectName);
         if (!check.ok) {
-            console.error(`[self-critique] ❌ str_replace pre-check failed:\n${check.reason}`);
+            console.error(`[self-critique] ❌ str_replace pre-check failed:
+${check.reason}`);
             return check;
         }
         console.error("[self-critique] ✔ str_replace search strings verified");
@@ -4808,12 +5014,21 @@ export async function selfCritique(toolCall, step, projectName, costState, useLL
         }
     }
 
-    // ── LLM semantic check (optional, costs 1 LLM call) ──────────────────────
-    if (useLLM && ["project_str_replace", "project_apply_changes"].includes(tool)) {
+    // ── LLM semantic check ────────────────────────────────────────────────────
+    // Runs automatically (not gated by useLLM flag) when:
+    //   - tool is apply_changes (full file write — higher risk than str_replace)
+    //   - OR caller explicitly requests it via useLLM=true
+    //   - AND budget has at least 3 calls remaining (preserves recovery headroom)
+    const shouldRunLLM = (
+        tool === "project_apply_changes" || useLLM
+    ) && costState.llmCalls < 27;  // 30 total − 3 reserved = 27 threshold
+
+    if (shouldRunLLM) {
         const { ok, issues } = await llmCritique(toolCall, step, costState);
         if (!ok && issues.length > 0) {
             console.error(`[self-critique] ⚠ LLM critique: ${issues.join("; ")}`);
-            return { ok: false, reason: issues.join("\n"), suggestion: "Review the tool call arguments." };
+            return { ok: false, reason: issues.join("
+"), suggestion: "Review the tool call arguments." };
         }
     }
 
@@ -5321,8 +5536,10 @@ export async function runValidationPipeline(
     const build = await validateWithBuild(project, intent, mcpClient);
 
     // 3. Reviewer (LLM, gated by budget + file modification count)
+    // Threshold lowered from 2 → 1: single-file changes are the most common case
+    // and the ones most likely to introduce subtle logic errors.
     let reviewer = null;
-    if (execState.filesModified.size >= 2) {
+    if (execState.filesModified.size >= 1) {
         reviewer = await reviewChanges(project, prompt, execState, costState, executionContext);
     }
 
@@ -5332,7 +5549,8 @@ export async function runValidationPipeline(
 
     // Log unified summary
     const icon = passed ? "✅" : "❌";
-    console.error(`\n[pipeline] ${icon} Final validation: heuristic=${heuristic.passed}, build=${build.passed}${reviewer ? `, reviewer=${reviewer.verdict}` : ""}`);
+    console.error(`
+[pipeline] ${icon} Final validation: heuristic=${heuristic.passed}, build=${build.passed}${reviewer ? `, reviewer=${reviewer.verdict}` : ""}`);
     if (issues.length > 0) {
         console.error(`[pipeline] ⚠ Reviewer issues (${issues.length}): ${issues.slice(0, 3).join(" | ")}`);
     }
@@ -5896,9 +6114,14 @@ export async function runAutoFix(projectName) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\client\mcpClient.js
 ========================================
 /**
- * MCP Client SDK
- * Zero external dependencies — works in Node.js and browser.
- * Connects to any AI Dev MCP server over HTTP.
+ * src/client/mcpClient.js  —  HTTP SDK for external callers
+ *
+ * Used by IDE extensions, scripts, and teammate tools to talk to a
+ * remote AI Dev MCP server over HTTP. Zero external dependencies.
+ * Works in both Node.js and browsers.
+ *
+ * NOT the same as src/agent/mcpClient.js, which is the internal in-process
+ * dispatcher used by the agent loop itself.
  */
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -6395,7 +6618,7 @@ export const config = {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\constants.js
 ========================================
-// ── Model config — env-driven values delegate to config.js (single source of truth)
+// Model config
 import { config } from "./config.js";
 export const LLM_MODEL          = config.LLM_MODEL;
 export const LLM_TEMPERATURE    = 0.1;
@@ -6403,19 +6626,19 @@ export const OLLAMA_HOST        = config.OLLAMA_HOST;
 export const CHROMA_HOST        = config.CHROMA_HOST;
 export const CHROMA_PORT        = config.CHROMA_PORT;
 
-// ── Embedding model versioning — bump when swapping models to avoid stale vectors
+// Embedding model versioning
 export const EMBEDDING_MODEL    = "Xenova/all-MiniLM-L6-v2";
-export const EMBEDDING_VERSION  = "v1";  // appended to collection names
+export const EMBEDDING_VERSION  = "v1";
 
-// ── Dynamic num_predict budgets per call type ──────────────────────────────
+// Dynamic num_predict budgets per call type
 export const NUM_PREDICT = {
-    planner:    600,
-    executor:   512,
+    planner:        600,
+    executor:       512,
     executor_apply: 2048,
-    compressor: 400,
-    reviewer:   300,
-    memory:     120,
-    autofix:    4096
+    compressor:     400,
+    reviewer:       300,
+    memory:         120,
+    autofix:        4096
 };
 
 export const IGNORE_FOLDERS = [
@@ -6443,33 +6666,36 @@ export const INDEXABLE_EXTENSIONS = [
 export const MAX_FILE_SIZE     = 12000;
 export const BUILD_TIMEOUT_MS  = 120000;
 
-// ── Memory layer ───────────────────────────────────────────────────────
+// Memory layer
 export const MEMORY_COLLECTION_PREFIX = "memory_";
 export const MEMORY_MAX_RESULTS       = 3;
 export const MEMORY_MAX_SNIPPET       = 400;
+// Cap on how many entries are fetched in a single memory.get() call.
+// Prevents OOM on large collections (fixes memory query performance issue).
+export const MEMORY_QUERY_LIMIT       = 50;
 
-// ── Context compression ───────────────────────────────────────────────
+// Context compression
 export const COMPRESS_EVERY_N_STEPS = 3;
 export const COMPRESS_MAX_CHARS     = 6000;
 
-// ── Cost-aware agent ──────────────────────────────────────────────────
+// Cost-aware agent
 export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
 
 export const CHARS_PER_TOKEN = 4;
 
-// ── Memory eviction ─────────────────────────────────────────────────────
-export const MEMORY_MAX_ENTRIES       = 200;
-export const MEMORY_EVICT_BATCH       = 20;
+// Memory eviction
+export const MEMORY_MAX_ENTRIES = 200;
+export const MEMORY_EVICT_BATCH = 20;
 
-// ── Syntax batch check ──────────────────────────────────────────────────
-export const SYNTAX_BATCH_SIZE        = 50;
+// Syntax batch check
+export const SYNTAX_BATCH_SIZE = 50;
 
-// ── Incremental index ────────────────────────────────────────────────────
-export const INDEX_CACHE_FILE         = ".ai-dev-index-cache.json";
+// Incremental index
+export const INDEX_CACHE_FILE = ".ai-dev-index-cache.json";
 
-// ── Tool-chain templates ────────────────────────────────────────────────
+// Tool-chain templates
 // projectTypes: null = works for ANY project type
 export const TOOL_CHAIN_TEMPLATES = [
     {
@@ -6501,8 +6727,18 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "add_api",
-        keywords:    ["add api", "new endpoint", "add route", "create endpoint", "add service method", "implement api", "similar api"],
-        projectTypes: null,   // was spring-boot/liferay/nodejs — now works for ALL
+        keywords:    [
+            "add api", "new endpoint", "add route", "create endpoint",
+            "add service method", "implement api", "similar api",
+            "endpoint",     // standalone -- lets multi-word prompts score >=2
+            "add endpoint", // covers "add a new endpoint" after stem expansion
+            "service",      // covers "user service", "api service"
+            "controller",   // covers Spring/Express controllers
+            "handler",
+            "rest api",
+            "graphql"
+        ],
+        projectTypes: null,
         intent:      "api",
         steps: [
             "Find the relevant controller or service symbol",
@@ -6558,9 +6794,6 @@ export const TOOL_CHAIN_TEMPLATES = [
     },
     {
         name:        "read_only",
-        // IMPORTANT: keywords must be specific enough to never match action prompts.
-        // 'explain', 'how does', 'describe' are safe — they signal read-only intent.
-        // 'analyze', 'show me', 'what is' are removed — too generic, match fix tasks.
         keywords:    ["explain", "how does", "describe", "walk me through", "what does", "find api"],
         projectTypes: null,
         intent:      "general",
@@ -6613,19 +6846,57 @@ export const TOOL_CHAIN_TEMPLATES = [
     }
 ];
 
-// ── Keyword synonyms for heuristic planner (stem → canonical) ────────────────
+// Keyword synonyms for heuristic planner (stem -> canonical)
+// Maps gerund / past-tense / plural / British variant forms to the canonical
+// keyword that appears in TOOL_CHAIN_TEMPLATES.keywords so stem normalisation fires.
 export const KEYWORD_STEMS = {
-    "creating": "create",
-    "adding":   "add",
-    "fixing":   "fix",
-    "building": "build",
-    "updating": "update",
-    "deleting": "delete",
-    "removing": "remove",
-    "refactoring": "refactor",
-    "renaming":  "rename",
-    "testing":   "test",
-    "analyzing": "analyze"
+    // core CRUD verbs
+    "creating":     "create",
+    "created":      "create",
+    "adding":       "add",
+    "added":        "add",
+    "fixing":       "fix",
+    "fixed":        "fix",
+    "building":     "build",
+    "built":        "build",
+    "updating":     "update",
+    "updated":      "update",
+    "deleting":     "delete",
+    "deleted":      "delete",
+    "removing":     "remove",
+    "removed":      "remove",
+    "refactoring":  "refactor",
+    "refactored":   "refactor",
+    "renaming":     "rename",
+    "renamed":      "rename",
+    "testing":      "test",
+    "tested":       "test",
+    "analyzing":    "analyze",
+    "analysing":    "analyze",
+    "analysed":     "analyze",
+    "analyzed":     "analyze",
+    // API-specific aliases
+    "endpoints":    "endpoint",
+    "routes":       "route",
+    "services":     "service",
+    "controllers":  "controller",
+    "handlers":     "handler",
+    "implementing": "implement",
+    "implemented":  "implement",
+    // migration aliases
+    "migrating":    "migration",
+    "migrations":   "migration",
+    "columns":      "column",
+    "tables":       "table",
+    // test aliases
+    "tests":        "test",
+    "specs":        "test",
+    "spec":         "test",
+    // explain / describe aliases
+    "explaining":   "explain",
+    "described":    "describe",
+    "describing":   "describe",
+    "finding":      "find",
 };
 
 
@@ -7048,6 +7319,242 @@ export function listDynamicProjects() {
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\toolLogger.js
+========================================
+/**
+ * src/core/toolLogger.js
+ *
+ * Tool Execution Logger
+ *
+ * Logs every MCP tool call with:
+ *   - WHO  called it  (session ID / IP / caller header)
+ *   - WHICH tool      (tool name + args summary)
+ *   - WHEN            (ISO timestamp)
+ *   - HOW LONG        (duration in ms)
+ *   - RESULT STATUS   (success / error + reason)
+ *
+ * Output destinations:
+ *   1. stderr (coloured, human-readable)
+ *   2. JSONL file at data/tool-logs/tool-execution.jsonl (structured)
+ *
+ * API surface:
+ *   toolLogger.wrap(toolFn, toolName)  → wrapped async function
+ *   toolLogger.stats()                 → aggregated stats object
+ *   toolLogger.recentCalls(n)          → last n log entries
+ */
+
+import fs   from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname  = path.dirname(fileURLToPath(import.meta.url));
+const LOG_DIR    = path.join(__dirname, "../../data/tool-logs");
+const LOG_FILE   = path.join(LOG_DIR, "tool-execution.jsonl");
+const MAX_IN_MEM = 500;   // rolling in-memory buffer for stats/recent
+
+// Ensure log directory exists
+try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch { /* ignore */ }
+
+// ─── In-memory ring buffer ────────────────────────────────────────────────────────────────────────
+/** @type {Array<ToolLogEntry>} */
+const ring = [];
+
+/**
+ * @typedef {Object} ToolLogEntry
+ * @property {string}  timestamp   - ISO 8601
+ * @property {string}  tool        - tool name
+ * @property {string}  caller      - session/IP identifier
+ * @property {object}  argsSummary - first-level args keys + sizes
+ * @property {number}  durationMs  - wall-clock duration
+ * @property {boolean} success     - true if no exception thrown
+ * @property {string}  [error]     - error message on failure
+ * @property {number}  [resultBytes] - approximate result size
+ */
+
+// ─── ANSI colour helpers (stderr only) ───────────────────────────────────────────────────────────────────
+const C = {
+    reset:  "\x1b[0m",
+    green:  "\x1b[32m",
+    red:    "\x1b[31m",
+    yellow: "\x1b[33m",
+    cyan:   "\x1b[36m",
+    grey:   "\x1b[90m",
+    bold:   "\x1b[1m"
+};
+const NO_COLOR = process.env.NO_COLOR || process.env.CI;
+const c = (code, s) => (NO_COLOR ? s : `${code}${s}${C.reset}`);
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────────────────────
+
+/** Redact secrets from args before logging */
+const SENSITIVE_KEYS = new Set(["password", "token", "secret", "key", "auth", "apikey"]);
+function sanitizeArgs(args) {
+    if (!args || typeof args !== "object") return args;
+    const out = {};
+    for (const [k, v] of Object.entries(args)) {
+        if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+            out[k] = "[REDACTED]";
+        } else if (typeof v === "string" && v.length > 120) {
+            out[k] = v.slice(0, 80) + `…(${v.length}ch)`;
+        } else if (Array.isArray(v)) {
+            out[k] = `[Array(${v.length})]`;
+        } else {
+            out[k] = v;
+        }
+    }
+    return out;
+}
+
+/** Format duration nicely */
+function fmtDuration(ms) {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+}
+
+/** Write one JSONL line to the log file (non-blocking, best-effort) */
+function writeToFile(entry) {
+    try {
+        fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
+    } catch { /* log write failures must never crash the server */ }
+}
+
+/** Append entry to the ring buffer (evict oldest if full) */
+function pushToRing(entry) {
+    ring.push(entry);
+    if (ring.length > MAX_IN_MEM) ring.shift();
+}
+
+/** Print one log line to stderr */
+function printToStderr(entry) {
+    const icon    = entry.success ? c(C.green, "✓") : c(C.red, "✗");
+    const tool    = c(C.bold + C.cyan, entry.tool);
+    const caller  = c(C.grey, `by ${entry.caller}`);
+    const dur     = c(entry.durationMs > 5000 ? C.yellow : C.grey, fmtDuration(entry.durationMs));
+    const size    = entry.resultBytes !== undefined ? c(C.grey, ` → ${(entry.resultBytes / 1024).toFixed(1)}KB`) : "";
+    const errPart = entry.error ? c(C.red, ` ERROR: ${entry.error.slice(0, 100)}`) : "";
+    process.stderr.write(`[TOOL] ${icon} ${tool} ${caller} in ${dur}${size}${errPart}\n`);
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Wrap a tool handler function with automatic logging.
+ *
+ * @param {Function} toolFn   - async (args, callerCtx) => result
+ * @param {string}   toolName - display name for logs
+ * @returns {Function}         wrapped function with same signature
+ */
+export function wrapTool(toolFn, toolName) {
+    return async function wrappedTool(args, callerCtx = {}) {
+        const caller    = callerCtx.caller || callerCtx.ip || callerCtx.sessionId || "unknown";
+        const startedAt = Date.now();
+        let result, success = true, error = undefined, resultBytes = undefined;
+
+        try {
+            result      = await toolFn(args, callerCtx);
+            resultBytes = Buffer.byteLength(JSON.stringify(result ?? ""), "utf8");
+        } catch (err) {
+            success = false;
+            error   = err?.message || String(err);
+            throw err;   // re-throw so MCP framework still handles it
+        } finally {
+            const durationMs = Date.now() - startedAt;
+            /** @type {ToolLogEntry} */
+            const entry = {
+                timestamp:   new Date().toISOString(),
+                tool:        toolName,
+                caller,
+                argsSummary: sanitizeArgs(args),
+                durationMs,
+                success,
+                ...(error       !== undefined ? { error }       : {}),
+                ...(resultBytes !== undefined ? { resultBytes } : {})
+            };
+            printToStderr(entry);
+            writeToFile(entry);
+            pushToRing(entry);
+        }
+
+        return result;
+    };
+}
+
+/**
+ * Log a tool call from the MCP request handler directly (no wrapper needed).
+ * Use this when you want fine-grained control over when the log entry fires.
+ *
+ * @param {string}  toolName
+ * @param {object}  args
+ * @param {string}  caller     - session/IP string
+ * @param {number}  startedAt  - Date.now() before the call
+ * @param {boolean} success
+ * @param {string}  [error]
+ * @param {number}  [resultBytes]
+ */
+export function logToolCall({ toolName, args, caller, startedAt, success, error, resultBytes }) {
+    const durationMs = Date.now() - startedAt;
+    const entry = {
+        timestamp:   new Date().toISOString(),
+        tool:        toolName,
+        caller:      caller || "unknown",
+        argsSummary: sanitizeArgs(args),
+        durationMs,
+        success,
+        ...(error       !== undefined ? { error }       : {}),
+        ...(resultBytes !== undefined ? { resultBytes } : {})
+    };
+    printToStderr(entry);
+    writeToFile(entry);
+    pushToRing(entry);
+}
+
+/**
+ * Aggregate statistics for the last `windowMs` milliseconds.
+ * @param {number} [windowMs=3600000]  default = last 1 hour
+ */
+export function stats(windowMs = 3_600_000) {
+    const cutoff  = Date.now() - windowMs;
+    const entries = ring.filter(e => new Date(e.timestamp).getTime() >= cutoff);
+    if (entries.length === 0) return { totalCalls: 0, tools: {} };
+
+    const byTool = {};
+    for (const e of entries) {
+        if (!byTool[e.tool]) byTool[e.tool] = { calls: 0, errors: 0, totalMs: 0, callers: new Set() };
+        byTool[e.tool].calls++;
+        byTool[e.tool].totalMs += e.durationMs;
+        if (!e.success) byTool[e.tool].errors++;
+        if (e.caller) byTool[e.tool].callers.add(e.caller);
+    }
+
+    const tools = {};
+    for (const [name, d] of Object.entries(byTool)) {
+        tools[name] = {
+            calls:       d.calls,
+            errors:      d.errors,
+            successRate: `${(((d.calls - d.errors) / d.calls) * 100).toFixed(1)}%`,
+            avgMs:       Math.round(d.totalMs / d.calls),
+            uniqueCallers: d.callers.size
+        };
+    }
+
+    return {
+        windowHours: (windowMs / 3_600_000).toFixed(1),
+        totalCalls:  entries.length,
+        totalErrors: entries.filter(e => !e.success).length,
+        tools
+    };
+}
+
+/**
+ * Return the last n log entries (newest first).
+ * @param {number} [n=20]
+ */
+export function recentCalls(n = 20) {
+    return ring.slice(-n).reverse();
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\validator.js
 ========================================
 import path from "path";
@@ -7260,17 +7767,26 @@ const PUBLIC_PATHS = new Set(["/health", "/health/", "/sse", "/message"]);
 
 // ── Rate limit state ──────────────────────────────────────────────────────────
 const rateLimitMap = new Map();
+const WINDOW_MS    = 60_000;
+
+// Evict stale entries every 10 minutes to prevent unbounded memory growth.
+// An entry is stale when its window expired more than 2x ago (safe margin).
+setInterval(() => {
+    const cutoff = Date.now() - WINDOW_MS * 2;
+    for (const [user, entry] of rateLimitMap) {
+        if (entry.windowStart < cutoff) rateLimitMap.delete(user);
+    }
+}, 10 * 60_000).unref();
 
 function checkRateLimit(user) {
-    const now      = Date.now();
-    const windowMs = 60_000;
-    const max      = config.RATE_LIMIT_PER_MIN;
+    const now = Date.now();
+    const max = config.RATE_LIMIT_PER_MIN;
     if (!rateLimitMap.has(user)) {
         rateLimitMap.set(user, { count: 1, windowStart: now });
         return true;
     }
     const entry = rateLimitMap.get(user);
-    if (now - entry.windowStart > windowMs) {
+    if (now - entry.windowStart > WINDOW_MS) {
         entry.count = 1; entry.windowStart = now;
         return true;
     }
@@ -7408,11 +7924,15 @@ import os   from "os";
 import fs   from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { ChromaClient } from "chromadb";
 import { getQueueStatus } from "./queue.js";
 import { listProjects }   from "../core/projectRegistry.js";
 import { TrainingCollector } from "../training/collector.js";
 import { config }         from "../core/config.js";
 import { createLogger }   from "../core/logger.js";
+import { stats as toolStats, recentCalls } from "../core/toolLogger.js";
+import { CHROMA_HOST, CHROMA_PORT, OLLAMA_HOST } from "../core/constants.js";
+import { isOllamaAvailable }                      from "../agent/ollamaClient.js";
 
 const log       = createLogger("health");
 const startedAt = Date.now();
@@ -7465,6 +7985,76 @@ export function attachHealthRoutes(app) {
     });
 
     log.info("Health route attached: GET /health");
+
+    // ── GET /api/tool-stats ───────────────────────────────────────────────────────────────────────────
+    // Aggregated stats for tool calls in the last N hours (default 1).
+    // Query param: ?hours=N  (min 0.016 = 1 min, max 48)
+    // No auth required — same pattern as /health (monitoring tools need this).
+    app.get("/api/tool-stats", (req, res) => {
+        try {
+            const hours    = parseFloat(req.query.hours ?? "1");
+            const windowMs = Math.min(Math.max(hours * 3_600_000, 60_000), 48 * 3_600_000);
+            const s        = toolStats(windowMs);
+            res.json({
+                windowHours:  s.windowHours,
+                totalCalls:   s.totalCalls,
+                totalErrors:  s.totalErrors,
+                tools:        s.tools,
+                recent:       recentCalls(20)
+            });
+        } catch (err) {
+            log.error("Tool stats error:", err.message);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    log.info("Tool stats route attached: GET /api/tool-stats");
+
+    // -- GET /api/health/deep --------------------------------------------------
+    // Deep liveness check: probes ChromaDB heartbeat + Ollama /api/tags.
+    // Slightly slower than /health (makes real network calls to dependencies).
+    // Use for monitoring dashboards, not in hot paths.
+    app.get("/api/health/deep", async (_req, res) => {
+        const results = {
+            chromadb: { status: "unknown", latencyMs: null },
+            ollama:   { status: "unknown", latencyMs: null, models: [] }
+        };
+
+        // Check ChromaDB
+        try {
+            const chromaClient = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
+            const t0 = Date.now();
+            await chromaClient.heartbeat();
+            results.chromadb = { status: "healthy", latencyMs: Date.now() - t0 };
+        } catch (err) {
+            results.chromadb = { status: "unhealthy", error: err.message, latencyMs: null };
+        }
+
+        // Check Ollama via shared client (consistent with LLM call path)
+        try {
+            const t0 = Date.now();
+            const ollamaStatus = await isOllamaAvailable();
+            const ms = Date.now() - t0;
+            results.ollama = ollamaStatus.available
+                ? { status: "healthy",   latencyMs: ms, models: ollamaStatus.models }
+                : { status: "unhealthy", latencyMs: ms, error: ollamaStatus.error || "unreachable", models: [] };
+        } catch (err) {
+            results.ollama = { status: "unhealthy", latencyMs: null, error: err.message, models: [] };
+        }
+
+        const allHealthy = results.chromadb.status === "healthy" &&
+                           results.ollama.status   === "healthy";
+
+        res.status(allHealthy ? 200 : 503).json({
+            status:    allHealthy ? "healthy" : "degraded",
+            timestamp: new Date().toISOString(),
+            version:   VERSION,
+            services:  results,
+            projects:  listProjects().length
+        });
+    });
+
+    log.info("Deep health check route attached: GET /api/health/deep");
 }
 
 
@@ -7501,6 +8091,13 @@ import { createCheckpoint }           from "../git/checkpoint.js";
 
 const log = createLogger("job-routes");
 
+/**
+ * Wraps an async route handler so any rejected promise is forwarded to
+ * Express's next(err) — caught by the global error handler in startHttpServer.
+ * Without this wrapper, async throws in route handlers crash silently.
+ */
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 export function attachJobRoutes(app) {
 
     // ── POST /run ──────────────────────────────────────────────────────────────
@@ -7514,7 +8111,7 @@ export function attachJobRoutes(app) {
     // Legacy field:  { prompt: "...", path: "/abs/path" } ← still accepted but
     //                the basename is used ONLY to look up a pre-registered project;
     //                the path itself is NEVER used as a filesystem root.
-    app.post("/run", async (req, res) => {
+    app.post("/run", asyncRoute(async (req, res) => {
         const {prompt, project: projectParam, path: legacyPath} = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
@@ -7600,7 +8197,7 @@ export function attachJobRoutes(app) {
             statusUrl: `/status/${job.id}`,
             diffUrl: `/diff/${job.id}`
         });
-    });
+    }));
 
     // ── GET /status/:id ────────────────────────────────────────────────────────
     app.get("/status/:id", (req, res) => {
@@ -7659,7 +8256,7 @@ data: ${JSON.stringify(job)}
     // ── GET /diff/:id ──────────────────────────────────────────────────────────
     // Returns the git diff of the last commit made by a completed job.
     // IDE extensions call this to populate the Accept/Reject review panel.
-    app.get("/diff/:id", (req, res) => {
+    app.get("/diff/:id", asyncRoute(async (req, res) => {
         const job = getJob(req.params.id);
         if (!job) return res.status(404).json({ error: `Job ${req.params.id} not found` });
         if (job.status !== "completed") {
@@ -7691,13 +8288,13 @@ data: ${JSON.stringify(job)}
             log.error(`GET /diff/${req.params.id} error: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
-    });
+    }));
 
     // ── POST /revert/:id ───────────────────────────────────────────────────────
     // Reverts the last commit made by a job using git revert (safe) or git reset.
     // Default: git revert HEAD --no-edit  (creates an undo commit, preserves history)
     // ?hard=true: git reset --hard HEAD~1  (destructive — only if caller confirms)
-    app.post("/revert/:id", (req, res) => {
+    app.post("/revert/:id", asyncRoute(async (req, res) => {
         const job = getJob(req.params.id);
         if (!job) return res.status(404).json({ error: `Job ${req.params.id} not found` });
         if (job.status !== "completed") {
@@ -7738,7 +8335,7 @@ data: ${JSON.stringify(job)}
             log.error(`POST /revert/${req.params.id} error: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
-    });
+    }));
 
     // ── POST /cancel/:id ───────────────────────────────────────────────────────
     // Cancel a queued (pending) job before it starts.
@@ -7921,6 +8518,7 @@ import { SSEServerTransport }            from "@modelcontextprotocol/sdk/server/
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createLogger }                  from "../core/logger.js";
 import { config }                        from "../core/config.js";
+import { logToolCall }                   from "../core/toolLogger.js";
 
 const log = createLogger("mcp-router");
 
@@ -7943,6 +8541,40 @@ export function attachMcpRoutes(app, mcpServer) {
     // enableJsonResponse:true makes every response immediate JSON — no open connections.
     // sessionIdGenerator:undefined = stateless, no Mcp-Session-Id tracking.
     app.post("/mcp", async (req, res) => {
+        // ── Tool Logger: intercept JSON-RPC tools/call before SDK dispatch ───────────────
+        // This is the cleanest hook point: body is parsed, transport not yet started.
+        // Captures: WHO (caller IP / session), WHICH tool, WHEN, HOW LONG, result status.
+        const body       = req.body || {};
+        const isToolCall = body.method === "tools/call";
+        const toolName   = isToolCall ? (body.params?.name   ?? "unknown") : null;
+        const toolArgs   = isToolCall ? (body.params?.arguments ?? {})     : null;
+        const caller     = req.headers["mcp-session-id"]
+            || req.headers["x-session-id"]
+            || req.headers["x-forwarded-for"]?.split(",")[0].trim()
+            || req.ip
+            || "http-client";
+        const startedAt  = isToolCall ? Date.now() : null;
+
+        if (isToolCall) {
+            // Monkey-patch res.json to capture the response payload after dispatch
+            const origJson = res.json.bind(res);
+            res.json = function loggedJson(payload) {
+                res.json = origJson;   // restore before calling original (re-entrant safety)
+                const rpcErr = payload?.error;
+                logToolCall({
+                    toolName,
+                    args:        toolArgs,
+                    caller,
+                    startedAt,
+                    success:     !rpcErr,
+                    error:       rpcErr ? `[${rpcErr.code}] ${rpcErr.message}` : undefined,
+                    resultBytes: Buffer.byteLength(JSON.stringify(payload ?? ""), "utf8")
+                });
+                return origJson(payload);
+            };
+        }
+        // ───────────────────────────────────────────────────────────────────────
+
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
             enableJsonResponse:  true,
@@ -7952,6 +8584,10 @@ export function attachMcpRoutes(app, mcpServer) {
             await mcpServer.connect(transport);
             await transport.handleRequest(req, res, req.body);
         } catch (err) {
+            if (isToolCall) {
+                // Transport-level crash: log the failure before re-throwing
+                logToolCall({ toolName, args: toolArgs, caller, startedAt, success: false, error: err.message });
+            }
             log.error("/mcp error:", err.message);
             if (!res.headersSent) res.status(500).json({
                 jsonrpc: "2.0",
@@ -8349,6 +8985,8 @@ export function startHttpServer(mcpServer) {
         log.info(`  MCP HTTP:  http://localhost:${config.PORT}/mcp`);
         log.info(`  MCP SSE:   http://localhost:${config.PORT}/sse`);
         log.info(`  Health:    http://localhost:${config.PORT}/health`);
+        log.info(`  Deep diag: http://localhost:${config.PORT}/api/health/deep`);
+        log.info(`  Tool stats:http://localhost:${config.PORT}/api/tool-stats`);
         log.info(`  Projects:  http://localhost:${config.PORT}/api/projects`);
     });
 
@@ -8405,6 +9043,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\startupChecks.js
 import os   from "os";
 import { config } from "../core/config.js";
 import { createLogger } from "../core/logger.js";
+import { isOllamaAvailable } from "../agent/ollamaClient.js";
 
 const log = createLogger("startup");
 
@@ -8422,7 +9061,7 @@ function getNetworkIp() {
     return null;
 }
 
-export function runStartupChecks() {
+export async function runStartupChecks() {
     const networkIp = getNetworkIp();
     const isExposed = networkIp !== null;  // machine has at least one non-loopback interface
 
@@ -8457,6 +9096,22 @@ export function runStartupChecks() {
     if (collectEnabled) {
         log.info("Training data collection ENABLED — successful runs will be logged to data/training/runs.jsonl");
     }
+
+    // ── Ollama liveness probe (async, non-blocking) ──────────────────────────────────
+    isOllamaAvailable().then(({ available, models, error }) => {
+        if (available) {
+            log.info(`Ollama reachable at ${config.OLLAMA_HOST}`);
+            if (models.length > 0) {
+                log.info(`  Available models: ${models.join(", ")}`);
+            } else {
+                log.warn(`  No models found. Run: ollama pull qwen2.5-coder:7b`);
+            }
+        } else {
+            log.warn(`Ollama NOT reachable at ${config.OLLAMA_HOST} — agent will fail when LLM is needed.`);
+            if (error) log.warn(`  Error: ${error}`);
+            log.warn(`  Make sure Ollama is running: ollama serve`);
+        }
+    }).catch(err => log.warn(`Ollama probe failed: ${err.message}`));
 
     // ── Summary line ───────────────────────────────────────────────────────────────────────────────────
     log.info(`AI Dev MCP server started | transport=${config.TRANSPORT} | port=${config.PORT} | cors=${config.CORS_ORIGIN} | auth=${hasKeys ? "enabled" : "disabled"}`);
@@ -8809,8 +9464,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\workspaceRoutes.js
 import fs           from "fs";
 import path         from "path";
 import { fileURLToPath } from "url";
-import { spawnSync }     from "child_process";
-import { createWriteStream, createReadStream } from "fs";
+import AdmZip            from "adm-zip";
 import { registerDynamicProject }  from "../core/projectRegistry.js";
 import { config }                  from "../core/config.js";
 import { createLogger }            from "../core/logger.js";
@@ -8832,31 +9486,18 @@ function userWorkspaceDir(user, project) {
 }
 
 function safeExtract(zipPath, destDir) {
-    // Use Node's built-in or system unzip.
-    // On Windows, PowerShell Expand-Archive is universally available.
+    // adm-zip: pure JS, works on Windows, Linux, macOS, and Docker.
     fs.mkdirSync(destDir, { recursive: true });
-    const result = spawnSync(
-        "powershell",
-        ["-NoProfile", "-Command",
-         `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${destDir}'`],
-        { encoding: "utf8", timeout: 30_000 }
-    );
-    if (result.status !== 0) {
-        throw new Error(`Unzip failed: ${(result.stderr || result.stdout || "").trim()}`);
-    }
+    const zip = new AdmZip(zipPath);
+    // extractAllTo overwrites existing files and handles nested folders.
+    zip.extractAllTo(destDir, true);
 }
 
 function createZip(sourceDir, zipPath) {
-    // PowerShell Compress-Archive — available on all Windows 10+ machines
-    const result = spawnSync(
-        "powershell",
-        ["-NoProfile", "-Command",
-         `Compress-Archive -Force -Path '${sourceDir}\\*' -DestinationPath '${zipPath}'`],
-        { encoding: "utf8", timeout: 60_000 }
-    );
-    if (result.status !== 0) {
-        throw new Error(`Zip failed: ${(result.stderr || result.stdout || "").trim()}`);
-    }
+    const zip = new AdmZip();
+    // addLocalFolder adds all files under sourceDir preserving relative paths.
+    zip.addLocalFolder(sourceDir);
+    zip.writeZip(zipPath);
 }
 
 function walkFiles(dir, base) {
@@ -8877,6 +9518,13 @@ function walkFiles(dir, base) {
 
 // ── route attachment ──────────────────────────────────────────────────────────
 
+/**
+ * Wraps an async route handler so any rejected promise is forwarded to
+ * Express's next(err) — caught by the global error handler in startHttpServer.
+ * Without this, async throws in route handlers crash silently in Express 4.
+ */
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 export function attachWorkspaceRoutes(app) {
 
     // ── POST /workspace/push ─────────────────────────────────────────────────
@@ -8885,7 +9533,7 @@ export function attachWorkspaceRoutes(app) {
     //
     // The client sends a zip of the project root. We extract it into
     // data/workspaces/<user>/<project>/ and register it in the project registry.
-    app.post("/workspace/push", async (req, res) => {
+    app.post("/workspace/push", asyncRoute(async (req, res) => {
         const user    = req.user || "anonymous";
         const project = (req.query.project || req.headers["x-project"] || "").trim()
             .replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
@@ -8948,7 +9596,7 @@ export function attachWorkspaceRoutes(app) {
         } finally {
             try { fs.unlinkSync(tmpZip); } catch {}
         }
-    });
+    }));
 
     // ── GET /workspace/pull/:project ─────────────────────────────────────────
     // Returns the current workspace as a zip file.
@@ -9143,6 +9791,7 @@ import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
 import { validateChangeRequest, sanitizeCommitMessage } from "../core/validator.js";
 import { createLogger } from "../core/logger.js";
+import { findDependents } from "../analysis/symbolGraph.js";
 
 const log = createLogger("apply-changes");
 
@@ -9151,7 +9800,7 @@ function getNextBranch(root, prefix) {
     const branches = result.stdout || "";
     let max = 0;
     const regex = new RegExp(`${prefix}-(\\d+)`);
-    branches.split("\n").forEach(b => {
+    branches.split(" ").forEach(b => {
         const clean = b.replace("*", "").trim();
         const m = clean.match(regex);
         if (m) {
@@ -9210,8 +9859,25 @@ export function applyChanges({ project, files, commitMessage, increment }) {
         throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
     }
 
+    // Impact analysis: surface files that import any of the written files
+    const impactLines = [];
+    try {
+        const writtenPaths = files.map(f => f.path.replace(/\\/g, "/"));
+        const allAffected  = new Set();
+        for (const filePath of writtenPaths) {
+            findDependents(project, filePath, 2).forEach(f => allAffected.add(f));
+        }
+        writtenPaths.forEach(f => allAffected.delete(f));
+        if (allAffected.size > 0) {
+            impactLines.push(`
+Impact analysis — files that import the written file(s):`);
+            [...allAffected].slice(0, 8).forEach(f => impactLines.push(`  - ${f}`));
+            if (allAffected.size > 8) impactLines.push(`  ... and ${allAffected.size - 8} more`);
+        }
+    } catch { /* impact analysis is best-effort, never block the commit */ }
+
     return {
-        content: [{ type: "text", text: `Changes committed: ${safeMessage}` }]
+        content: [{ type: "text", text: `Changes committed: ${safeMessage}${impactLines.join(" ")}` }]
     };
 }
 
@@ -9608,10 +10274,20 @@ export async function registerProject({ name, path: rootPath, type, persist = fa
     }
 
     // SECURITY GATE 3: if ALLOWED_ROOTS is set, path must be within those roots.
+    // Use case-insensitive comparison on Windows, forward-slash normalised everywhere.
     if (config.ALLOWED_ROOTS.length > 0) {
-        const allowed = config.ALLOWED_ROOTS.some(r =>
-            resolvedRoot === r || resolvedRoot.startsWith(r + path.sep)
-        );
+        const isWindows   = process.platform === "win32";
+        const normTarget  = resolvedRoot.replace(/\\/g, "/");
+        const normCompare = (p) => {
+            const s = path.resolve(p).replace(/\\/g, "/");
+            return isWindows ? s.toLowerCase() : s;
+        };
+        const normTargetCmp = isWindows ? normTarget.toLowerCase() : normTarget;
+
+        const allowed = config.ALLOWED_ROOTS.some(r => {
+            const nr = normCompare(r);
+            return normTargetCmp === nr || normTargetCmp.startsWith(nr + "/");
+        });
         if (!allowed) {
             log.warn(`project_register blocked: "${resolvedRoot}" is outside ALLOWED_ROOTS [${config.ALLOWED_ROOTS.join(", ")}]`);
             throw new Error(
@@ -9723,30 +10399,7 @@ import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
 import { validatePath, sanitizeCommitMessage } from "../core/validator.js";
 import { createLogger } from "../core/logger.js";
-
-const log = createLogger("str-replace");
-
-function hasChanges(root) {
-    const r = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
-    return (r.stdout || "").trim().length > 0;
-}
-
-/**
- * Normalize a string for comparison.
- * - Convert CRLF -> LF
- * - Convert JSON-escaped newlines (\\n from LLM output) -> real newlines
- * - Convert JSON-escaped tabs (\\t) -> real tabs
- * - Do NOT trim — trimming causes false "not found" when search string
- *   starts or ends with meaningful whitespace/indentation.
- */
-function normalize(s) {
-    return s
-        .replace(/\r\n/g, "\n")  // Windows CRLF
-        .replace(/\r/g, "\n")    // old Mac CR
-        .replace(/\\n/g, "\n")   // JSON-escaped newline from LLM
-        .replace(/\\t/g, "\t");  // JSON-escaped tab from LLM
-}
-
+import { findDependents } from "../analysis/symbolGraph.js";
 /**
  * Fuzzy line-by-line match fallback.
  *
@@ -9761,8 +10414,8 @@ function normalize(s) {
  *  - Minor LLM paraphrasing of whitespace
  */
 function fuzzyLineMatch(fileContent, searchStr) {
-    const fileLines   = fileContent.split("\n");
-    const searchLines = searchStr.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0);
+    const fileLines   = fileContent.split("\n");                                        // FIX: was split("")
+    const searchLines = searchStr.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0); // FIX: was split("")
 
     if (searchLines.length === 0) return null;
     // Only attempt fuzzy match for multi-line searches (single-line false positives are too risky)
@@ -9780,10 +10433,35 @@ function fuzzyLineMatch(fileContent, searchStr) {
             // Return the exact slice from the file (preserves original whitespace/endings)
             const startLine = i;
             const endLine   = i + searchLines.length - 1;
-            return fileLines.slice(startLine, endLine + 1).join("\n");
+            return fileLines.slice(startLine, endLine + 1).join("\n");                  // FIX: was join("")
         }
     }
     return null;
+}
+
+
+const log = createLogger("str-replace");
+
+function hasChanges(root) {
+    const r = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+    return (r.stdout || "").trim().length > 0;
+}
+
+/**
+ * Normalize a string for comparison.
+ * - Convert CRLF -> LF
+ * - Convert JSON-escaped newlines (\n from LLM output) -> real newlines
+ * - Convert JSON-escaped tabs (\t) -> real tabs
+ * - Do NOT trim — trimming causes false "not found" when search string
+ *   starts or ends with meaningful whitespace/indentation.
+ * - Do NOT strip backslashes or collapse spaces — that destroys code content.
+ */
+function normalize(s) {
+    return s
+        .replace(/\r\n/g, "\n")                 // CRLF -> LF
+        .replace(/\r/g, "\n")                   // bare CR -> LF
+        .replace(/\\n/g, "\n")                  // FIX: JSON-escaped newline -> real newline
+        .replace(/\\t/g, "\t");                 // FIX: JSON-escaped tab -> real tab
 }
 
 /**
@@ -9866,16 +10544,15 @@ export function projectStrReplace({ project, edits, commitMessage }) {
                 effectiveSearch = fuzzyMatch;
             } else {
                 // Both exact and fuzzy failed — give rich diagnostic for LLM retry
-                const searchLines  = normalizedSearch.split("\n");
+                const searchLines  = normalizedSearch.split("\n");                      // FIX: was split("")
                 const firstLine    = searchLines[0].trim();
                 const hintIdx      = normalizedFile.indexOf(firstLine);
                 const hint = hintIdx !== -1
-                    ? `\nFirst line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"`
-                    : "\nNo partial match found — the file may have changed since it was read.";
-
+                    ? `\nFirst line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"` // FIX: was /n/g
+                    : "No partial match found — the file may have changed since it was read.";
                 throw new Error(
                     `Search string not found in "${relativePath}".\n` +
-                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
+                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` + // FIX: was /\n/g missing escape
                     hint +
                     `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`
                 );
@@ -9914,11 +10591,32 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
     }
 
+    // Impact analysis: find all files that import any of the edited files.
+    // Surfaced in the tool result so the agent knows what else may need updating.
+    const impactLines = [];
+    try {
+        const editedFiles = edits.map(e => e.path.replace(/\\/g, "/"));
+        const allAffected = new Set();
+        for (const editedFile of editedFiles) {
+            const dependents = findDependents(project, editedFile, 2);
+            dependents.forEach(f => allAffected.add(f));
+        }
+        // Remove the files we just edited from the affected set
+        editedFiles.forEach(f => allAffected.delete(f));
+        if (allAffected.size > 0) {
+            impactLines.push(`\nImpact analysis — files that import the edited file(s):`);
+            [...allAffected].slice(0, 8).forEach(f => impactLines.push(`  - ${f}`));
+            if (allAffected.size > 8) impactLines.push(`  ... and ${allAffected.size - 8} more`);
+            log.info(`Impact: ${allAffected.size} file(s) import edited file(s)`);
+        }
+    } catch (impactErr) {
+        log.warn(`Impact analysis skipped: ${impactErr.message}`);
+    }
+
     return {
-        content: [{ type: "text", text: `str-replace applied:\n${results.join("\n")}` }]
+        content: [{ type: "text", text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}` }]
     };
 }
-
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectSymbolGraph.js
@@ -10761,6 +11459,239 @@ export function printStats() {
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\training\formatter.js
+========================================
+/**
+ * src/training/formatter.js
+ *
+ * Converts raw agent run data (runs.jsonl) into clean fine-tuning datasets.
+ *
+ * Two output formats:
+ *   1. hf_chat   — Hugging Face messages format (default, for Unsloth/TRL)
+ *   2. alpaca    — Alpaca instruction format (for llama.cpp / older pipelines)
+ *
+ * Usage:
+ *   node src/training/formatter.js [--format hf_chat|alpaca] [--min-quality 0.7]
+ *
+ * Filters applied:
+ *   - Write-tool examples only (apply_changes, str_replace, apply_patch)
+ *   - Minimum quality score (computed from tool type + context length + dedup)
+ *   - De-duplication using fingerprint field from collector
+ *   - Maximum context length guard (prevents oversized training examples)
+ *
+ * Output:
+ *   src/training/dataset/train.jsonl    — training split (80%)
+ *   src/training/dataset/eval.jsonl     — eval split (20%)
+ *   src/training/dataset/stats.json     — dataset statistics
+ */
+
+import fs   from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname     = path.dirname(fileURLToPath(import.meta.url));
+const DATASET_DIR   = path.join(__dirname, "dataset");
+const INPUT_FILE    = path.join(DATASET_DIR, "runs.jsonl");
+const TRAIN_FILE    = path.join(DATASET_DIR, "train.jsonl");
+const EVAL_FILE     = path.join(DATASET_DIR, "eval.jsonl");
+const STATS_FILE    = path.join(DATASET_DIR, "stats.json");
+
+// Write tools produce the training signal we care about
+const WRITE_TOOLS = new Set([
+    "project_apply_changes",
+    "project_str_replace",
+    "project_apply_patch"
+]);
+
+// Max chars per user message before it's considered too noisy
+const MAX_USER_CHARS = 4000;
+
+// ── Quality scorer ────────────────────────────────────────────────────────────
+
+/**
+ * Score an example 0.0–1.0. Higher = better training signal.
+ * Criteria:
+ *   - Is a write tool (essential): +0.5
+ *   - Context is non-trivial (> 200 chars): +0.2
+ *   - Short context (< 500 chars, may be shallow): –0.1
+ *   - str_replace (most precise tool): +0.15
+ *   - apply_changes (full file, less precise): +0.1
+ *   - Apply patch (targeted): +0.12
+ *   - User message not too long (< MAX_USER_CHARS): +0.15
+ */
+function scoreExample(example) {
+    const meta = example._meta || {};
+    let score = 0;
+
+    if (meta.isWrite)             score += 0.5;
+
+    const userMsg = example.messages?.find(m => m.role === "user")?.content || "";
+    const ctxLen  = userMsg.length;
+
+    if (ctxLen > 200)             score += 0.2;
+    if (ctxLen < 500)             score -= 0.1;
+    if (ctxLen > MAX_USER_CHARS)  score -= 0.3;  // too noisy
+
+    const tool = meta.tool || "";
+    if (tool === "project_str_replace")    score += 0.15;
+    if (tool === "project_apply_changes")  score += 0.10;
+    if (tool === "project_apply_patch")    score += 0.12;
+
+    return Math.max(0, Math.min(1, score));
+}
+
+// ── Format converters ─────────────────────────────────────────────────────────
+
+/**
+ * Hugging Face chat format — what Unsloth + TRL expects.
+ * Each example is already in messages format; we just validate and re-emit.
+ */
+function toHFChat(example) {
+    return {
+        messages: example.messages,
+        _meta:    example._meta
+    };
+}
+
+/**
+ * Alpaca instruction format:
+ *   { instruction, input, output }
+ * For older pipelines that don't support chat format.
+ */
+function toAlpaca(example) {
+    const system  = example.messages?.find(m => m.role === "system")?.content  || "";
+    const user    = example.messages?.find(m => m.role === "user")?.content    || "";
+    const asst    = example.messages?.find(m => m.role === "assistant")?.content || "";
+    return {
+        instruction: system,
+        input:       user,
+        output:      asst,
+        _meta:       example._meta
+    };
+}
+
+// ── Main pipeline ─────────────────────────────────────────────────────────────
+
+export function formatDataset(opts = {}) {
+    const format     = opts.format     || "hf_chat";
+    const minQuality = opts.minQuality ?? 0.6;
+    const verbose    = opts.verbose    ?? true;
+
+    if (!fs.existsSync(INPUT_FILE)) {
+        throw new Error(
+            `No training data found at ${INPUT_FILE}\n` +
+            "Run the agent with COLLECT_TRAINING_DATA=1 to collect examples first."
+        );
+    }
+
+    const raw = fs.readFileSync(INPUT_FILE, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line, i) => {
+            try   { return JSON.parse(line); }
+            catch { if (verbose) console.warn(`[formatter] Skipping malformed line ${i + 1}`); return null; }
+        })
+        .filter(Boolean);
+
+    if (verbose) console.log(`[formatter] Loaded ${raw.length} raw examples`);
+
+    // Step 1: deduplicate by fingerprint
+    const seenFingerprints = new Set();
+    const deduped = raw.filter(ex => {
+        const fp = ex._meta?.fingerprint;
+        if (!fp) return true;  // no fingerprint → keep
+        if (seenFingerprints.has(fp)) return false;
+        seenFingerprints.add(fp);
+        return true;
+    });
+    if (verbose) console.log(`[formatter] After dedup: ${deduped.length} examples`);
+
+    // Step 2: quality filter
+    const scored = deduped
+        .map(ex => ({ ex, score: scoreExample(ex) }))
+        .filter(({ score }) => score >= minQuality);
+    if (verbose) console.log(`[formatter] After quality filter (>=${minQuality}): ${scored.length} examples`);
+
+    // Step 3: context length guard
+    const sizeFiltered = scored.filter(({ ex }) => {
+        const userMsg = ex.messages?.find(m => m.role === "user")?.content || "";
+        return userMsg.length <= MAX_USER_CHARS;
+    });
+    if (verbose) console.log(`[formatter] After size filter: ${sizeFiltered.length} examples`);
+
+    // Step 4: convert to target format
+    const converter = format === "alpaca" ? toAlpaca : toHFChat;
+    const converted = sizeFiltered.map(({ ex, score }) => ({
+        ...converter(ex),
+        _quality: parseFloat(score.toFixed(3))
+    }));
+
+    // Step 5: shuffle then split 80/20
+    const shuffled = converted.sort(() => Math.random() - 0.5);
+    const splitIdx = Math.floor(shuffled.length * 0.8);
+    const train    = shuffled.slice(0, splitIdx);
+    const evalSet  = shuffled.slice(splitIdx);
+
+    // Step 6: write outputs
+    fs.mkdirSync(DATASET_DIR, { recursive: true });
+    fs.writeFileSync(TRAIN_FILE, train.map(e => JSON.stringify(e)).join("\n") + "\n", "utf8");
+    fs.writeFileSync(EVAL_FILE,  evalSet.map(e => JSON.stringify(e)).join("\n") + "\n", "utf8");
+
+    // Step 7: write stats
+    const toolCounts = {};
+    converted.forEach(ex => {
+        const tool = ex._meta?.tool || "unknown";
+        toolCounts[tool] = (toolCounts[tool] || 0) + 1;
+    });
+    const avgQuality = converted.length > 0
+        ? (converted.reduce((s, e) => s + (e._quality || 0), 0) / converted.length).toFixed(3)
+        : 0;
+
+    const stats = {
+        generatedAt:   new Date().toISOString(),
+        format,
+        rawExamples:   raw.length,
+        afterDedup:    deduped.length,
+        afterQuality:  sizeFiltered.length,
+        trainExamples: train.length,
+        evalExamples:  evalSet.length,
+        avgQuality,
+        toolCounts,
+        minQuality,
+        outputFiles: { train: TRAIN_FILE, eval: EVAL_FILE }
+    };
+    fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2), "utf8");
+
+    if (verbose) {
+        console.log("\n[formatter] ✅ Dataset ready:");
+        console.log(`  Train: ${train.length} examples → ${TRAIN_FILE}`);
+        console.log(`  Eval:  ${evalSet.length} examples → ${EVAL_FILE}`);
+        console.log(`  Avg quality score: ${avgQuality}`);
+        console.log(`  Tool breakdown: ${JSON.stringify(toolCounts)}`);
+    }
+
+    return stats;
+}
+
+// ── CLI entry point ───────────────────────────────────────────────────────────
+
+if (process.argv[1] && process.argv[1].includes("formatter")) {
+    const args       = process.argv.slice(2);
+    const fmtIdx     = args.indexOf("--format");
+    const qualIdx    = args.indexOf("--min-quality");
+    const format     = fmtIdx !== -1     ? args[fmtIdx + 1]     : "hf_chat";
+    const minQuality = qualIdx !== -1    ? parseFloat(args[qualIdx + 1]) : 0.6;
+
+    try {
+        formatDataset({ format, minQuality });
+    } catch (err) {
+        console.error("[formatter] Error:", err.message);
+        process.exit(1);
+    }
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\utils\fileUtils.js
 ========================================
 import fs from "fs";
@@ -10852,6 +11783,91 @@ export function safeParse(text) {
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\utils\requestDeduplicator.js
+========================================
+/**
+ * src/utils/requestDeduplicator.js
+ *
+ * Request Deduplicator
+ *
+ * Prevents duplicate concurrent async operations from running in parallel.
+ * If two callers fire the same key at the same time, the second one receives
+ * the same promise as the first — the underlying function runs exactly once.
+ *
+ * Typical use cases in this codebase:
+ *   - Concurrent semantic search calls with identical embeddings
+ *   - Multiple callers triggering project_index simultaneously
+ *   - Parallel memory queries on the same project + prompt
+ *
+ * Usage:
+ *   import { deduplicate } from "../utils/requestDeduplicator.js";
+ *
+ *   export async function queryCodebase(embedding, project, nResults = 6) {
+ *       const key = `query:${project}:${embedding.slice(0, 4).join(",")}`;
+ *       return deduplicate(key, () => _doQuery(embedding, project, nResults));
+ *   }
+ *
+ * The key is a string that uniquely identifies the logical operation.
+ * Build it from the function name + the arguments that determine the result.
+ * Keep the key short — it is only held in memory for the duration of the call.
+ *
+ * Thread safety: Node.js is single-threaded, so Map operations are atomic.
+ * The only race condition possible is micro-task interleaving inside `await`,
+ * which this module handles correctly via the Map lookup-before-set pattern.
+ */
+
+/** @type {Map<string, Promise<any>>} */
+const inFlight = new Map();
+
+/**
+ * Execute asyncFn if no identical key is already in-flight.
+ * If one is, return the existing promise instead of starting a new call.
+ *
+ * @template T
+ * @param {string}           key      - Deduplication key
+ * @param {() => Promise<T>} asyncFn  - Factory that produces the promise
+ * @returns {Promise<T>}
+ */
+export function deduplicate(key, asyncFn) {
+    if (inFlight.has(key)) {
+        // A call with this exact key is already running — share its promise.
+        return inFlight.get(key);
+    }
+
+    // Start the call and register it before any await point
+    const promise = asyncFn().finally(() => {
+        // Remove from map once settled (success OR error)
+        inFlight.delete(key);
+    });
+
+    inFlight.set(key, promise);
+    return promise;
+}
+
+/**
+ * Return the number of currently in-flight deduplicated calls.
+ * Useful for monitoring / tests.
+ */
+export function inFlightCount() {
+    return inFlight.size;
+}
+
+/**
+ * Build a short, stable deduplication key from a project name + query embedding.
+ * Uses only the first 6 dimensions for performance — enough to distinguish queries.
+ *
+ * @param {string}   project
+ * @param {number[]} embedding
+ * @param {number}   [nResults]
+ * @returns {string}
+ */
+export function makeEmbedKey(project, embedding, nResults = 6) {
+    const prefix = embedding.slice(0, 6).map(v => v.toFixed(4)).join(",");
+    return `embed:${project}:${nResults}:${prefix}`;
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\embedder.js
 ========================================
 import { pipeline } from "@xenova/transformers";
@@ -10859,30 +11875,44 @@ import { EMBEDDING_MODEL } from "../core/constants.js";
 
 let embedder = null;
 
-// ─── Batch embed queue ───────────────────────────────────────────────────────
+// ─── Batch embed queue ───────────────────────────────────────────────────────────────────────────
 // Coalesces multiple embed() calls that arrive in the same tick into one
 // model invocation — cuts latency when memory + retriever both embed in parallel.
 let batchQueue   = [];
 let batchTimer   = null;
-const BATCH_DELAY = 8;  // ms — collect calls within this window
+let isFlushing   = false;  // guard: prevents re-entrant / overlapping flushes
+const BATCH_DELAY = 8;     // ms — collect calls within this window
 
 function flushBatch() {
     batchTimer = null;
+    if (isFlushing) {
+        // A flush is already in-flight. Re-arm so items added during the flush
+        // are picked up once the current batch completes.
+        if (batchQueue.length > 0) batchTimer = setTimeout(flushBatch, BATCH_DELAY);
+        return;
+    }
     const items = batchQueue.splice(0);
     if (items.length === 0) return;
 
+    isFlushing = true;
     // Fire one combined embed call for all queued texts
     getEmbedder().then(model => {
         const texts = items.map(i => i.text);
         return model(texts, { pooling: "mean", normalize: true });
     }).then(output => {
-        // output.data is flat [n_items × dim] — split per item
+        // output.data is flat Float32Array [n_items × dim] — split per item
         const dim = output.data.length / items.length;
         items.forEach((item, i) => {
             item.resolve(Array.from(output.data.slice(i * dim, (i + 1) * dim)));
         });
     }).catch(err => {
         items.forEach(item => item.reject(err));
+    }).finally(() => {
+        isFlushing = false;
+        // Flush any items that queued up while we were busy
+        if (batchQueue.length > 0 && !batchTimer) {
+            batchTimer = setTimeout(flushBatch, BATCH_DELAY);
+        }
     });
 }
 
@@ -10904,6 +11934,7 @@ export function embed(text) {
         if (!batchTimer) batchTimer = setTimeout(flushBatch, BATCH_DELAY);
     });
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\indexCodebase.js
@@ -10967,6 +11998,7 @@ import {
     MEMORY_MAX_SNIPPET,
     MEMORY_MAX_ENTRIES,
     MEMORY_EVICT_BATCH,
+    MEMORY_QUERY_LIMIT,
     CHROMA_HOST,
     CHROMA_PORT,
     EMBEDDING_VERSION
@@ -11008,8 +12040,9 @@ async function evictIfNeeded(collection) {
         const count = await collection.count();
         if (count <= MEMORY_MAX_ENTRIES) return;
 
-        // Fetch all metadatas to find lowest confidence × recency score
-        const all  = await collection.get({ include: ["metadatas"] });
+        // Fetch a capped sample of metadatas to find lowest confidence x recency score.
+        // MEMORY_QUERY_LIMIT prevents unbounded memory fetch on large collections.
+        const all  = await collection.get({ include: ["metadatas"], limit: MEMORY_QUERY_LIMIT });
         const now  = Date.now();
         const scored = (all.ids || []).map((id, i) => {
             const meta  = all.metadatas?.[i] || {};
@@ -11204,37 +12237,75 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\vector\queryCodebase.js
 ========================================
 import { ChromaClient } from "chromadb";
 import { CHROMA_HOST, CHROMA_PORT, EMBEDDING_VERSION } from "../core/constants.js";
+import { deduplicate, makeEmbedKey } from "../utils/requestDeduplicator.js";
 
 const client = new ChromaClient({ host: CHROMA_HOST, port: CHROMA_PORT });
 let cache  = {};
+let lastHeartbeat    = 0;
+const HEARTBEAT_TTL  = 30_000;  // re-check ChromaDB liveness every 30 s
+
+/**
+ * Periodically verify ChromaDB is still reachable.
+ * On failure: wipe the entire collection cache so the next call gets fresh handles.
+ */
+async function ensureConnected() {
+    const now = Date.now();
+    if (now - lastHeartbeat < HEARTBEAT_TTL) return;   // still fresh
+    try {
+        await client.heartbeat();
+        lastHeartbeat = now;
+    } catch (err) {
+        console.error("[queryCodebase] ChromaDB heartbeat failed, invalidating collection cache:", err.message);
+        cache = {};            // drop all stale handles
+        lastHeartbeat = now;   // prevent retry storm
+    }
+}
 
 async function getCollection(project) {
+    await ensureConnected();   // health-gate before every lookup
+
     if (cache[project]) return cache[project];
+
     // Versioned name matches the indexer — prevents querying stale vectors after model upgrade
-    const name     = `codebase_${project}_${EMBEDDING_VERSION}`;
+    const name = `codebase_${project}_${EMBEDDING_VERSION}`;
     try {
+        // Verify the collection actually exists before fetching
+        const collections = await client.listCollections();
+        const exists = collections.find(c => c.name === name);
+        if (!exists) {
+            throw new Error(
+                `Vector index not found for project "${project}". ` +
+                `Run: node src/vector/runIndex.js ${project}`
+            );
+        }
         cache[project] = await client.getCollection({ name });
         return cache[project];
     } catch (err) {
-        delete cache[project];
+        delete cache[project];   // never cache a failed lookup
         throw err;
     }
 }
 
 /**
  * Query the codebase vector collection.
+ * Concurrent calls with the same embedding+project+nResults share one ChromaDB round-trip.
+ *
  * @param {number[]} queryEmbedding
  * @param {string}   project
  * @param {number}   [nResults=6]  number of results to fetch (retriever may request more for reranking)
  */
-export async function queryCodebase(queryEmbedding, project, nResults = 6) {
-    const collection = await getCollection(project);
-    const results    = await collection.query({
-        queryEmbeddings: [queryEmbedding],
-        nResults
+export function queryCodebase(queryEmbedding, project, nResults = 6) {
+    // Deduplicate: identical parallel queries (same embedding prefix + project) share one DB call
+    const key = makeEmbedKey(project, queryEmbedding, nResults);
+    return deduplicate(key, async () => {
+        const collection = await getCollection(project);
+        const results    = await collection.query({
+            queryEmbeddings: [queryEmbedding],
+            nResults
+        });
+        if (!results.documents || results.documents.length === 0) return [];
+        return results.documents[0];
     });
-    if (!results.documents || results.documents.length === 0) return [];
-    return results.documents[0];
 }
 
 
@@ -11270,14 +12341,13 @@ import path from "path";
 import { getCollection } from "./indexCodebase.js";
 import { embed } from "./embedder.js";
 import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
+import { deduplicate } from "../utils/requestDeduplicator.js";
 
-// ─── Incremental index tracking ──────────────────────────────────────────────
+// --- Incremental index tracking -----------------------------------------------
 // We store a JSON sidecar { filePath: mtime } next to the ChromaDB data.
-// On re-index we skip files whose mtime hasn't changed — up to 10x faster.
+// On re-index we skip files whose mtime hasn't changed -- up to 10x faster.
 
 function getManifestPath(projectName) {
-    // Store manifest in cwd (project working dir) so it survives restarts
-    // and doesn't pollute the MCP source tree
     return path.resolve(process.cwd(), `.index_manifest_${projectName}.json`);
 }
 
@@ -11299,21 +12369,19 @@ function saveManifest(projectName, manifest) {
     }
 }
 
-// ─── Code chunker ────────────────────────────────────────────────────────────
+// --- Code chunker -------------------------------------------------------------
 // Splits on function/class boundaries and respects a hard size cap.
 // Overlap (last 200 chars of prev chunk prepended to next) preserves context
 // across chunk boundaries so semantic search doesn't lose cross-boundary meaning.
-const CHUNK_MAX   = 1800;  // chars — keeps each chunk well within embed token limit
-const CHUNK_OVERLAP = 200; // chars overlap between consecutive chunks
+const CHUNK_MAX    = 1800;  // chars -- keeps each chunk well within embed token limit
+const CHUNK_OVERLAP = 200;  // chars overlap between consecutive chunks
 
 function chunkCode(code) {
-    const chunks  = [];
-    // Split on top-level declaration boundaries
+    const chunks = [];
     const boundaries = /(?=^(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var|public|private|protected|interface|type)\s)/m;
-    const parts   = code.split(boundaries).filter(p => p.trim().length >= 40);
+    const parts = code.split(boundaries).filter(p => p.trim().length >= 40);
 
     if (parts.length === 0) {
-        // File has no recognizable boundaries (e.g. config/data files) — just window it
         for (let i = 0; i < code.length; i += CHUNK_MAX - CHUNK_OVERLAP) {
             chunks.push(code.substring(i, i + CHUNK_MAX));
         }
@@ -11329,13 +12397,37 @@ function chunkCode(code) {
     return chunks;
 }
 
-// ─── Main indexer ─────────────────────────────────────────────────────────────
-export async function indexProject(projectRoot, projectName, extraExtensions = []) {
-    const collection  = await getCollection(projectName);
-    const extensions  = [...new Set([...INDEXABLE_EXTENSIONS, ...extraExtensions])];
-    const manifest    = loadManifest(projectName);
-    let   indexed     = 0;
-    let   skipped     = 0;
+// --- Public entry point -------------------------------------------------------
+/**
+ * Index (or re-index) a project's codebase into ChromaDB.
+ *
+ * Deduplicates concurrent calls: if background indexing is already running
+ * for this project, the second caller waits for it to finish instead of
+ * starting a redundant rebuild.
+ *
+ * @param {string}   projectRoot
+ * @param {string}   projectName
+ * @param {string[]} [extraExtensions]
+ */
+export function indexProject(projectRoot, projectName, extraExtensions = []) {
+    return deduplicate(`index:${projectName}`, () =>
+        _indexProjectImpl(projectRoot, projectName, extraExtensions)
+    );
+}
+
+// --- Core implementation -----------------------------------------------------
+async function _indexProjectImpl(projectRoot, projectName, extraExtensions = []) {
+    const collection = await getCollection(projectName);
+    const extensions = [...new Set([...INDEXABLE_EXTENSIONS, ...extraExtensions])];
+    const manifest   = loadManifest(projectName);
+    let   indexed    = 0;
+    let   skipped    = 0;
+    let   deleted    = 0;   // files removed from disk since last index
+
+    // Track all files seen in this run -- any manifest key NOT in this set
+    // corresponds to a file that was deleted from disk and should be purged
+    // from the vector collection so stale results don't pollute searches.
+    const seenFiles = new Set();
 
     async function walk(dir) {
         let items;
@@ -11357,11 +12449,13 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
             const ext = path.extname(item.name);
             if (!extensions.includes(ext)) continue;
 
-            // ── Incremental check ──────────────────────────────────────────
+            seenFiles.add(full);
+
+            // --- Incremental check -------------------------------------------
             const mtime = fs.statSync(full).mtimeMs;
             if (manifest[full] === mtime) {
                 skipped++;
-                continue;   // file unchanged since last index — skip
+                continue;   // file unchanged since last index -- skip
             }
 
             try {
@@ -11372,25 +12466,22 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
                 for (let ci = 0; ci < chunks.length; ci++) {
                     const chunk     = chunks[ci];
                     const embedding = await embed(chunk);
-                    // Include chunk index in ID so multiple chunks from same file get unique IDs
                     const id        = Buffer.from(`${full}::${ci}`).toString("base64").substring(0, 512);
-                    const ext       = path.extname(item.name).replace(".", "");
+                    const fileExt   = path.extname(item.name).replace(".", "");
 
                     try {
                         await collection.upsert({
                             ids:        [id],
                             documents:  [chunk],
                             embeddings: [embedding],
-                            metadatas:  [{ file: rel, ext, chunkIndex: ci, mtime }]
+                            metadatas:  [{ file: rel, ext: fileExt, chunkIndex: ci, mtime }]
                         });
                     } catch (upsertErr) {
-                        // upsert failed — log and skip this chunk rather than calling
-                        // add() which will also fail if the ID already exists
                         console.error(`[indexer] upsert failed for ${rel} chunk ${ci}:`, upsertErr.message);
                     }
                 }
 
-                manifest[full] = mtime;   // record new mtime
+                manifest[full] = mtime;
                 indexed++;
                 console.error("Indexed:", rel);
             } catch (err) {
@@ -11400,9 +12491,99 @@ export async function indexProject(projectRoot, projectName, extraExtensions = [
     }
 
     await walk(projectRoot);
+
+    // --- Purge stale entries for deleted files ---------------------------------
+    // Any file that was in the manifest but NOT seen in this run was deleted.
+    // Remove its vector entries from ChromaDB so stale results don't appear.
+    const stalePaths = Object.keys(manifest).filter(p => !seenFiles.has(p));
+    for (const stalePath of stalePaths) {
+        try {
+            // Delete all chunks for this file (chunkIndex 0, 1, 2 ...)
+            // We find them by querying metadatas where file == rel
+            const rel = path.relative(projectRoot, stalePath);
+            const existing = await collection.get({ where: { file: rel } });
+            if (existing?.ids?.length) {
+                await collection.delete({ ids: existing.ids });
+                console.error(`[indexer] Purged ${existing.ids.length} chunks for deleted file: ${rel}`);
+            }
+            delete manifest[stalePath];
+            deleted++;
+        } catch (err) {
+            // Non-fatal: stale entries won't break anything, just waste space
+            console.error(`[indexer] Could not purge ${stalePath}:`, err.message);
+        }
+    }
+
     saveManifest(projectName, manifest);
-    console.error(`Indexing completed for: ${projectName} — ${indexed} indexed, ${skipped} unchanged (skipped)`);
+    console.error(
+        `Indexing completed for: ${projectName} -- ` +
+        `${indexed} indexed, ${skipped} unchanged (skipped), ${deleted} deleted files purged`
+    );
 }
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\tests\autoFixLoop.test.js
+========================================
+/**
+ * tests/autoFixLoop.test.js
+ *
+ * Tests the autoFixLoop's integration with classifyFailure and the build
+ * success / immediate-exit path. Deep mocking of the full chain is avoided
+ * by testing the pure logic units that autoFixLoop delegates to.
+ */
+
+import { describe, it, expect } from "vitest";
+import { classifyFailure } from "../src/agent/executionState.js";
+
+// These tests verify the error classification that autoFixLoop uses to
+// decide between deterministic recovery (0 LLM) vs LLM fallback.
+// Full integration tests require Ollama + filesystem — covered manually.
+
+describe("autoFixLoop error classification (via classifyFailure)", () => {
+
+    it("classifies syntax errors for deterministic recovery", () => {
+        expect(classifyFailure("SyntaxError: Unexpected token '}'")).toBe("syntax_error");
+    });
+
+    it("classifies import errors for deterministic recovery", () => {
+        expect(classifyFailure("Error: Cannot find module 'lodash'")).toBe("import_error");
+    });
+
+    it("classifies build failures for deterministic recovery", () => {
+        expect(classifyFailure("BUILD FAILED: 3 errors in compilation")).toBe("build_failure");
+    });
+
+    it("returns null (clean) when build output has no failure signals", () => {
+        // Must not contain any of the signal keywords (error/fail/exception/not found etc.)
+        expect(classifyFailure("Build successful. All tasks passed.")).toBeNull();
+    });
+
+    it("returns unknown_error for unrecognised failure text", () => {
+        // Contains a failure signal keyword ("failed") but matches no specific FAILURE_PATTERNS regex,
+        // so classifyFailure falls through to the 'unknown_error' catch-all.
+        expect(classifyFailure("Operation failed: unspecified reason")).toBe("unknown_error");
+    });
+
+    it("null input is treated as clean output", () => {
+        expect(classifyFailure(null)).toBeNull();
+    });
+
+    it("all deterministic recovery types are defined in FAILURE_PATTERNS", () => {
+        // Verify each error type the autoFixLoop branches on can be classified
+        const fixtures = [
+            ["Cannot find module 'x'",        "import_error"],
+            ["SyntaxError: Unexpected token",  "syntax_error"],
+            ["BUILD FAILED",                   "build_failure"],
+            ["TypeError: Cannot read prop",    "runtime_error"],
+            ["File does not exist: src/x.js",  "not_found"],
+            ["EACCES: permission denied",      "permission_error"]
+        ];
+        for (const [text, expected] of fixtures) {
+            expect(classifyFailure(text), `should classify: ${text}`).toBe(expected);
+        }
+    });
+});
 
 
 ========================================
@@ -11569,6 +12750,105 @@ describe("routeByRule", () => {
     it("returns null for LLM-required steps", () => {
         expect(routeByRule("Apply the changes from the context", "jsv")).toBeNull();
         expect(routeByRule("Read the login component and modify it", "jsv")).toBeNull();
+    });
+});
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\tests\goalValidator.test.js
+========================================
+/**
+ * tests/goalValidator.test.js
+ *
+ * Tests for goalValidator intent-based pass/fail logic.
+ */
+
+import { describe, it, expect, vi } from "vitest";
+import { validateGoal } from "../src/agent/goalValidator.js";
+import { makeExecutionState } from "../src/agent/executionState.js";
+
+function stateWithMod(files) {
+    const s = makeExecutionState();
+    files.forEach(f =>
+        s.recordToolCall("project_str_replace",
+            { edits: [{ path: f, search: "x", replace: "y" }] }, "ok", 1)
+    );
+    return s;
+}
+
+function stateWithError(errorText, step = 1) {
+    const s = makeExecutionState();
+    s.recordToolCall("project_build", {}, errorText, step);
+    return s;
+}
+
+describe("validateGoal — fix intent", () => {
+    it("passes when no errors remain", () => {
+        const result = validateGoal("fix", stateWithMod(["src/foo.js"]));
+        expect(result.passed).toBe(true);
+    });
+
+    it("fails when last error is unresolved at the final step", () => {
+        const s = makeExecutionState();
+        // Error at step 5, no later steps
+        s.recordToolCall("project_build", {}, "BUILD FAILED: error in Foo.java", 5);
+        s.stepCount = 5;
+        const result = validateGoal("fix", s);
+        expect(result.passed).toBe(false);
+        expect(result.reason).toContain("build_failure");
+    });
+
+    it("passes when error occurred early but later steps ran", () => {
+        const s = makeExecutionState();
+        s.recordToolCall("project_build", {}, "BUILD FAILED", 2);
+        s.stepCount = 8;  // 6 more steps ran after the error
+        const result = validateGoal("fix", s);
+        expect(result.passed).toBe(true);
+    });
+});
+
+describe("validateGoal — api intent", () => {
+    it("fails when no files were modified", () => {
+        const result = validateGoal("api", makeExecutionState());
+        expect(result.passed).toBe(false);
+        expect(result.reason).toContain("No files were modified");
+    });
+
+    it("passes when at least one file is modified", () => {
+        const result = validateGoal("api", stateWithMod(["src/routes/user.js"]));
+        expect(result.passed).toBe(true);
+    });
+});
+
+describe("validateGoal — ui intent", () => {
+    it("fails when only non-UI files modified", () => {
+        const result = validateGoal("ui", stateWithMod(["src/utils/config.js"]));
+        expect(result.passed).toBe(false);
+    });
+
+    it("passes for .jsx files", () => {
+        const result = validateGoal("ui", stateWithMod(["src/components/Header.jsx"]));
+        expect(result.passed).toBe(true);
+    });
+
+    it("passes for files with 'component' in name", () => {
+        const result = validateGoal("ui", stateWithMod(["src/MyComponent.js"]));
+        expect(result.passed).toBe(true);
+    });
+});
+
+describe("validateGoal — general intent", () => {
+    it("passes when tools were used", () => {
+        const s = makeExecutionState();
+        s.recordToolCall("project_scan", {}, "ok", 1);
+        const result = validateGoal("general", s);
+        expect(result.passed).toBe(true);
+    });
+
+    it("fails when no tools were used", () => {
+        const result = validateGoal("general", makeExecutionState());
+        expect(result.passed).toBe(false);
+        expect(result.reason).toContain("No tools were executed");
     });
 });
 
@@ -11817,6 +13097,236 @@ describe("detectProjectType", () => {
     it("returns unknown for empty directory", () => {
         const { type } = detectProjectType(tmpDir);
         expect(type).toBe("unknown");
+    });
+});
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\tests\reviewer.test.js
+========================================
+/**
+ * tests/reviewer.test.js
+ *
+ * Tests for the reviewer agent budget gating, skip conditions, and
+ * parse-error fallback — all without calling Ollama (fully mocked).
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock ollamaClient before importing reviewer
+vi.mock("../src/agent/ollamaClient.js", () => ({
+    askLLM: vi.fn()
+}));
+
+import { askLLM } from "../src/agent/ollamaClient.js";
+import { reviewChanges } from "../src/agent/reviewer.js";
+import { makeExecutionState } from "../src/agent/executionState.js";
+
+function makeState(modifiedFiles = [], errors = []) {
+    const s = makeExecutionState();
+    modifiedFiles.forEach(f => {
+        s.recordToolCall("project_str_replace",
+            { edits: [{ path: f, search: "a", replace: "b" }] }, "ok", 1);
+    });
+    return s;
+}
+
+function makeCost(calls = 0) {
+    return { llmCalls: calls, totalChars: 0 };
+}
+
+describe("reviewChanges", () => {
+
+    beforeEach(() => { vi.clearAllMocks(); });
+
+    it("skips when no files were modified", async () => {
+        const result = await reviewChanges(
+            "proj", "fix bug", makeState([]), makeCost(0), ""
+        );
+        expect(result.verdict).toBe("skipped");
+        expect(askLLM).not.toHaveBeenCalled();
+    });
+
+    it("skips in final mode when fewer than 2 LLM calls remain", async () => {
+        // MAX_LLM_CALLS_PER_RUN = 30, so llmCalls=29 leaves 1 remaining < 2
+        const result = await reviewChanges(
+            "proj", "fix bug", makeState(["src/foo.js"]), makeCost(29), ""
+        );
+        expect(result.verdict).toBe("skipped");
+        expect(askLLM).not.toHaveBeenCalled();
+    });
+
+    it("skips in early mode when fewer than 4 LLM calls remain", async () => {
+        // llmCalls=27 leaves 3 remaining < 4
+        const result = await reviewChanges(
+            "proj", "fix bug", makeState(["src/foo.js"]), makeCost(27), "", true
+        );
+        expect(result.verdict).toBe("skipped");
+        expect(askLLM).not.toHaveBeenCalled();
+    });
+
+    it("calls LLM and returns parsed verdict when budget allows", async () => {
+        askLLM.mockResolvedValue('{"verdict":"correct","issues":[],"confident":true}');
+        const result = await reviewChanges(
+            "proj", "fix login bug", makeState(["src/auth.js"]), makeCost(0), "context"
+        );
+        expect(result.verdict).toBe("correct");
+        expect(result.confident).toBe(true);
+        expect(result.issues).toEqual([]);
+        expect(askLLM).toHaveBeenCalledOnce();
+    });
+
+    it("returns issues array when LLM finds problems", async () => {
+        askLLM.mockResolvedValue('{"verdict":"has_issues","issues":["Missing null check","Import path wrong"],"confident":true}');
+        const result = await reviewChanges(
+            "proj", "add feature", makeState(["src/api.js"]), makeCost(0), ""
+        );
+        expect(result.verdict).toBe("has_issues");
+        expect(result.issues).toHaveLength(2);
+        expect(result.issues[0]).toContain("null check");
+    });
+
+    it("returns unknown verdict on LLM parse failure", async () => {
+        askLLM.mockResolvedValue("not json at all");
+        const result = await reviewChanges(
+            "proj", "fix bug", makeState(["src/x.js"]), makeCost(0), ""
+        );
+        expect(result.verdict).toBe("unknown");
+        expect(result.issues).toEqual([]);
+    });
+
+    it("increments llmCalls on each invocation", async () => {
+        askLLM.mockResolvedValue('{"verdict":"correct","issues":[],"confident":true}');
+        const cost = makeCost(5);
+        await reviewChanges("proj", "fix", makeState(["src/a.js"]), cost, "");
+        expect(cost.llmCalls).toBe(6);
+    });
+
+    it("reviewer fires for single-file changes (threshold = 1)", async () => {
+        // Validates the threshold fix from Round 1
+        askLLM.mockResolvedValue('{"verdict":"likely_correct","issues":[],"confident":false}');
+        const result = await reviewChanges(
+            "proj", "patch one file", makeState(["src/single.js"]), makeCost(0), ""
+        );
+        expect(result.verdict).toBe("likely_correct");
+        expect(askLLM).toHaveBeenCalledOnce();
+    });
+});
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\tests\validationPipeline.test.js
+========================================
+/**
+ * tests/validationPipeline.test.js
+ *
+ * Tests for the unified validation pipeline:
+ *   - heuristic check (goalValidator)
+ *   - build check (mocked mcpClient)
+ *   - reviewer integration
+ *   - issuesAsSteps conversion
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("../src/agent/ollamaClient.js", () => ({
+    askLLM: vi.fn()
+}));
+
+import { askLLM } from "../src/agent/ollamaClient.js";
+import { runValidationPipeline, issuesAsSteps } from "../src/agent/validationPipeline.js";
+import { makeExecutionState } from "../src/agent/executionState.js";
+
+function makeCost(calls = 0) { return { llmCalls: calls, totalChars: 0 }; }
+
+function makeMcpClient(analyzeText = "Static analysis passed") {
+    return {
+        callTool: vi.fn().mockResolvedValue({
+            content: [{ type: "text", text: analyzeText }]
+        })
+    };
+}
+
+function stateWithMod(files = []) {
+    const s = makeExecutionState();
+    files.forEach(f =>
+        s.recordToolCall("project_str_replace",
+            { edits: [{ path: f, search: "x", replace: "y" }] }, "ok", 1)
+    );
+    return s;
+}
+
+describe("runValidationPipeline", () => {
+
+    beforeEach(() => { vi.clearAllMocks(); });
+
+    it("passes heuristic when at least one tool was used (general intent)", async () => {
+        const s = makeExecutionState();
+        s.recordToolCall("project_scan", {}, "ok", 1);
+        const result = await runValidationPipeline(
+            "general", "proj", s, makeCost(), makeMcpClient(), "list files", ""
+        );
+        // general intent + tool was used + analysis passed → should pass
+        expect(result.passed).toBe(true);
+        expect(result.reviewer).toBeNull();
+    });
+
+    it("calls reviewer when 1 file is modified (threshold fix)", async () => {
+        askLLM.mockResolvedValue('{"verdict":"correct","issues":[],"confident":true}');
+        const result = await runValidationPipeline(
+            "fix", "proj",
+            stateWithMod(["src/auth.js"]),
+            makeCost(0),
+            makeMcpClient(),
+            "fix login bug",
+            "did stuff"
+        );
+        expect(result.reviewer).not.toBeNull();
+        expect(result.reviewer.verdict).toBe("correct");
+    });
+
+    it("collects reviewer issues into result.issues", async () => {
+        askLLM.mockResolvedValue('{"verdict":"has_issues","issues":["Missing semicolon"],"confident":true}');
+        const result = await runValidationPipeline(
+            "api", "proj",
+            stateWithMod(["src/routes.js"]),
+            makeCost(0),
+            makeMcpClient(),
+            "add route",
+            ""
+        );
+        expect(result.issues).toContain("Missing semicolon");
+    });
+
+    it("marks failed when build analysis reports errors", async () => {
+        const result = await runValidationPipeline(
+            "fix", "proj",
+            makeExecutionState(),
+            makeCost(),
+            makeMcpClient("Static analysis: 3 issue(s) found — error in src/main.js"),
+            "fix crash",
+            ""
+        );
+        expect(result.build.passed).toBe(false);
+        expect(result.passed).toBe(false);
+    });
+});
+
+describe("issuesAsSteps", () => {
+    it("converts issues to injectable step strings", () => {
+        const steps = issuesAsSteps(["Missing null check", "Wrong import path"]);
+        expect(steps).toHaveLength(2);
+        expect(steps[0]).toContain("Fix reviewer issue");
+        expect(steps[0]).toContain("Missing null check");
+    });
+
+    it("caps at 3 steps", () => {
+        const steps = issuesAsSteps(["a", "b", "c", "d", "e"]);
+        expect(steps).toHaveLength(3);
+    });
+
+    it("returns empty array for empty issues", () => {
+        expect(issuesAsSteps([])).toEqual([]);
     });
 });
 

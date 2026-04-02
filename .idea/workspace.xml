@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-3.14" />
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-3.14">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/combined_code.txt" beforeDir="false" afterPath="$PROJECT_DIR$/combined_code.txt" afterDir="false" />
+    </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -46,12 +49,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="test: add comprehensive tests for reviewer, validationPipeline, autoFixLoop, and goalValidator" />
-        <option name="rewordedMessage" value="MCP-4.6" />
+        <option name="originalMessage" value="feat: surface LLM budget exhaustion to user via emit + add budget warning in agent loop" />
+        <option name="rewordedMessage" value="MCP-4.7" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="5a7ad807b67aa267878fd116f48b4616a36c6543" />
+    <option name="onto" value="39ca00ad99af37117fbbf8ebc163e7f57c16c5bc" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -153,13 +156,6 @@
       <method v="2" />
     </configuration>
     <configuration default="true" type="LiferayServerConfiguration" factoryName="Liferay Server">
-      <Liferay-Sever alternativeJrePath="" bundleLocation="" bundleType="" developerMode="true" gogoShellPort="11311" vmParameters="-Xmx2560m -XX:MaxMetaspaceSize=768m -XX:MetaspaceSize=768m">
-        <envs>
-          <env name="PATH" value="$PROJECT_DIR$/../../../../Program Files/Java/jdk-24/bin:C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\libnvvp;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\dotnet\;C:\ProgramData\chocolatey\bin;C:\Program Files (x86)\apache-maven-3.9.9\bin;C:\Program Files\Git\cmd;J:\heroku\bin;C:\OpenSSL-Win64\bin;C:\Program Files\OpenSSL-Win64\bin;G:\Secret Invasion S01 (2023) 1080p\shubh\Decorom Agent\ffmpeg\bin;C:\Program Files (x86)\cloudflared\;C:\Program Files\Java\jdk-21\bin;C:\Users\kushp\.jpm\windows\bin;C:\Program Files\nodejs\;C:\poppler-25.12.0\Library\bin;C:\Gradle\gradle-9.4.1\bin;;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\PowerShell\7\;C:\Users\kushp\AppData\Local\Programs\Python\Python311\Scripts\;C:\Users\kushp\AppData\Local\Programs\Python\Python311\;C:\Users\kushp\AppData\Local\Microsoft\WindowsApps;J:\IntelliJ IDEA 2024.3.2.2\bin;C:\Users\kushp\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.1;C:\Program Files\MySQL\MySQL Server 8.0\bin;C:\Users\kushp\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\kushp\.lmstudio\bin;J:\pgAdmin 4\runtime\resources\app\node_modules\.bin;C:\Program Files\PostgreSQL\17\bin;C:\Program Files (x86)\apache-maven-3.9.9\bin;J:\heroku\bin;C:\Users\kushp\.dotnet\tools;C:\Program Files\Java\jdk-21\bin;C:\Users\kushp\AppData\Roaming\npm;C:\Users\kushp\AppData\Local\Programs\cursor\resources\app\bin;C:\Program Files\JetBrains\IntelliJ IDEA 2025.3\bin;G:\Antigravity\bin;C:\Users\kushp\AppData\Local\Microsoft\WinGet\Links;;C:\Users\kushp\AppData\Local\Programs\Ollama" />
-          <env name="JAVA_HOME" value="$PROJECT_DIR$/../../../../Program Files/Java/jdk-24" />
-        </envs>
-        <module name="mcp" />
-      </Liferay-Sever>
       <method v="2" />
     </configuration>
   </component>
@@ -198,7 +194,7 @@
       <workItem from="1774098061672" duration="13288000" />
       <workItem from="1774165971802" duration="12057000" />
       <workItem from="1775026997034" duration="905000" />
-      <workItem from="1775109425396" duration="4957000" />
+      <workItem from="1775109425396" duration="8602000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -373,7 +369,8 @@
     <MESSAGE value="MCP-4.4" />
     <MESSAGE value="MCP-4.5" />
     <MESSAGE value="MCP-4.6" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.6" />
+    <MESSAGE value="MCP-4.7" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.7" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

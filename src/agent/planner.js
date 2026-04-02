@@ -92,8 +92,7 @@ async function buildPlannerContext(project, intent = null) {
             const lines = memory
                 .map(m => `  [${m.type || "pattern"}] ${m.pattern || m.text}` +
                     (m.files?.length ? ` (files: ${m.files.slice(0, 3).join(", ")})` : ""))
-                .join("
-");
+                .join("");
             memoryContext = `
 Known architecture patterns for this project:
 ${lines}
@@ -170,22 +169,19 @@ export async function createPlan(prompt, project = null, costState = null, retri
     if (activeError && activeErrorType && DETERMINISTIC_RECOVERY_TOOLS[activeErrorType]) {
         console.error(`[planner] ⚡ HARD OVERRIDE: active ${activeErrorType} — forcing deterministic plan (no LLM)`);
         const toolSteps = DETERMINISTIC_RECOVERY_TOOLS[activeErrorType](project || "unknown", execState);
-        return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("
-");
+        return toolSteps.map((s, i) => `${i + 1}. ${s.tool}`).join("");
     }
 
     // Heuristic (0 LLM)
     const heuristicSteps = tryHeuristicPlan(prompt, projectType, retrieverIntent, activeErrorType);
-    if (heuristicSteps) return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("
-");
+    if (heuristicSteps) return heuristicSteps.map((s, i) => `${i + 1}. ${s}`).join("");
 
     // Cost guard — surface to user via costState.budgetExhausted flag so
     // agent.js can emit a visible SSE warning instead of silently degrading.
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
         console.error("[planner] LLM call budget exhausted — using minimal fallback plan");
         costState.budgetExhausted = true;  // agent.js reads this to emit user-visible warning
-        return "1. Run static analysis
-2. Run build and fix";
+        return "1. Run static analysis\n2. Run build and fix";
     }
 
     // LLM plan
@@ -213,12 +209,10 @@ Output ONLY numbered steps, one per line, no explanation:`;
 
     try {
         const raw = await askLLM(MODEL, planPrompt, { temperature: 0.1, num_predict: NUM_PREDICT.planner });
-        return raw.trim() || "1. Run static analysis
-2. Run build and fix";
+        return raw.trim() || "1. Run static analysis\n2. Run build and fix";
     } catch (err) {
         console.error("[planner] createPlan LLM error:", err.message);
-        return "1. Run static analysis
-2. Run build and fix";
+        return "1. Run static analysis\n2. Run build and fix";
     }
 }
 
@@ -248,8 +242,7 @@ ${stateBlock}
 Error type: ${errorType}
 
 Remaining steps (now possibly invalid):
-${remainingSteps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join("
-") || "none"}
+${remainingSteps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join("") || "none"}
 
 Recent context:
 ${executionContext.substring(executionContext.length - 1500)}
@@ -260,12 +253,10 @@ Output ONLY numbered steps to recover and complete. Maximum 5 steps. No explanat
 
     try {
         const raw   = await askLLM(MODEL, replanPrompt, { temperature: 0.1, num_predict: 300 });
-        const lines = raw.split("
-")
+        const lines = raw.split("")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4);
-        return lines.length > 0 ? lines.join("
-") : null;
+        return lines.length > 0 ? lines.join("") : null;
     } catch (err) {
         console.error("[planner] updatePlan error:", err.message);
         return null;

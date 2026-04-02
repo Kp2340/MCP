@@ -31,6 +31,14 @@ function hasChanges(root) {
     return (r.stdout || "").trim().length > 0;
 }
 
+/** Normalize line endings to LF before writing — prevents CRLF corruption. */
+function normalizeLF(content) {
+    return content.replace(/\r
+/g, "
+").replace(/\r/g, "
+");
+}
+
 export function applyChanges({ project, files, commitMessage, increment }) {
     const config = getProject(project);
     const root = config.root;
@@ -40,7 +48,7 @@ export function applyChanges({ project, files, commitMessage, increment }) {
     for (const file of files) {
         const full = path.resolve(root, file.path);
         fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, file.content, "utf8");
+        fs.writeFileSync(full, normalizeLF(file.content), "utf8");
     }
 
     spawnSync("git", ["add", "."], { cwd: root });

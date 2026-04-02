@@ -18,8 +18,10 @@ import { findDependents } from "../analysis/symbolGraph.js";
  *  - Minor LLM paraphrasing of whitespace
  */
 function fuzzyLineMatch(fileContent, searchStr) {
-    const fileLines   = fileContent.split("\n");                                        // FIX: was split("")
-    const searchLines = searchStr.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0); // FIX: was split("")
+    const fileLines   = fileContent.split("
+");                                        // FIX: was split("")
+    const searchLines = searchStr.split("
+").map(l => l.trimEnd()).filter(l => l.trim().length > 0); // FIX: was split("")
 
     if (searchLines.length === 0) return null;
     // Only attempt fuzzy match for multi-line searches (single-line false positives are too risky)
@@ -37,7 +39,8 @@ function fuzzyLineMatch(fileContent, searchStr) {
             // Return the exact slice from the file (preserves original whitespace/endings)
             const startLine = i;
             const endLine   = i + searchLines.length - 1;
-            return fileLines.slice(startLine, endLine + 1).join("\n");                  // FIX: was join("")
+            return fileLines.slice(startLine, endLine + 1).join("
+");                  // FIX: was join("")
         }
     }
     return null;
@@ -54,18 +57,24 @@ function hasChanges(root) {
 /**
  * Normalize a string for comparison.
  * - Convert CRLF -> LF
- * - Convert JSON-escaped newlines (\n from LLM output) -> real newlines
- * - Convert JSON-escaped tabs (\t) -> real tabs
+ * - Convert JSON-escaped newlines (
+ from LLM output) -> real newlines
+ * - Convert JSON-escaped tabs (	) -> real tabs
  * - Do NOT trim — trimming causes false "not found" when search string
  *   starts or ends with meaningful whitespace/indentation.
  * - Do NOT strip backslashes or collapse spaces — that destroys code content.
  */
 function normalize(s) {
     return s
-        .replace(/\r\n/g, "\n")                 // CRLF -> LF
-        .replace(/\r/g, "\n")                   // bare CR -> LF
-        .replace(/\\n/g, "\n")                  // FIX: JSON-escaped newline -> real newline
-        .replace(/\\t/g, "\t");                 // FIX: JSON-escaped tab -> real tab
+        .replace(/\r
+/g, "
+")                 // CRLF -> LF
+        .replace(/\r/g, "
+")                   // bare CR -> LF
+        .replace(/\
+/g, "
+")                  // FIX: JSON-escaped newline -> real newline
+        .replace(/\	/g, "	");                 // FIX: JSON-escaped tab -> real tab
 }
 
 /**
@@ -121,7 +130,8 @@ export function projectStrReplace({ project, edits, commitMessage }) {
             }
             if (!found) {
                 throw new Error(
-                    `File not found: "${relativePath}".\n` +
+                    `File not found: "${relativePath}".
+` +
                     `Tip: use the relative path from the project root, e.g. "src/utils/auth.js"`
                 );
             }
@@ -148,17 +158,24 @@ export function projectStrReplace({ project, edits, commitMessage }) {
                 effectiveSearch = fuzzyMatch;
             } else {
                 // Both exact and fuzzy failed — give rich diagnostic for LLM retry
-                const searchLines  = normalizedSearch.split("\n");                      // FIX: was split("")
+                const searchLines  = normalizedSearch.split("
+");                      // FIX: was split("")
                 const firstLine    = searchLines[0].trim();
                 const hintIdx      = normalizedFile.indexOf(firstLine);
                 const hint = hintIdx !== -1
-                    ? `\nFirst line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"` // FIX: was /n/g
+                    ? `
+First line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/
+/g, "↵")}"` // FIX: was /n/g
                     : "No partial match found — the file may have changed since it was read.";
                 throw new Error(
-                    `Search string not found in "${relativePath}".\n` +
-                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` + // FIX: was /\n/g missing escape
+                    `Search string not found in "${relativePath}".
+` +
+                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/
+/g, "↵")}"` + // FIX: was /
+/g missing escape
                     hint +
-                    `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`
+                    `
+Fix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`
                 );
             }
         }
@@ -168,14 +185,19 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         const matchCount    = (normalizedFile.match(new RegExp(escapedSearch, "g")) || []).length;
         if (matchCount > 1) {
             throw new Error(
-                `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".\n` +
+                `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".
+` +
                 `Make the search string longer/more specific so it matches exactly once.`
             );
         }
 
-        // Apply: use effectiveSearch (may be fuzzy-resolved) for the actual replace
+        // Apply: use effectiveSearch (may be fuzzy-resolved) for the actual replace.
+        // Write with LF-only endings — never re-introduce CRLF on Windows.
         const updated = normalizedFile.replace(effectiveSearch, normalizedReplace);
-        fs.writeFileSync(fullPath, updated, "utf8");
+        fs.writeFileSync(fullPath, updated.replace(/\r
+/g, "
+").replace(/\r/g, "
+"), "utf8");
         log.info(`str-replace: edited ${relativePath}`);
         results.push(`  edited: ${relativePath}`);
     }
@@ -185,7 +207,9 @@ export function projectStrReplace({ project, edits, commitMessage }) {
     if (!hasChanges(root)) {
         log.warn(`str-replace: no net changes — files already match target`);
         return {
-            content: [{ type: "text", text: `str-replace applied (no net change):\n${results.join("\n")}` }]
+            content: [{ type: "text", text: `str-replace applied (no net change):
+${results.join("
+")}` }]
         };
     }
 
@@ -208,7 +232,8 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         // Remove the files we just edited from the affected set
         editedFiles.forEach(f => allAffected.delete(f));
         if (allAffected.size > 0) {
-            impactLines.push(`\nImpact analysis — files that import the edited file(s):`);
+            impactLines.push(`
+Impact analysis — files that import the edited file(s):`);
             [...allAffected].slice(0, 8).forEach(f => impactLines.push(`  - ${f}`));
             if (allAffected.size > 8) impactLines.push(`  ... and ${allAffected.size - 8} more`);
             log.info(`Impact: ${allAffected.size} file(s) import edited file(s)`);
@@ -218,6 +243,9 @@ export function projectStrReplace({ project, edits, commitMessage }) {
     }
 
     return {
-        content: [{ type: "text", text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}` }]
+        content: [{ type: "text", text: `str-replace applied:
+${results.join("
+")}${impactLines.join("
+")}` }]
     };
 }

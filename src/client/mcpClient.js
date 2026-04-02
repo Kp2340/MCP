@@ -1,7 +1,12 @@
 /**
- * MCP Client SDK
- * Zero external dependencies — works in Node.js and browser.
- * Connects to any AI Dev MCP server over HTTP.
+ * src/client/mcpClient.js  —  HTTP SDK for external callers
+ *
+ * Used by IDE extensions, scripts, and teammate tools to talk to a
+ * remote AI Dev MCP server over HTTP. Zero external dependencies.
+ * Works in both Node.js and browsers.
+ *
+ * NOT the same as src/agent/mcpClient.js, which is the internal in-process
+ * dispatcher used by the agent loop itself.
  */
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;

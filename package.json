@@ -33,6 +33,7 @@
     "chromadb":                  "^3.3.3",
     "cross-env":                 "^7.0.3",
     "express":                   "^4.21.2",
+    "adm-zip":                   "^0.5.16",
     "node-fetch":                "^3.3.2"
   },
   "devDependencies": {

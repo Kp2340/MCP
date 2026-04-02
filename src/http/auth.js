@@ -26,17 +26,26 @@ const PUBLIC_PATHS = new Set(["/health", "/health/", "/sse", "/message"]);
 
 // ── Rate limit state ──────────────────────────────────────────────────────────
 const rateLimitMap = new Map();
+const WINDOW_MS    = 60_000;
+
+// Evict stale entries every 10 minutes to prevent unbounded memory growth.
+// An entry is stale when its window expired more than 2x ago (safe margin).
+setInterval(() => {
+    const cutoff = Date.now() - WINDOW_MS * 2;
+    for (const [user, entry] of rateLimitMap) {
+        if (entry.windowStart < cutoff) rateLimitMap.delete(user);
+    }
+}, 10 * 60_000).unref();
 
 function checkRateLimit(user) {
-    const now      = Date.now();
-    const windowMs = 60_000;
-    const max      = config.RATE_LIMIT_PER_MIN;
+    const now = Date.now();
+    const max = config.RATE_LIMIT_PER_MIN;
     if (!rateLimitMap.has(user)) {
         rateLimitMap.set(user, { count: 1, windowStart: now });
         return true;
     }
     const entry = rateLimitMap.get(user);
-    if (now - entry.windowStart > windowMs) {
+    if (now - entry.windowStart > WINDOW_MS) {
         entry.count = 1; entry.windowStart = now;
         return true;
     }

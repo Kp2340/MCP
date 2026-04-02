@@ -30,8 +30,7 @@
 import fs           from "fs";
 import path         from "path";
 import { fileURLToPath } from "url";
-import { spawnSync }     from "child_process";
-import { createWriteStream, createReadStream } from "fs";
+import AdmZip            from "adm-zip";
 import { registerDynamicProject }  from "../core/projectRegistry.js";
 import { config }                  from "../core/config.js";
 import { createLogger }            from "../core/logger.js";
@@ -53,31 +52,18 @@ function userWorkspaceDir(user, project) {
 }
 
 function safeExtract(zipPath, destDir) {
-    // Use Node's built-in or system unzip.
-    // On Windows, PowerShell Expand-Archive is universally available.
+    // adm-zip: pure JS, works on Windows, Linux, macOS, and Docker.
     fs.mkdirSync(destDir, { recursive: true });
-    const result = spawnSync(
-        "powershell",
-        ["-NoProfile", "-Command",
-         `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${destDir}'`],
-        { encoding: "utf8", timeout: 30_000 }
-    );
-    if (result.status !== 0) {
-        throw new Error(`Unzip failed: ${(result.stderr || result.stdout || "").trim()}`);
-    }
+    const zip = new AdmZip(zipPath);
+    // extractAllTo overwrites existing files and handles nested folders.
+    zip.extractAllTo(destDir, true);
 }
 
 function createZip(sourceDir, zipPath) {
-    // PowerShell Compress-Archive — available on all Windows 10+ machines
-    const result = spawnSync(
-        "powershell",
-        ["-NoProfile", "-Command",
-         `Compress-Archive -Force -Path '${sourceDir}\\*' -DestinationPath '${zipPath}'`],
-        { encoding: "utf8", timeout: 60_000 }
-    );
-    if (result.status !== 0) {
-        throw new Error(`Zip failed: ${(result.stderr || result.stdout || "").trim()}`);
-    }
+    const zip = new AdmZip();
+    // addLocalFolder adds all files under sourceDir preserving relative paths.
+    zip.addLocalFolder(sourceDir);
+    zip.writeZip(zipPath);
 }
 
 function walkFiles(dir, base) {
