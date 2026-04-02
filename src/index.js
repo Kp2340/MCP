@@ -56,7 +56,8 @@ import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
 import { testProject }       from "./tools/projectTest.js";
 import { projectDiff }       from "./tools/projectDiff.js";
 import { projectGitLog }     from "./tools/projectGitLog.js";
-import { registerProject }   from "./tools/projectRegister.js";
+import { registerProject }         from "./tools/projectRegister.js";
+import { registerAstReplaceTools } from "./tools/astReplace.js";
 
 // ── Core ──────────────────────────────────────────────────────────────────────
 import { getProject, listProjects } from "./core/projectRegistry.js";

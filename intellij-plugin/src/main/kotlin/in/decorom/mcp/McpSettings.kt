@@ -1,14 +1,16 @@
 package `in`.decorom.mcp
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
-import com.intellij.openapi.components.service
 
-@State(
-    name = "McpSettings",
-    storages = [Storage("McpSettings.xml")]
-)
+/**
+ * Persistent application-level settings for AI Dev MCP.
+ * Stored in ~/Library/Application Support/JetBrains/.../options/mcp.xml
+ * (or equivalent on Windows/Linux).
+ */
+@State(name = "McpSettings", storages = [Storage("mcp.xml")])
 class McpSettings : PersistentStateComponent<McpSettings.State> {
 
     data class State(
@@ -23,18 +25,19 @@ class McpSettings : PersistentStateComponent<McpSettings.State> {
     override fun loadState(state: State) { myState = state }
 
     var baseUrl: String
-        get() = myState.baseUrl.ifBlank { "https://ai.decorom.in" }
+        get() = myState.baseUrl
         set(v) { myState.baseUrl = v.trimEnd('/') }
 
     var apiKey: String
         get() = myState.apiKey
-        set(v) { myState.apiKey = v.trim() }
+        set(v) { myState.apiKey = v }
 
     var defaultProject: String
         get() = myState.defaultProject
-        set(v) { myState.defaultProject = v.trim() }
+        set(v) { myState.defaultProject = v }
 
     companion object {
-        val instance: McpSettings get() = service()
+        val instance: McpSettings
+            get() = ApplicationManager.getApplication().getService(McpSettings::class.java)
     }
 }

@@ -5,10 +5,15 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 
+/**
+ * Registers the AI Dev MCP sidebar panel.
+ * Called by IntelliJ when the tool window is first opened.
+ */
 class McpToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val win     = McpToolWindow(project)
-        val content = ContentFactory.getInstance().createContent(win.panel, "", false)
+        val window  = McpToolWindow(project)
+        val content = ContentFactory.getInstance()
+            .createContent(window.panel, "", false)
         toolWindow.contentManager.addContent(content)
     }
 }

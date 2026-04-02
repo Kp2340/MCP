@@ -6,61 +6,70 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 
+/**
+ * Settings page shown under Settings → Tools → AI Dev MCP.
+ * Persists baseUrl and apiKey via McpSettings.
+ */
 class McpSettingsComponent : Configurable {
 
-    private val baseUrlField   = JTextField(40)
-    private val apiKeyField    = JPasswordField(40)
-    private val projectField   = JTextField(40)
+    private val baseUrlField     = JTextField(40)
+    private val apiKeyField      = JPasswordField(40)
+    private val defaultProjField = JTextField(40)
+    private var mainPanel: JPanel? = null
 
     override fun getDisplayName() = "AI Dev MCP"
 
     override fun createComponent(): JComponent {
         val panel = JPanel(GridBagLayout())
-        val gc    = GridBagConstraints().apply {
-            fill    = GridBagConstraints.HORIZONTAL
-            insets  = Insets(4, 4, 4, 4)
-            weightx = 0.0
-            gridx   = 0
+        val gbc   = GridBagConstraints().apply {
+            anchor = GridBagConstraints.WEST
+            insets = Insets(4, 4, 4, 4)
         }
 
-        fun row(label: String, field: JComponent) {
-            gc.gridx = 0; gc.weightx = 0.0
-            panel.add(JLabel(label), gc)
-            gc.gridx = 1; gc.weightx = 1.0
-            panel.add(field, gc)
-            gc.gridy = (gc.gridy ?: 0) + 1
+        fun row(label: String, field: JComponent, row: Int) {
+            gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+            panel.add(JLabel(label), gbc)
+            gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+            panel.add(field, gbc)
         }
 
-        row("Server URL:",      baseUrlField)
-        row("API Key:",         apiKeyField)
-        row("Default Project:", projectField)
+        row("Server URL:",      baseUrlField,     0)
+        row("API Key:",         apiKeyField,      1)
+        row("Default project:", defaultProjField, 2)
 
-        val hint = JLabel("<html><small>Leave Default Project empty to auto-detect from open project name.</small></html>")
-        gc.gridx = 1; gc.weightx = 1.0
-        panel.add(hint, gc)
+        // help hint
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE
+        panel.add(JLabel("<html><small>Leave API Key blank if your server has no auth configured.</small></html>"), gbc)
 
-        reset()
+        // filler row to push everything to the top
+        gbc.gridy = 4; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.VERTICAL
+        panel.add(JPanel(), gbc)
+
+        mainPanel = panel
+        reset()       // populate from saved state
         return panel
     }
 
     override fun isModified(): Boolean {
         val s = McpSettings.instance
-        return baseUrlField.text.trim()                    != s.baseUrl ||
-               String(apiKeyField.password).trim()         != s.apiKey  ||
-               projectField.text.trim()                    != s.defaultProject
+        return baseUrlField.text.trim()              != s.baseUrl ||
+               String(apiKeyField.password).trim()   != s.apiKey  ||
+               defaultProjField.text.trim()          != s.defaultProject
     }
 
     override fun apply() {
         val s = McpSettings.instance
         s.baseUrl        = baseUrlField.text.trim()
         s.apiKey         = String(apiKeyField.password).trim()
-        s.defaultProject = projectField.text.trim()
+        s.defaultProject = defaultProjField.text.trim()
     }
 
     override fun reset() {
         val s = McpSettings.instance
-        baseUrlField.text = s.baseUrl
-        apiKeyField.text  = s.apiKey
-        projectField.text = s.defaultProject
+        baseUrlField.text     = s.baseUrl
+        apiKeyField.text      = s.apiKey
+        defaultProjField.text = s.defaultProject
     }
+
+    override fun disposeUIResources() { mainPanel = null }
 }
