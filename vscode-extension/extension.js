@@ -1,6 +1,6 @@
-// AI Dev MCP — VS Code Extension v1.5.0
+// AI Dev MCP — VS Code Extension v1.6.0
+// v1.6.0: cross-platform zip (Windows/macOS/Linux), improved chat webview, better error messages
 // v1.5.0: workspace sync — push local folder to remote server, run job, pull changes back
-//         so remote users can use a shared server without running their own instance
 
 "use strict";
 const vscode = require("vscode");
@@ -139,9 +139,10 @@ class MCPClient {
     }
 }
 
-// ─── Zip helpers (Node built-ins only, no extra deps) ────────────────────────
-// We use the system `powershell Compress-Archive` on Windows to create zips
-// and `Expand-Archive` to extract them. This avoids any npm dependency.
+// ─── Zip helpers — cross-platform (Windows / macOS / Linux) ──────────────────
+// Windows → PowerShell Compress-Archive / Expand-Archive (built-in)
+// macOS   → zip / unzip  (pre-installed)
+// Linux   → zip / unzip  (install with: sudo apt install zip unzip)
 const cp   = require("child_process");
 const fs   = require("fs");
 const os   = require("os");
@@ -149,22 +150,54 @@ const path = require("path");
 
 function zipFolder(srcDir, destZip) {
     return new Promise((resolve, reject) => {
-        const ps = cp.spawn("powershell", [
-            "-NoProfile", "-Command",
-            `Compress-Archive -Force -Path '${srcDir}\\*' -DestinationPath '${destZip}'`
-        ]);
-        ps.on("close", code => code === 0 ? resolve() : reject(new Error(`zip exit ${code}`)));
+        let proc;
+        if (process.platform === "win32") {
+            const src  = srcDir.replace(/'/g, "''");
+            const dest = destZip.replace(/'/g, "''");
+            proc = cp.spawn("powershell", [
+                "-NoProfile", "-NonInteractive", "-Command",
+                `Compress-Archive -Force -Path '${src}\\*' -DestinationPath '${dest}'`
+            ]);
+        } else {
+            // macOS / Linux: zip -r <dest> . from inside the folder
+            proc = cp.spawn("zip", ["-r", "-q", destZip, "."], { cwd: srcDir });
+        }
+        let stderr = "";
+        proc.stderr?.on("data", d => { stderr += d.toString(); });
+        proc.on("close", code => {
+            if (code === 0) resolve();
+            else reject(new Error(`zip failed (exit ${code})${stderr ? ": " + stderr.slice(0, 200) : ""}`));
+        });
+        proc.on("error", err =>
+            reject(new Error(`zip not found: ${err.message} — on Linux run: sudo apt install zip unzip`))
+        );
     });
 }
 
 function unzipTo(zipPath, destDir) {
     return new Promise((resolve, reject) => {
         fs.mkdirSync(destDir, { recursive: true });
-        const ps = cp.spawn("powershell", [
-            "-NoProfile", "-Command",
-            `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${destDir}'`
-        ]);
-        ps.on("close", code => code === 0 ? resolve() : reject(new Error(`unzip exit ${code}`)));
+        let proc;
+        if (process.platform === "win32") {
+            const src  = zipPath.replace(/'/g, "''");
+            const dest = destDir.replace(/'/g, "''");
+            proc = cp.spawn("powershell", [
+                "-NoProfile", "-NonInteractive", "-Command",
+                `Expand-Archive -Force -Path '${src}' -DestinationPath '${dest}'`
+            ]);
+        } else {
+            // macOS / Linux: unzip -o -q <zip> -d <dest>
+            proc = cp.spawn("unzip", ["-o", "-q", zipPath, "-d", destDir]);
+        }
+        let stderr = "";
+        proc.stderr?.on("data", d => { stderr += d.toString(); });
+        proc.on("close", code => {
+            if (code === 0) resolve();
+            else reject(new Error(`unzip failed (exit ${code})${stderr ? ": " + stderr.slice(0, 200) : ""}`));
+        });
+        proc.on("error", err =>
+            reject(new Error(`unzip not found: ${err.message} — on Linux run: sudo apt install zip unzip`))
+        );
     });
 }
 

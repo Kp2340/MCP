@@ -1,21 +1,19 @@
 package `in`.decorom.mcp
 
 import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 
 @State(
-    name   = "McpSettings",
-    storages = [Storage("aiDevMcp.xml")]
+    name = "McpSettings",
+    storages = [Storage("McpSettings.xml")]
 )
-@Service(Service.Level.APP)
 class McpSettings : PersistentStateComponent<McpSettings.State> {
 
     data class State(
-        var baseUrl:        String = DEFAULT_BASE_URL,
-        var apiKey:         String = "",
+        var baseUrl: String        = "https://ai.decorom.in",
+        var apiKey: String         = "",
         var defaultProject: String = ""
     )
 
@@ -24,20 +22,19 @@ class McpSettings : PersistentStateComponent<McpSettings.State> {
     override fun getState(): State = myState
     override fun loadState(state: State) { myState = state }
 
-    var baseUrl:        String
-        get() = myState.baseUrl.ifBlank { DEFAULT_BASE_URL }
-        set(v) { myState.baseUrl = v.ifBlank { DEFAULT_BASE_URL } }
+    var baseUrl: String
+        get() = myState.baseUrl.ifBlank { "https://ai.decorom.in" }
+        set(v) { myState.baseUrl = v.trimEnd('/') }
 
-    var apiKey:         String
+    var apiKey: String
         get() = myState.apiKey
-        set(v) { myState.apiKey = v }
+        set(v) { myState.apiKey = v.trim() }
 
     var defaultProject: String
         get() = myState.defaultProject
-        set(v) { myState.defaultProject = v }
+        set(v) { myState.defaultProject = v.trim() }
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://ai.decorom.in"
         val instance: McpSettings get() = service()
     }
 }

@@ -1,10 +1,10 @@
 plugins {
-    id("org.jetbrains.intellij.platform") version "2.3.0"
+    id("org.jetbrains.intellij.platform") version "2.13.1"
     kotlin("jvm") version "1.9.25"
 }
 
 group   = "in.decorom"
-version = "1.2.0"
+version = "1.3.0"
 
 kotlin {
     jvmToolchain(17)
@@ -28,7 +28,7 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        version = "1.2.0"
+        version = "1.3.0"
         ideaVersion {
             sinceBuild = "241"
             untilBuild = provider { null }
@@ -50,5 +50,4 @@ tasks {
     prepareSandbox {
         pluginJar.set(jar.flatMap { it.archiveFile })
     }
-
 }

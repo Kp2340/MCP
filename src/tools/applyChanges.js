@@ -33,10 +33,7 @@ function hasChanges(root) {
 
 /** Normalize line endings to LF before writing — prevents CRLF corruption. */
 function normalizeLF(content) {
-    return content.replace(/\r
-/g, "
-").replace(/\r/g, "
-");
+    return content.replace(/\r/g, "/n").replace(/\r/g, "/n");
 }
 
 export function applyChanges({ project, files, commitMessage, increment }) {

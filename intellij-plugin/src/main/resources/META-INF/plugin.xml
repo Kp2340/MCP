@@ -2,36 +2,45 @@
   <id>in.decorom.mcp</id>
   <name>AI Dev MCP</name>
   <vendor url="https://github.com/Kp2340/MCP">kush-patel</vendor>
-  <version>1.2.0</version>
+  <version>1.3.0</version>
 
   <description><![CDATA[
     <p>Connect IntelliJ IDEA to your self-hosted AI coding agent.</p>
     <p>AI Dev MCP runs <b>Qwen2.5-Coder</b> locally via Ollama. Your code never leaves your network.</p>
     <h3>Features</h3>
     <ul>
-      <li>Sidebar panel — submit prompts, watch live streaming output</li>
+      <li>Sidebar panel — submit prompts, watch live SSE streaming output</li>
       <li>Auto-detects project name from open project folder</li>
       <li>Injects selected code as context automatically</li>
+      <li><b>Workspace Sync</b> — zip &amp; push local project to remote server, run agent, pull changes back</li>
+      <li>All zip/unzip done with pure Kotlin (no external tools needed)</li>
       <li>Commits all changes in a single git commit</li>
       <li>Keyboard shortcut: <b>Ctrl+Shift+M</b></li>
     </ul>
     <h3>Requirements</h3>
-    <p>Run the <a href="https://github.com/Kp2340/MCP">AI Dev MCP server</a> (Node.js 20+, Ollama, ChromaDB).</p>
+    <p>Run the <a href="https://github.com/Kp2340/MCP">AI Dev MCP server</a> (Node.js 20+, Ollama, ChromaDB)
+       or point to the shared instance at <b>https://ai.decorom.in</b>.</p>
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>1.3.0</h3>
+    <ul>
+      <li>Added <b>Workspace Sync</b> button — zip local folder, push to server, run agent, pull changes back</li>
+      <li>Pure-Kotlin zip/unzip — no PowerShell or external tools required; works on all OS</li>
+      <li>Smart skip of node_modules, .git, build, dist, .gradle when zipping</li>
+      <li>Clear button and Enter key in prompt field</li>
+      <li>Server URL shown in panel header</li>
+    </ul>
     <h3>1.2.0</h3>
     <ul>
       <li>Default server URL pre-set to <b>https://ai.decorom.in</b></li>
       <li>API key stored securely via persistent settings; validated before every request</li>
-      <li>Clear button in panel, Enter key submits prompt</li>
       <li>Server URL shown in panel so you always know what you are connected to</li>
     </ul>
     <h3>1.1.0</h3>
     <ul>
       <li>Auto-detects project root path</li>
       <li>Live SSE step-by-step streaming</li>
-      <li>Improved settings UI</li>
     </ul>
   ]]></change-notes>
 

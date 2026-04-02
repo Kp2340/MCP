@@ -4,16 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start":           "node src/index.js",
-    "start:http":      "cross-env TRANSPORT=http node src/index.js",
-    "start:stdio":     "cross-env TRANSPORT=stdio node src/index.js",
-    "dev":             "cross-env LOG_LEVEL=DEBUG node src/index.js",
-    "tunnel":          "cloudflared tunnel --url http://localhost:3001",
-    "ngrok":           "ngrok http 3001",
-    "test":            "vitest run",
-    "test:watch":      "vitest",
-    "test:coverage":   "vitest run --coverage",
-    "index":           "node src/vector/runIndex.js"
+    "start": "node src/index.js",
+    "start:http": "cross-env TRANSPORT=http node src/index.js",
+    "start:stdio": "cross-env TRANSPORT=stdio node src/index.js",
+    "dev": "cross-env LOG_LEVEL=DEBUG node src/index.js",
+    "tunnel": "cloudflared tunnel --url http://localhost:3001",
+    "ngrok": "ngrok http 3001",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "index": "node src/vector/runIndex.js"
   },
   "repository": {
     "type": "git",
@@ -29,12 +29,12 @@
   "homepage": "https://github.com/Kp2340/MCP#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@xenova/transformers":      "^2.17.2",
-    "chromadb":                  "^3.3.3",
-    "cross-env":                 "^7.0.3",
-    "express":                   "^4.21.2",
-    "adm-zip":                   "^0.5.16",
-    "node-fetch":                "^3.3.2"
+    "@xenova/transformers": "^2.17.2",
+    "adm-zip": "^0.5.17",
+    "chromadb": "^3.3.3",
+    "cross-env": "^7.0.3",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "vitest": "^1.6.0"

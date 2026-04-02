@@ -1,65 +1,58 @@
 package `in`.decorom.mcp
 
 import com.intellij.openapi.options.Configurable
-import java.awt.Dimension
-import java.awt.Font
 import javax.swing.*
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
 
 class McpSettingsComponent : Configurable {
 
-    private val baseUrlField    = JTextField()
-    private val apiKeyField     = JPasswordField()
-    private val projectField    = JTextField()
+    private val baseUrlField   = JTextField(40)
+    private val apiKeyField    = JPasswordField(40)
+    private val projectField   = JTextField(40)
 
     override fun getDisplayName() = "AI Dev MCP"
 
     override fun createComponent(): JComponent {
-        val settings = McpSettings.instance
-        baseUrlField.text    = settings.baseUrl
-        apiKeyField.text     = settings.apiKey
-        projectField.text    = settings.defaultProject
-
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
+        val panel = JPanel(GridBagLayout())
+        val gc    = GridBagConstraints().apply {
+            fill    = GridBagConstraints.HORIZONTAL
+            insets  = Insets(4, 4, 4, 4)
+            weightx = 0.0
+            gridx   = 0
         }
 
-        fun label(text: String) = JLabel(text).also { it.alignmentX = 0f }
-        fun hint(text: String)  = JLabel("<html><small>$text</small></html>").also {
-            it.foreground = java.awt.Color.GRAY; it.alignmentX = 0f
+        fun row(label: String, field: JComponent) {
+            gc.gridx = 0; gc.weightx = 0.0
+            panel.add(JLabel(label), gc)
+            gc.gridx = 1; gc.weightx = 1.0
+            panel.add(field, gc)
+            gc.gridy = (gc.gridy ?: 0) + 1
         }
-        fun field(f: JTextField) = f.also {
-            it.maximumSize = Dimension(Int.MAX_VALUE, 32); it.alignmentX = 0f
-        }
 
-        panel.add(label("Server URL"))
-        panel.add(hint("Default: ${McpSettings.DEFAULT_BASE_URL}"))
-        panel.add(field(baseUrlField))
-        panel.add(Box.createVerticalStrut(10))
+        row("Server URL:",      baseUrlField)
+        row("API Key:",         apiKeyField)
+        row("Default Project:", projectField)
 
-        panel.add(label("API Key"))
-        panel.add(hint("Required — sent as x-api-key header on every request."))
-        panel.add(apiKeyField.also { it.maximumSize = Dimension(Int.MAX_VALUE, 32); it.alignmentX = 0f })
-        panel.add(Box.createVerticalStrut(10))
+        val hint = JLabel("<html><small>Leave Default Project empty to auto-detect from open project name.</small></html>")
+        gc.gridx = 1; gc.weightx = 1.0
+        panel.add(hint, gc)
 
-        panel.add(label("Default Project Path (optional)"))
-        panel.add(hint("Leave empty to auto-detect from the open project folder."))
-        panel.add(field(projectField))
-
+        reset()
         return panel
     }
 
     override fun isModified(): Boolean {
         val s = McpSettings.instance
-        return baseUrlField.text.trim() != s.baseUrl ||
-               String(apiKeyField.password).trim() != s.apiKey ||
-               projectField.text.trim() != s.defaultProject
+        return baseUrlField.text.trim()                    != s.baseUrl ||
+               String(apiKeyField.password).trim()         != s.apiKey  ||
+               projectField.text.trim()                    != s.defaultProject
     }
 
     override fun apply() {
         val s = McpSettings.instance
-        val url = baseUrlField.text.trim()
-        s.baseUrl        = url.ifEmpty { McpSettings.DEFAULT_BASE_URL }
+        s.baseUrl        = baseUrlField.text.trim()
         s.apiKey         = String(apiKeyField.password).trim()
         s.defaultProject = projectField.text.trim()
     }
@@ -70,6 +63,4 @@ class McpSettingsComponent : Configurable {
         apiKeyField.text  = s.apiKey
         projectField.text = s.defaultProject
     }
-
-    override fun disposeUIResources() {}
 }
