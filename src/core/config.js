@@ -71,6 +71,7 @@ const keyMap  = parseApiKeys(rawKeys);
 export const config = {
     // Server
     PORT:     parseInt(optional("PORT", "3001"), 10),
+    HOST:     optional("HOST", "0.0.0.0"), 
     BASE_URL: optional("BASE_URL", "http://localhost:3001"),
 
     // Auth
@@ -85,6 +86,7 @@ export const config = {
 
     // LLM
     OLLAMA_HOST: optional("OLLAMA_HOST", "http://localhost:11434"),
+    GEMINI_API_KEY: optional("GEMINI_API_KEY", ""),
     LLM_MODEL:   optional("LLM_MODEL",   "qwen2.5-coder:7b"),
 
     // Vector DB

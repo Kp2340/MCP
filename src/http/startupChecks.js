@@ -10,7 +10,7 @@
 import os   from "os";
 import { config } from "../core/config.js";
 import { createLogger } from "../core/logger.js";
-import { isOllamaAvailable } from "../agent/ollamaClient.js";
+import { isLlmAvailable } from "../agent/llmClient.js";
 
 const log = createLogger("startup");
 
@@ -65,7 +65,7 @@ export async function runStartupChecks() {
     }
 
     // ── Ollama liveness probe (async, non-blocking) ──────────────────────────────────
-    isOllamaAvailable().then(({ available, models, error }) => {
+    isLlmAvailable().then(({ available, models, error }) => {
         if (available) {
             log.info(`Ollama reachable at ${config.OLLAMA_HOST}`);
             if (models.length > 0) {

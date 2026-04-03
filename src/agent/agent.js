@@ -5,7 +5,7 @@ import { retrieveContext, classifyIntentFromPrompt } from "./retriever.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { TrainingCollector } from "../training/collector.js";
 import { storeMemory, queryMemory } from "../vector/memory.js";
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { executeUiEdit } from "./uiEditExecutor.js";
@@ -183,9 +183,7 @@ export async function runAgent(prompt, emit = null) {
     const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch {} };
 
     console.error("Project:", project);
-    console.error("
-Creating plan...
-");
+    console.error("\nCreating plan...\n");
 
     const costState = makeCostState();
     const execState = makeExecutionState();
@@ -222,8 +220,7 @@ ${planContext}`;
         }
         const { results, success, stepsRun } = chainResult;
         if (success || stepsRun > 0) {
-            const executionContext = results.join("
-");
+            const executionContext = results.join("\n");
             collector.startRun(prompt);
             collector.endRun(stepsRun >= 2, execState);
             if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
@@ -246,14 +243,11 @@ ${planContext}`;
     const initialPlan = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
     trackChars(costState, initialPlan);
 
-    console.error("
-Initial Plan:
-" + initialPlan);
+    console.error("\nInitial Plan:\n" + initialPlan);
 
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
-            .split("
-")
+            .split("\n")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4)
     );
@@ -307,8 +301,7 @@ Initial Plan:
         const step = remainingSteps.shift();
         totalStepsDone++;
 
-        console.error(`
-[${totalStepsDone}] ${step}`);
+        console.error(`\n[${totalStepsDone}] ${step}`);
         console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
         emitStep(totalStepsDone, step);
 
@@ -364,9 +357,7 @@ ${stepContext}` : "");
         if (parsed.tool === "__deterministic_recovery__" && Array.isArray(parsed.toolSteps)) {
             console.error(`[agent] ⚡ Deterministic recovery: ${parsed.toolSteps.length} direct tool calls`);
             const { results } = await executeToolsDirect(parsed.toolSteps, mcp, execState);
-            executionContext += "
-" + results.join("
-");
+            executionContext += "\n" + results.join("\n");
             successfulSteps++;
             continue;
         }
@@ -389,8 +380,7 @@ ${cached.substring(0, 500)}`;
         let resultText = "";
         try {
             const result = await mcp.callTool(toolName, toolArgs);
-            resultText   = result?.content?.map(c => c.text || "").join("
-") || "";
+            resultText   = result?.content?.map(c => c.text || "").join("\n") || "";
         } catch (err) {
             console.error(`[agent] Tool error (${toolName}): ${err.message}`);
             resultText = `Tool error: ${err.message}`;
@@ -398,8 +388,7 @@ ${cached.substring(0, 500)}`;
 
         // Truncate very long results to keep context manageable
         const truncated = resultText.length > 4000
-            ? resultText.substring(0, 4000) + "
-...[truncated]"
+            ? resultText.substring(0, 4000) + "\n...[truncated]"
             : resultText;
 
         execState.recordToolCall(toolName, toolArgs, resultText, totalStepsDone);
@@ -450,9 +439,7 @@ ${truncated}`;
             if (recoveryTools) {
                 console.error(`[agent] ⚡ Deterministic recovery for ${errorType}`);
                 const { results: rResults } = await executeToolsDirect(recoveryTools, mcp, execState);
-                executionContext += "
-" + rResults.join("
-");
+                executionContext += "\n" + rResults.join("\n");
             } else if (replanCount < MAX_REPLANS && costState.llmCalls < MAX_LLM_CALLS_PER_RUN) {
                 // LLM replan fallback
                 replanCount++;
@@ -464,8 +451,7 @@ ${truncated}`;
                 if (replan) {
                     remainingSteps = enforceAnalyzeBeforeBuild(
                         replan
-                            .split("
-")
+                            .split("\n")
                             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
                             .filter(s => s.length > 4)
                     );
@@ -507,10 +493,8 @@ ${stateBlock}` : "");
             if (!fok || fp?.skipped || fp?.done) continue;
             try {
                 const fResult    = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
-                const fText      = fResult?.content?.map(c => c.text || "").join("
-") || "";
-                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "
-..." : fText;
+                const fText      = fResult?.content?.map(c => c.text || "").join("\n") || "";
+                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "\n..." : fText;
                 execState.recordToolCall(fp.tool, fp.args, fText, totalStepsDone);
                 executionContext += `
 
@@ -531,8 +515,7 @@ ${fTruncated}`;
         extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => {});
     }
 
-    console.error(`
-─── Agent finished ───`);
+    console.error(`\n─── Agent finished ───`);
     console.error(`  Steps done:   ${totalStepsDone}`);
     console.error(`  Successful:   ${successfulSteps}`);
     console.error(`  LLM calls:    ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);

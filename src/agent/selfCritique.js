@@ -27,7 +27,7 @@ import fs   from "fs";
 import path from "path";
 import { getProject }  from "../core/projectRegistry.js";
 import { validatePath } from "../core/validator.js";
-import { askLLM }      from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
 const MODEL = LLM_MODEL;
@@ -65,14 +65,10 @@ function verifyStrReplace(toolCall, projectName) {
         // Check 1: exact match
         if (content.includes(edit.search)) continue;  // ✔ found
 
-        // Check 2: whitespace-normalised match (common LLM mistake: extra spaces, \r
- vs 
-)
+        // Check 2: whitespace-normalised match (common LLM mistake: extra spaces, \r\n vs \n)
         // AUTO-CORRECT: instead of failing, extract the verbatim string from the file
         // and patch the edit in-place so the tool call can proceed without a re-read.
-        const normaliseWs = s => s.replace(/\r
-/g, "
-").replace(/[ 	]+/g, " ");
+        const normaliseWs = s => s.replace(/\r\n/g, "\n").replace(/[ 	]+/g, " ");
         const normContent  = normaliseWs(content);
         const normSearch   = normaliseWs(edit.search);
         if (normContent.includes(normSearch)) {
@@ -96,8 +92,7 @@ function verifyStrReplace(toolCall, projectName) {
         }
 
         // Check 3: first line match (maybe the search has extra context at the end)
-        const firstLine = edit.search.split("
-")[0].trim();
+        const firstLine = edit.search.split("\n")[0].trim();
         if (firstLine.length > 10 && content.includes(firstLine)) {
             failures.push(
                 `Search string not found verbatim in ${edit.path}, ` +
@@ -109,9 +104,7 @@ function verifyStrReplace(toolCall, projectName) {
 
         failures.push(
             `Search string not found in ${edit.path}. ` +
-            `Search started with: "${edit.search.substring(0, 60).replace(/
-/g, "\
-")}". ` +
+            `Search started with: "${edit.search.substring(0, 60).replace(/\n/g, "\\n")}". ` +
             `The file was likely modified since last read. Re-read it first.`
         );
     }
@@ -119,8 +112,7 @@ function verifyStrReplace(toolCall, projectName) {
     if (failures.length > 0) {
         return {
             ok: false,
-            reason: failures.join("
-"),
+            reason: failures.join("\n"),
             suggestion: `Call project_read_files on the affected file(s) first to get current content, then retry str_replace.`
         };
     }
@@ -241,8 +233,7 @@ ${check.reason}`);
         const { ok, issues } = await llmCritique(toolCall, step, costState);
         if (!ok && issues.length > 0) {
             console.error(`[self-critique] ⚠ LLM critique: ${issues.join("; ")}`);
-            return { ok: false, reason: issues.join("
-"), suggestion: "Review the tool call arguments." };
+            return { ok: false, reason: issues.join("\n"), suggestion: "Review the tool call arguments." };
         }
     }
 

@@ -104,8 +104,7 @@ function deduplicate(docs, threshold = 0.8) {
 
 // ─── Compressor ──────────────────────────────────────────────────────────────
 function compress(doc) {
-    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "
-..." : doc || "";
+    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "..." : doc || "";
 }
 
 // ─── ExecutionState-aware scoring helpers ────────────────────────────────────
@@ -160,14 +159,10 @@ export async function retrieveContext(prompt, project = null, execState = null) 
             // indexProject() is deduplicated internally: concurrent calls for the same
             // project share one build instead of launching parallel rebuilds.
             if (project) {
-                console.error("
-[retriever] Vector index missing or stale — rebuilding automatically...
-");
+                console.error("\n[retriever] Vector index missing or stale — rebuilding automatically...\n");
                 const projConfig = getProject(project);
                 await indexProject(projConfig.root, project);
-                console.error("
-[retriever] Vector index rebuilt.
-");
+                console.error("\n[retriever] Vector index rebuilt.\n");
             }
             // Retry once after rebuild; if it still fails, return empty context
             try {
@@ -195,11 +190,7 @@ export async function retrieveContext(prompt, project = null, execState = null) 
 
         useful.sort((a, b) => b.score - a.score);
         const unique = deduplicate(useful.map(s => s.doc));
-        return unique.slice(0, MAX_RESULTS).map(compress).join("
-
----
-
-");
+        return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {
         console.error("[retriever] Error:", err.message);

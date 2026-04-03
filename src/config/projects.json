@@ -1,6 +1,6 @@
 {
   "zeveal-backend": {
-    "root": "C:/Users/kushp/liferay-workspace/zeveal-backend-6/zeveal-backend",
+    "root": "/home/kushpatel/projects/zeveal-backend",
     "type": "liferay-backend",
     "buildCommand": "gradlew build",
     "branchPrefix": "ZB",
@@ -9,7 +9,7 @@
     ]
   },
   "zeveal-frontend": {
-    "root": "C:/Users/kushp/liferay-workspace/zeveal-ui-3/zeveal-ui",
+    "root": "/home/kushpatel/projects/zeveal-ui",
     "type": "react-vite",
     "buildCommand": "npm run build",
     "branchPrefix": "ZF",
@@ -55,7 +55,7 @@
     "indexExtensions": []
   },
   "mcp": {
-    "root": "C:\\Users\\kushp\\IdeaProjects\\MCP",
+    "root": "C:/Users/kushp/IdeaProjects/MCP",
     "type": "nodejs",
     "buildCommand": "",
     "branchPrefix": "M",

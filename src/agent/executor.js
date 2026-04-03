@@ -1,4 +1,4 @@
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 import { buildExecutorPrompt } from "../prompts/executor.js";

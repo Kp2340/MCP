@@ -1,4 +1,4 @@
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { listProjects, getProject } from "../core/projectRegistry.js";
 import { queryMemory } from "../vector/memory.js";
 import {

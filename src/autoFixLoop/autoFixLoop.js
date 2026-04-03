@@ -17,7 +17,7 @@
  */
 
 import { buildProject }   from "../tools/projectBuild.js";
-import { askLLM }         from "../agent/ollamaClient.js";
+import { askLLM } from "../agent/llmClient.js";
 import { getProject }     from "../core/projectRegistry.js";
 import { applyChanges }   from "../tools/applyChanges.js";
 import { projectStrReplace } from "../tools/projectStrReplace.js";

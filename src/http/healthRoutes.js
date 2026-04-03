@@ -25,7 +25,7 @@ import { config }         from "../core/config.js";
 import { createLogger }   from "../core/logger.js";
 import { stats as toolStats, recentCalls } from "../core/toolLogger.js";
 import { CHROMA_HOST, CHROMA_PORT, OLLAMA_HOST } from "../core/constants.js";
-import { isOllamaAvailable }                      from "../agent/ollamaClient.js";
+import { isLlmAvailable } from "../agent/llmClient.js";
 
 const log       = createLogger("health");
 const startedAt = Date.now();
@@ -126,7 +126,7 @@ export function attachHealthRoutes(app) {
         // Check Ollama via shared client (consistent with LLM call path)
         try {
             const t0 = Date.now();
-            const ollamaStatus = await isOllamaAvailable();
+            const ollamaStatus = await isLlmAvailable();
             const ms = Date.now() - t0;
             results.ollama = ollamaStatus.available
                 ? { status: "healthy",   latencyMs: ms, models: ollamaStatus.models }

@@ -5,9 +5,28 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-4.8">
+      <change afterPath="$PROJECT_DIR$/src/agent/geminiClient.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/agent/llmClient.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/start-ai-dev.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/jsLibraryMappings.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/export-project.ps1" beforeDir="false" afterPath="$PROJECT_DIR$/export-project.ps1" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/node_modules/.package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/node_modules/.package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/agent.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/agent.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/executor.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/executor.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/planner.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/planner.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/retriever.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/retriever.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/reviewer.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/reviewer.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/selfCritique.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/selfCritique.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/uiEditExecutor.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/uiEditExecutor.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/autoFixLoop/autoFixLoop.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/autoFixLoop/autoFixLoop.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/vector/memory.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/vector/memory.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config/projects.json" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/projects.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/config.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/config.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/http/healthRoutes.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/http/healthRoutes.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/http/startupChecks.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/http/startupChecks.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/start.bat" beforeDir="false" afterPath="$PROJECT_DIR$/start.bat" afterDir="false" />
     </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
@@ -21,7 +40,7 @@
     </persistenceIdMap>
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="493" />
+    <option name="cachedIndexableFilesCount" value="14941" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -59,8 +78,8 @@
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/Kp2340/MCP.git&quot;,
-    &quot;accountId&quot;: &quot;eef3aafb-976d-4d69-99c6-fe6ef63ae1f2&quot;
+    &quot;url&quot;: &quot;https://github.com/Kp2340/mcp&quot;,
+    &quot;accountId&quot;: &quot;62b14136-9d4b-4a5a-8324-0f59be3ac9e4&quot;
   }
 }</component>
   <component name="KubernetesApiPersistence">{}</component>
@@ -90,15 +109,16 @@
     &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
     &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
     &quot;dart.analysis.tool.window.visible&quot;: &quot;false&quot;,
     &quot;git-widget-placeholder&quot;: &quot;mcp-4&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;javascript.nodejs.core.library.configured.version&quot;: &quot;20.19.6&quot;,
-    &quot;javascript.nodejs.core.library.typings.version&quot;: &quot;20.19.35&quot;,
+    &quot;javascript.nodejs.core.library.configured.version&quot;: &quot;18.19.1&quot;,
+    &quot;javascript.nodejs.core.library.typings.version&quot;: &quot;18.19.130&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/kushp/IdeaProjects/MCP/vscode-extension&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/kushpatel/projects/mcp&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -108,7 +128,7 @@
     &quot;project.structure.last.edited&quot;: &quot;Project&quot;,
     &quot;project.structure.proportion&quot;: &quot;0.0&quot;,
     &quot;project.structure.side.proportion&quot;: &quot;0.44827586&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;in.decorom.mcp.settings&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
     &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
     &quot;vcs.patch.path&quot;: &quot;C:/Users/kushp/Downloads&quot;,
@@ -156,16 +176,6 @@
       <option name="workspaceLocation" value="$PROJECT_DIR$" />
       <method v="2" />
     </configuration>
-    <configuration default="true" type="LiferayServerConfiguration" factoryName="Liferay Server">
-      <Liferay-Sever alternativeJrePath="" bundleLocation="" bundleType="" developerMode="true" gogoShellPort="11311" vmParameters="-Xmx2560m -XX:MaxMetaspaceSize=768m -XX:MetaspaceSize=768m">
-        <envs>
-          <env name="PATH" value="$PROJECT_DIR$/../../../../Program Files/Java/jdk-24/bin:C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\libnvvp;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\dotnet\;C:\ProgramData\chocolatey\bin;C:\Program Files (x86)\apache-maven-3.9.9\bin;C:\Program Files\Git\cmd;J:\heroku\bin;C:\OpenSSL-Win64\bin;C:\Program Files\OpenSSL-Win64\bin;G:\Secret Invasion S01 (2023) 1080p\shubh\Decorom Agent\ffmpeg\bin;C:\Program Files (x86)\cloudflared\;C:\Program Files\Java\jdk-21\bin;C:\Users\kushp\.jpm\windows\bin;C:\Program Files\nodejs\;C:\poppler-25.12.0\Library\bin;C:\Gradle\gradle-9.4.1\bin;;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\PowerShell\7\;C:\Users\kushp\AppData\Local\Programs\Python\Python311\Scripts\;C:\Users\kushp\AppData\Local\Programs\Python\Python311\;C:\Users\kushp\AppData\Local\Microsoft\WindowsApps;J:\IntelliJ IDEA 2024.3.2.2\bin;C:\Users\kushp\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.1;C:\Program Files\MySQL\MySQL Server 8.0\bin;C:\Users\kushp\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\kushp\.lmstudio\bin;J:\pgAdmin 4\runtime\resources\app\node_modules\.bin;C:\Program Files\PostgreSQL\17\bin;C:\Program Files (x86)\apache-maven-3.9.9\bin;J:\heroku\bin;C:\Users\kushp\.dotnet\tools;C:\Program Files\Java\jdk-21\bin;C:\Users\kushp\AppData\Roaming\npm;C:\Users\kushp\AppData\Local\Programs\cursor\resources\app\bin;C:\Program Files\JetBrains\IntelliJ IDEA 2025.3\bin;G:\Antigravity\bin;C:\Users\kushp\AppData\Local\Microsoft\WinGet\Links;;C:\Users\kushp\AppData\Local\Programs\Ollama" />
-          <env name="JAVA_HOME" value="$PROJECT_DIR$/../../../../Program Files/Java/jdk-24" />
-        </envs>
-        <module name="mcp" />
-      </Liferay-Sever>
-      <method v="2" />
-    </configuration>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
@@ -208,6 +218,8 @@
       <workItem from="1775195684763" duration="62000" />
       <workItem from="1775197853214" duration="362000" />
       <workItem from="1775198310273" duration="31000" />
+      <workItem from="1775208174596" duration="2829000" />
+      <workItem from="1775215970634" duration="5708000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -350,6 +362,9 @@
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="UnknownFeatures">
+    <option featureType="com.intellij.fileTypeFactory" implementationName="*.bat" />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
     <option name="TAB_STATES">

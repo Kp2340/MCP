@@ -20,7 +20,7 @@
  * reviewChanges() accepts an optional `earlyMode` flag to distinguish the two.
  */
 
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
 const MODEL = LLM_MODEL;
