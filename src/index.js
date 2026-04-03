@@ -58,6 +58,7 @@ import { projectDiff }       from "./tools/projectDiff.js";
 import { projectGitLog }     from "./tools/projectGitLog.js";
 import { registerProject }         from "./tools/projectRegister.js";
 import { registerAstReplaceTools } from "./tools/astReplace.js";
+import { dispatchAstReplace }      from "./tools/astReplaceDispatch.js";
 
 // ── Core ──────────────────────────────────────────────────────────────────────
 import { getProject, listProjects } from "./core/projectRegistry.js";
@@ -245,6 +246,29 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
                 project: { type: "string" },
                 count:   { type: "number" }
             }, required: ["project"] }
+        },
+        {
+            name: "project_rename_symbol",
+            description: "Rename ALL whole-word occurrences of a symbol in one file. Safer than str_replace for renames — matches every occurrence and respects identifier boundaries (won't corrupt substrings). Supports dry-run preview before writing.",
+            inputSchema: { type: "object", properties: {
+                project: { type: "string" },
+                path:    { type: "string", description: "Relative file path, e.g. src/utils/auth.js" },
+                oldName: { type: "string", description: "Identifier to rename (exact, case-sensitive)" },
+                newName: { type: "string", description: "Replacement identifier" },
+                dryRun:  { type: "boolean", description: "Preview without writing (default: false)" },
+                backup:  { type: "boolean", description: "Write .bak before editing (default: false)" }
+            }, required: ["project", "path", "oldName", "newName"] }
+        },
+        {
+            name: "project_rename_symbol_all",
+            description: "Rename ALL whole-word occurrences of a symbol across every source file in the project. Use for global identifier renames (function, class, constant). Always run project_analyze after.",
+            inputSchema: { type: "object", properties: {
+                project:    { type: "string" },
+                oldName:    { type: "string", description: "Identifier to rename" },
+                newName:    { type: "string", description: "Replacement identifier" },
+                extensions: { type: "array", items: { type: "string" }, description: "File extensions to scan (default: all indexable)" },
+                dryRun:     { type: "boolean", description: "Preview only, no writes (default: false)" }
+            }, required: ["project", "oldName", "newName"] }
         },
         {
             name: "project_test",

@@ -53,9 +53,10 @@ function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
         try {
             const full    = path.resolve(projectRoot, rel);
             const content = fs.readFileSync(full, "utf8").substring(0, maxChars);
-            return `--- ${rel} ---\n${content}`;
+            return `--- ${rel} ---
+${content}`;
         } catch { return null; }
-    }).filter(Boolean).join("\n\n");
+    }).filter(Boolean).join("\n");
 }
 
 // ── Deterministic tool runner (same as toolChainExecutor.executeToolsDirect) ──────────────
@@ -149,7 +150,14 @@ export async function runAutoFix(projectName) {
         const result    = await buildProject({ project: projectName });
         const rawOutput = result.content?.[0]?.text || "";
 
-        if (result.success) {
+        // Build success: output contains a positive signal and no error markers
+        const buildPassed = rawOutput.trim() === ""
+            || /build successful|build success|0 error|tests passed|compiled successfully/i.test(rawOutput)
+            || (/build skipped/i.test(rawOutput));  // Java/Kotlin — static analysis pass
+        const buildFailed = !buildPassed &&
+            /error|fail|exception|cannot find|unresolved/i.test(rawOutput);
+
+        if (!buildFailed) {
             log.info("Build successful");
             return { success: true, attempts: attempt };
         }

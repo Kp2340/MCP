@@ -191,7 +191,20 @@ export const TOOL_CHAIN_TEMPLATES = [
             "Run static analysis to identify issues",
             "Find the relevant symbol in the project",
             "Read the relevant files",
-            "Apply targeted refactor using project_str_replace",
+            "Rename symbol across project using project_rename_symbol_all",
+            "Apply any remaining structural changes using project_str_replace",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "rename_symbol",
+        keywords:    ["rename", "rename function", "rename class", "rename variable", "rename method", "rename constant"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Find the relevant symbol in the project",
+            "Rename symbol across project using project_rename_symbol_all",
             "Run static analysis",
             "Run build and fix to verify"
         ]

@@ -44,6 +44,21 @@ function resolveStepToTool(step, project) {
     if (/\b(search|find files|look for|grep)\b/.test(s))
         return { tool: "project_search", args: { project, query: step.replace(/^(search|find|look for)\s*/i, "").trim() } };
 
+    // Rename symbol routing — mirrors executor.js rule router
+    const renameAllPattern = s.match(/\brename\b.+\b(across|all|everywhere|project.?wide|globally)\b/i)
+        || s.match(/\b(global|project.?wide)\b.+\brename\b/i);
+    const symbolPair = step.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i);
+    if (renameAllPattern && symbolPair) {
+        return { tool: "project_rename_symbol_all", args: { project, oldName: symbolPair[1], newName: symbolPair[2] } };
+    }
+    if (symbolPair) {
+        return { tool: "project_rename_symbol_all", args: { project, oldName: symbolPair[1], newName: symbolPair[2] } };
+    }
+
+    if (/\bproject_rename_symbol_all\b/.test(s)) {
+        return { tool: "project_rename_symbol_all", args: { project, oldName: "", newName: "" } };
+    }
+
     // Cannot resolve without LLM
     return null;
 }
@@ -62,7 +77,8 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
         return { results: [], success: false, stepsRun: 0 };
     }
 
-    console.error(`\n[toolChain] ⚡ Direct recovery: ${toolSteps.length} tool call(s), 0 LLM`);
+    console.error(`
+[toolChain] ⚡ Direct recovery: ${toolSteps.length} tool call(s), 0 LLM`);
 
     const results = [];
     let stepsRun  = 0;
@@ -84,10 +100,12 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
 
         try {
             const result    = await mcpClient.callTool(tool, args);
-            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+            const resultText = result?.content?.map(c => c.text || "").join("
+").substring(0, 3000) || "";
 
             execState.recordToolCall(tool, args, resultText, stepsRun);
-            results.push(`[${tool}]:\n${resultText}`);
+            results.push(`[${tool}]:
+${resultText}`);
 
             console.error(`[toolChain]   ← ${resultText.length} chars`);
             if (resultText.length < 400) console.error(resultText);
@@ -122,7 +140,8 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
         return { results: [], success: false, stepsRun: 0 };
     }
 
-    console.error(`\n[toolChain] ⚡ Executing template "${templateName}" directly (${template.steps.length} steps, 0 LLM calls)`);
+    console.error(`
+[toolChain] ⚡ Executing template "${templateName}" directly (${template.steps.length} steps, 0 LLM calls)`);
 
     const results = [];
     let stepsRun  = 0;
@@ -152,10 +171,12 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
 
         try {
             const result    = await mcpClient.callTool(toolCall.tool, toolCall.args);
-            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+            const resultText = result?.content?.map(c => c.text || "").join("
+").substring(0, 3000) || "";
 
             execState.recordToolCall(toolCall.tool, toolCall.args, resultText, stepsRun);
-            results.push(`[${toolCall.tool}]:\n${resultText}`);
+            results.push(`[${toolCall.tool}]:
+${resultText}`);
 
             console.error(`[toolChain]   ← ${resultText.length} chars`);
             if (resultText.length < 400) console.error(resultText);

@@ -245,7 +245,7 @@ export async function queryMemory(project, prompt, opts = {}) {
                 if (e.confidence) line += ` [conf: ${e.confidence.toFixed(1)}]`;
                 return line;
             })
-            .join("- ");
+            .join("\n");
 
 
     } catch (err) {

@@ -51,6 +51,24 @@ function routeByRule(step, project) {
     if (/\b(run tests|run test suite|run project tests|execute tests|verify tests|confirm tests|npm test|pytest|go test)\b/.test(s))
         return JSON.stringify({ tool: "project_test", args: { project } });
 
+    // Rename steps → route to AST-aware rename tool instead of str_replace
+    const renameAllMatch = s.match(/\brename\b.+\b(across|all|everywhere|project.?wide|globally)\b/i)
+        || s.match(/\b(global|project.?wide)\b.+\brename\b/i);
+    if (renameAllMatch) {
+        // Extract oldName→newName pattern like "rename userId to accountId"
+        const symbolPair = step.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i);
+        if (symbolPair) {
+            return JSON.stringify({ tool: "project_rename_symbol_all",
+                args: { project, oldName: symbolPair[1], newName: symbolPair[2] } });
+        }
+    }
+    const renameMatch = s.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i)
+        || step.match(/\brename\b.*\b(\w+)\b.*\bto\b.*\b(\w+)\b/i);
+    if (renameMatch && renameMatch[1] && renameMatch[2]) {
+        return JSON.stringify({ tool: "project_rename_symbol",
+            args: { project, path: "", oldName: renameMatch[1], newName: renameMatch[2] } });
+    }
+
     return null;
 }
 
@@ -139,7 +157,10 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     }
 
     // 3. Build memory block
-    const memoryBlock = memoryCtx ? `\nRelevant project memory:\n${memoryCtx}\n` : "";
+    const memoryBlock = memoryCtx ? `
+Relevant project memory:
+${memoryCtx}
+` : "";
 
     // 4. LLM call — prompt assembled from src/prompts/executor.js
     if (costState) costState.llmCalls++;
