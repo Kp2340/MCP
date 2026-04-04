@@ -67,20 +67,36 @@ export class MCPClient {
     /**
      * Submit a task to the MCP server.
      *
-     * @param {string} prompt   - The coding instruction
-     * @param {string} project  - Project key (must exist in server's projects.json)
+     * Workspace-first API: pass workspacePath (absolute or relative path to the project).
+     * The legacy `project` key is still accepted for backwards compatibility but deprecated.
+     *
+     * @param {string|object} promptOrOptions
+     *   - string:  the coding instruction (legacy — also pass workspacePath as 2nd arg)
+     *   - object:  { prompt, workspacePath, context? }  (recommended)
+     * @param {string} [legacyWorkspacePath]  deprecated positional arg
      * @returns {Promise<string>} jobId
      */
-    async runTask(prompt, project) {
-        if (!prompt)  throw new Error("runTask: prompt is required");
-        if (!project) throw new Error("runTask: project is required");
+    async runTask(promptOrOptions, legacyWorkspacePath) {
+        let prompt, workspacePath, context;
+
+        if (typeof promptOrOptions === "object" && promptOrOptions !== null) {
+            // New object-form: runTask({ prompt, workspacePath, context })
+            ({ prompt, workspacePath, context } = promptOrOptions);
+        } else {
+            // Legacy positional form: runTask(prompt, workspacePath)
+            prompt        = promptOrOptions;
+            workspacePath = legacyWorkspacePath;
+        }
+
+        if (!prompt)         throw new Error("runTask: prompt is required");
+        if (!workspacePath)  throw new Error("runTask: workspacePath is required");
+
+        const body = { prompt, path: workspacePath };
+        if (context) body.context = context;
 
         const data = await this._json("/run", {
             method: "POST",
-            // Server /run expects { prompt, path } — it derives the project name from the path.
-            // If caller passes a short project name (not a path), we send it as-is and let
-            // the server resolve it. For absolute paths, path is the right field.
-            body:   JSON.stringify({ prompt, path: project }),
+            body:   JSON.stringify(body),
         });
 
         return data.id;
@@ -146,6 +162,12 @@ export class MCPClient {
             // Browsers can't set headers on EventSource; pass key as query param
             const src = new EventSource(`${url}?key=${encodeURIComponent(this.apiKey)}`);
 
+            // Always close + resolve/reject — prevents dangling SSE connections
+            const done = (fn, arg) => {
+                try { src.close(); } catch {}
+                fn(arg);
+            };
+
             src.onmessage = (e) => {
                 try { onMessage({ event: "message", data: JSON.parse(e.data) }); } catch {}
             };
@@ -153,17 +175,15 @@ export class MCPClient {
             const terminal = (eventName) => {
                 src.addEventListener(eventName, (e) => {
                     try { onMessage({ event: eventName, data: JSON.parse(e.data) }); } catch {}
-                    src.close();
-                    resolve();
+                    done(resolve, undefined);
                 });
             };
 
             terminal("completed");
             terminal("failed");
 
-            src.onerror = (err) => {
-                src.close();
-                reject(new Error("SSE connection error"));
+            src.onerror = () => {
+                done(reject, new Error("SSE connection error"));
             };
         });
     }
@@ -206,12 +226,15 @@ export class MCPClient {
 
     /** @private */
     _parseSSEBuffer(buffer, onMessage) {
-        const parts = buffer.split("\n\n");
+        const parts = buffer.split("
+
+");
         // Last part may be incomplete — keep it
         const incomplete = parts.pop();
 
         for (const block of parts) {
-            const lines = block.split("\n");
+            const lines = block.split("
+");
             let event = "message";
             let data  = null;
 

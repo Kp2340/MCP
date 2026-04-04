@@ -174,7 +174,21 @@ export function drainQueue() {
     log.info("Queue drained for shutdown");
 }
 
+// ── Queue concurrency mutex ───────────────────────────────────────
+// processNext is called from multiple code-paths (setImmediate, timeout, etc.).
+// A simple boolean `running` is not safe when Node’s microtask queue can
+// re-enter before the flag is flipped. A locked Promise chain ensures only
+// one processNext execution runs at a time.
+let _processMutex = Promise.resolve();
+
 async function processNext() {
+    // Serialise all concurrent calls through a shared promise chain.
+    // Each call chains onto the previous one, so they queue up and run one-by-one.
+    _processMutex = _processMutex.then(_processNextImpl).catch(() => {});
+    return _processMutex;
+}
+
+async function _processNextImpl() {
     if (running || queue.length === 0) return;
 
     const id  = queue.shift();

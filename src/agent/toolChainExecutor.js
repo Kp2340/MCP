@@ -16,6 +16,46 @@
 
 import { TOOL_CHAIN_TEMPLATES } from "../core/constants.js";
 
+// ── Tool allowlist ──────────────────────────────────────────────────────────────────────────────────
+// Only tools in this set can be dispatched by toolChainExecutor.
+// Any tool NOT in this list — even if the LLM or a template requests it —
+// is blocked with a hard error. This prevents prompt injection and runaway
+// LLM-directed tool calls from reaching destructive or unintended operations.
+const ALLOWED_TOOLS = new Set([
+    "project_scan",
+    "project_read_files",
+    "project_find_symbol",
+    "project_search",
+    "project_analyze",
+    "project_str_replace",
+    "project_apply_changes",
+    "project_apply_patch",
+    "project_build",
+    "project_build_and_fix",
+    "project_test",
+    "project_diff",
+    "project_git_log",
+    "project_index",
+    "project_rename_symbol",
+    "project_rename_symbol_all",
+    "project_dependency_graph",
+    "project_register",
+]);
+
+/**
+ * Validate that a tool is in the allowlist before dispatching.
+ * Throws a descriptive error if the tool is not permitted.
+ * @param {string} toolName
+ */
+function assertToolAllowed(toolName) {
+    if (!ALLOWED_TOOLS.has(toolName)) {
+        throw new Error(
+            `[toolChain] Tool "${toolName}" is not in ALLOWED_TOOLS. ` +
+            `Permitted tools: ${[...ALLOWED_TOOLS].join(", ")}`
+        );
+    }
+}
+
 // ─── Rule router (duplicated from executor to avoid circular dep) ─────────────
 // This mirrors the routing logic in executor.js without the LLM path.
 function resolveStepToTool(step, project) {
@@ -170,6 +210,7 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
         stepsRun++;
 
         try {
+            assertToolAllowed(toolCall.tool);  // Bug 10 fix — hard block before dispatch
             const result    = await mcpClient.callTool(toolCall.tool, toolCall.args);
             const resultText = result?.content?.map(c => c.text || "").join("
 ").substring(0, 3000) || "";

@@ -15,9 +15,21 @@ import { MCPClient, createClientFromEnv } from "./src/client/mcpClient.js";
 // const client = createClientFromEnv();
 
 // ── Option B: explicit configuration ─────────────────────────────────────────
+// ── Validate required env vars before constructing client ────────────────────
+if (!process.env.MCP_BASE_URL) {
+    console.error("Error: MCP_BASE_URL environment variable is required.");
+    console.error("Usage: MCP_BASE_URL=https://your-server.ngrok.io MCP_API_KEY=your-key node example.js");
+    process.exit(1);
+}
+if (!process.env.MCP_API_KEY) {
+    console.error("Error: MCP_API_KEY environment variable is required.");
+    console.error("Usage: MCP_BASE_URL=https://your-server.ngrok.io MCP_API_KEY=your-key node example.js");
+    process.exit(1);
+}
+
 const client = new MCPClient({
-    baseUrl: process.env.MCP_BASE_URL || "https://markus-idiorrhythmic-osseously.ngrok-free.dev",
-    apiKey:  process.env.MCP_API_KEY  || "kush-full-stack-developer-java-with-react",
+    baseUrl: process.env.MCP_BASE_URL,
+    apiKey:  process.env.MCP_API_KEY,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,7 +37,9 @@ const client = new MCPClient({
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleStream() {
-    console.log("\n── Example 1: Submit + stream ────────────────────────\n");
+    console.log("
+── Example 1: Submit + stream ────────────────────────
+");
 
     const jobId = await client.runTask(
         "Fix the login bug — form is not validating email format",
@@ -33,14 +47,17 @@ async function exampleStream() {
     );
 
     console.log(`Job ID: ${jobId}`);
-    console.log("Streaming logs...\n");
+    console.log("Streaming logs...
+");
 
     await client.stream(jobId, (msg) => {
         const d = msg.data;
         if (msg.event === "completed") {
-            console.log("\n✔  DONE:", JSON.stringify(d, null, 2));
+            console.log("
+✔  DONE:", JSON.stringify(d, null, 2));
         } else if (msg.event === "failed") {
-            console.error("\n✘  FAILED:", JSON.stringify(d, null, 2));
+            console.error("
+✘  FAILED:", JSON.stringify(d, null, 2));
         } else if (d?.log) {
             console.log(`[${d.step ?? "?"}] ${d.log}`);
         } else if (typeof d === "string") {
@@ -54,21 +71,27 @@ async function exampleStream() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleWait() {
-    console.log("\n── Example 2: Submit + waitForCompletion ─────────────\n");
+    console.log("
+── Example 2: Submit + waitForCompletion ─────────────
+");
 
-    const jobId = await client.runTask(
-        "Add unit tests for the CartService class",
-        "jsv"
-    );
+    const jobId = await client.runTask({
+        prompt:        "Add unit tests for the CartService class",
+        workspacePath: process.env.WORKSPACE_PATH || "jsv",
+    });
 
-    console.log(`Job ID: ${jobId}\nWaiting...`);
+    console.log(`Job ID: ${jobId}
+Waiting...`);
 
     const result = await client.waitForCompletion(jobId, (msg) => {
         if (msg.event === "poll") process.stdout.write(".");
-        else if (msg.data?.log) process.stdout.write(`\n  ${msg.data.log}`);
+        else if (msg.data?.log) process.stdout.write(`
+  ${msg.data.log}`);
     });
 
-    console.log("\n\nFinal result:", result);
+    console.log("
+
+Final result:", result);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,13 +99,16 @@ async function exampleWait() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleInspect() {
-    console.log("\n── Example 3: Inspect queue + jobs ──────────────────\n");
+    console.log("
+── Example 3: Inspect queue + jobs ──────────────────
+");
 
     const queue = await client.getQueue();
     console.log("Queue:", queue);
 
     const jobs = await client.listJobs();
-    console.log(`\nAll jobs (${jobs.length}):`);
+    console.log(`
+All jobs (${jobs.length}):`);
     for (const j of jobs) {
         console.log(`  ${j.id} | ${j.status.padEnd(10)} | ${j.project ?? ""}`);
     }

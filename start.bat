@@ -6,10 +6,12 @@ echo.
 echo  AI Dev MCP Server
 echo.
 
-REM Load .env file — all values including BASE_URL and PORT come from here
+REM Load .env file safely -- skip comments (#) and blank lines
 if exist .env (
-    for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
-        if not "%%a"=="" if not "%%~a:~0,1%%"=="#" set %%a=%%b
+    for /f "usebackq tokens=1,* delims==" %%A in (`findstr /v "^#" .env`) do (
+        if not "%%A"=="" (
+            set "%%A=%%B"
+        )
     )
 ) else (
     echo WARNING: .env file not found. Using defaults.
@@ -20,7 +22,7 @@ echo Starting ChromaDB on port 8000...
 start "ChromaDB" /min cmd /c "chroma run --path "%~dp0chroma""
 timeout /t 4 /nobreak >nul
 
-REM Start MCP server — BASE_URL and PORT are loaded from .env above
+REM Start MCP server
 echo Starting MCP server on port %PORT%...
 echo MCP SSE endpoint: %BASE_URL%/sse
 echo.

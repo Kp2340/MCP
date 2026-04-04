@@ -52,9 +52,21 @@ import { MCPClient, createClientFromEnv } from "./src/client/mcpClient.js";
 // const client = createClientFromEnv();
 
 // ── Option B: explicit configuration ─────────────────────────────────────────
+// ── Validate required env vars before constructing client ────────────────────
+if (!process.env.MCP_BASE_URL) {
+    console.error("Error: MCP_BASE_URL environment variable is required.");
+    console.error("Usage: MCP_BASE_URL=https://your-server.ngrok.io MCP_API_KEY=your-key node example.js");
+    process.exit(1);
+}
+if (!process.env.MCP_API_KEY) {
+    console.error("Error: MCP_API_KEY environment variable is required.");
+    console.error("Usage: MCP_BASE_URL=https://your-server.ngrok.io MCP_API_KEY=your-key node example.js");
+    process.exit(1);
+}
+
 const client = new MCPClient({
-    baseUrl: process.env.MCP_BASE_URL || "https://markus-idiorrhythmic-osseously.ngrok-free.dev",
-    apiKey:  process.env.MCP_API_KEY  || "kush-full-stack-developer-java-with-react",
+    baseUrl: process.env.MCP_BASE_URL,
+    apiKey:  process.env.MCP_API_KEY,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +74,9 @@ const client = new MCPClient({
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleStream() {
-    console.log("\n── Example 1: Submit + stream ────────────────────────\n");
+    console.log("
+── Example 1: Submit + stream ────────────────────────
+");
 
     const jobId = await client.runTask(
         "Fix the login bug — form is not validating email format",
@@ -70,14 +84,17 @@ async function exampleStream() {
     );
 
     console.log(`Job ID: ${jobId}`);
-    console.log("Streaming logs...\n");
+    console.log("Streaming logs...
+");
 
     await client.stream(jobId, (msg) => {
         const d = msg.data;
         if (msg.event === "completed") {
-            console.log("\n✔  DONE:", JSON.stringify(d, null, 2));
+            console.log("
+✔  DONE:", JSON.stringify(d, null, 2));
         } else if (msg.event === "failed") {
-            console.error("\n✘  FAILED:", JSON.stringify(d, null, 2));
+            console.error("
+✘  FAILED:", JSON.stringify(d, null, 2));
         } else if (d?.log) {
             console.log(`[${d.step ?? "?"}] ${d.log}`);
         } else if (typeof d === "string") {
@@ -91,21 +108,27 @@ async function exampleStream() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleWait() {
-    console.log("\n── Example 2: Submit + waitForCompletion ─────────────\n");
+    console.log("
+── Example 2: Submit + waitForCompletion ─────────────
+");
 
     const jobId = await client.runTask(
         "Add unit tests for the CartService class",
         "jsv"
     );
 
-    console.log(`Job ID: ${jobId}\nWaiting...`);
+    console.log(`Job ID: ${jobId}
+Waiting...`);
 
     const result = await client.waitForCompletion(jobId, (msg) => {
         if (msg.event === "poll") process.stdout.write(".");
-        else if (msg.data?.log) process.stdout.write(`\n  ${msg.data.log}`);
+        else if (msg.data?.log) process.stdout.write(`
+  ${msg.data.log}`);
     });
 
-    console.log("\n\nFinal result:", result);
+    console.log("
+
+Final result:", result);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,13 +136,16 @@ async function exampleWait() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleInspect() {
-    console.log("\n── Example 3: Inspect queue + jobs ──────────────────\n");
+    console.log("
+── Example 3: Inspect queue + jobs ──────────────────
+");
 
     const queue = await client.getQueue();
     console.log("Queue:", queue);
 
     const jobs = await client.listJobs();
-    console.log(`\nAll jobs (${jobs.length}):`);
+    console.log(`
+All jobs (${jobs.length}):`);
     for (const j of jobs) {
         console.log(`  ${j.id} | ${j.status.padEnd(10)} | ${j.project ?? ""}`);
     }
@@ -2134,6 +2160,7 @@ import {
     MAX_LLM_CALLS_PER_RUN,
     MAX_TOTAL_TOKENS_PER_RUN,
     MAX_REPLANS,
+    MAX_AGENT_STEPS,
     TOOL_CHAIN_TEMPLATES,
     LLM_MODEL
 } from "../core/constants.js";
@@ -2141,7 +2168,7 @@ import {
 process.env.NODE_NO_WARNINGS = "1";
 
 const MODEL       = LLM_MODEL;
-const MAX_STEPS   = 25;
+// MAX_STEPS is now MAX_AGENT_STEPS from constants — single source of truth
 const MAX_RETRIES = 2;
 
 let mcp;
@@ -2297,7 +2324,9 @@ export async function runAgent(prompt, emit = null) {
     const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch {} };
 
     console.error("Project:", project);
-    console.error("\nCreating plan...\n");
+    console.error("
+Creating plan...
+");
 
     const costState = makeCostState();
     const execState = makeExecutionState();
@@ -2334,7 +2363,8 @@ ${planContext}`;
         }
         const { results, success, stepsRun } = chainResult;
         if (success || stepsRun > 0) {
-            const executionContext = results.join("\n");
+            const executionContext = results.join("
+");
             collector.startRun(prompt);
             collector.endRun(stepsRun >= 2, execState);
             if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
@@ -2357,11 +2387,14 @@ ${planContext}`;
     const initialPlan = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
     trackChars(costState, initialPlan);
 
-    console.error("\nInitial Plan:\n" + initialPlan);
+    console.error("
+Initial Plan:
+" + initialPlan);
 
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
-            .split("\n")
+            .split("
+")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4)
     );
@@ -2375,10 +2408,27 @@ ${planContext}`;
     // reviewerIssuesInjected: inject issues back into queue only once
     let reviewerIssuesInjected   = false;
 
-    // ── Budget exhaustion notifier ────────────────────────────────────────────
+    // ── Budget exhaustion notifier ────────────────────────────────────────────────────
     // Checks costState.budgetExhausted (set by planner.js) and emits a
     // user-visible SSE warning so IDE extensions can surface it in the UI.
     // Declared here so it closes over successfulSteps (defined above).
+    let budgetWarnEmitted = false;
+    const checkAndEmitBudgetWarning = () => {
+        if (!budgetWarnEmitted && costState.budgetExhausted) {
+            budgetWarnEmitted = true;
+            // ── Hard step cap ─────────────────────────────────────────────────
+    // Enforced AT THE TOP of every loop iteration.
+    // MAX_AGENT_STEPS is the absolute ceiling — no override, no bypass.
+    const stepCapGuard = () => {
+        if (totalStepsDone >= MAX_AGENT_STEPS) {
+            const msg = `⚠️ Agent step cap reached (${MAX_AGENT_STEPS} steps). Stopping to prevent runaway execution.`;
+            console.error(`[agent] ${msg}`);
+            emitStep("step_cap", { log: msg, totalStepsDone, cap: MAX_AGENT_STEPS });
+            return true; // caller should break
+        }
+        return false;
+    };
+
     let budgetWarnEmitted = false;
     const checkAndEmitBudgetWarning = () => {
         if (!budgetWarnEmitted && costState.budgetExhausted) {
@@ -2415,7 +2465,8 @@ ${planContext}`;
         const step = remainingSteps.shift();
         totalStepsDone++;
 
-        console.error(`\n[${totalStepsDone}] ${step}`);
+        console.error(`
+[${totalStepsDone}] ${step}`);
         console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
         emitStep(totalStepsDone, step);
 
@@ -2471,7 +2522,9 @@ ${stepContext}` : "");
         if (parsed.tool === "__deterministic_recovery__" && Array.isArray(parsed.toolSteps)) {
             console.error(`[agent] ⚡ Deterministic recovery: ${parsed.toolSteps.length} direct tool calls`);
             const { results } = await executeToolsDirect(parsed.toolSteps, mcp, execState);
-            executionContext += "\n" + results.join("\n");
+            executionContext += "
+" + results.join("
+");
             successfulSteps++;
             continue;
         }
@@ -2494,7 +2547,8 @@ ${cached.substring(0, 500)}`;
         let resultText = "";
         try {
             const result = await mcp.callTool(toolName, toolArgs);
-            resultText   = result?.content?.map(c => c.text || "").join("\n") || "";
+            resultText   = result?.content?.map(c => c.text || "").join("
+") || "";
         } catch (err) {
             console.error(`[agent] Tool error (${toolName}): ${err.message}`);
             resultText = `Tool error: ${err.message}`;
@@ -2502,7 +2556,8 @@ ${cached.substring(0, 500)}`;
 
         // Truncate very long results to keep context manageable
         const truncated = resultText.length > 4000
-            ? resultText.substring(0, 4000) + "\n...[truncated]"
+            ? resultText.substring(0, 4000) + "
+...[truncated]"
             : resultText;
 
         execState.recordToolCall(toolName, toolArgs, resultText, totalStepsDone);
@@ -2553,7 +2608,9 @@ ${truncated}`;
             if (recoveryTools) {
                 console.error(`[agent] ⚡ Deterministic recovery for ${errorType}`);
                 const { results: rResults } = await executeToolsDirect(recoveryTools, mcp, execState);
-                executionContext += "\n" + rResults.join("\n");
+                executionContext += "
+" + rResults.join("
+");
             } else if (replanCount < MAX_REPLANS && costState.llmCalls < MAX_LLM_CALLS_PER_RUN) {
                 // LLM replan fallback
                 replanCount++;
@@ -2565,7 +2622,8 @@ ${truncated}`;
                 if (replan) {
                     remainingSteps = enforceAnalyzeBeforeBuild(
                         replan
-                            .split("\n")
+                            .split("
+")
                             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
                             .filter(s => s.length > 4)
                     );
@@ -2607,8 +2665,10 @@ ${stateBlock}` : "");
             if (!fok || fp?.skipped || fp?.done) continue;
             try {
                 const fResult    = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
-                const fText      = fResult?.content?.map(c => c.text || "").join("\n") || "";
-                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "\n..." : fText;
+                const fText      = fResult?.content?.map(c => c.text || "").join("
+") || "";
+                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "
+..." : fText;
                 execState.recordToolCall(fp.tool, fp.args, fText, totalStepsDone);
                 executionContext += `
 
@@ -2629,7 +2689,8 @@ ${fTruncated}`;
         extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => {});
     }
 
-    console.error(`\n─── Agent finished ───`);
+    console.error(`
+─── Agent finished ───`);
     console.error(`  Steps done:   ${totalStepsDone}`);
     console.error(`  Successful:   ${successfulSteps}`);
     console.error(`  LLM calls:    ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
@@ -5054,6 +5115,46 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\toolChainExecutor.js
 
 import { TOOL_CHAIN_TEMPLATES } from "../core/constants.js";
 
+// ── Tool allowlist ──────────────────────────────────────────────────────────────────────────────────
+// Only tools in this set can be dispatched by toolChainExecutor.
+// Any tool NOT in this list — even if the LLM or a template requests it —
+// is blocked with a hard error. This prevents prompt injection and runaway
+// LLM-directed tool calls from reaching destructive or unintended operations.
+const ALLOWED_TOOLS = new Set([
+    "project_scan",
+    "project_read_files",
+    "project_find_symbol",
+    "project_search",
+    "project_analyze",
+    "project_str_replace",
+    "project_apply_changes",
+    "project_apply_patch",
+    "project_build",
+    "project_build_and_fix",
+    "project_test",
+    "project_diff",
+    "project_git_log",
+    "project_index",
+    "project_rename_symbol",
+    "project_rename_symbol_all",
+    "project_dependency_graph",
+    "project_register",
+]);
+
+/**
+ * Validate that a tool is in the allowlist before dispatching.
+ * Throws a descriptive error if the tool is not permitted.
+ * @param {string} toolName
+ */
+function assertToolAllowed(toolName) {
+    if (!ALLOWED_TOOLS.has(toolName)) {
+        throw new Error(
+            `[toolChain] Tool "${toolName}" is not in ALLOWED_TOOLS. ` +
+            `Permitted tools: ${[...ALLOWED_TOOLS].join(", ")}`
+        );
+    }
+}
+
 // ─── Rule router (duplicated from executor to avoid circular dep) ─────────────
 // This mirrors the routing logic in executor.js without the LLM path.
 function resolveStepToTool(step, project) {
@@ -6198,20 +6299,36 @@ export class MCPClient {
     /**
      * Submit a task to the MCP server.
      *
-     * @param {string} prompt   - The coding instruction
-     * @param {string} project  - Project key (must exist in server's projects.json)
+     * Workspace-first API: pass workspacePath (absolute or relative path to the project).
+     * The legacy `project` key is still accepted for backwards compatibility but deprecated.
+     *
+     * @param {string|object} promptOrOptions
+     *   - string:  the coding instruction (legacy — also pass workspacePath as 2nd arg)
+     *   - object:  { prompt, workspacePath, context? }  (recommended)
+     * @param {string} [legacyWorkspacePath]  deprecated positional arg
      * @returns {Promise<string>} jobId
      */
-    async runTask(prompt, project) {
-        if (!prompt)  throw new Error("runTask: prompt is required");
-        if (!project) throw new Error("runTask: project is required");
+    async runTask(promptOrOptions, legacyWorkspacePath) {
+        let prompt, workspacePath, context;
+
+        if (typeof promptOrOptions === "object" && promptOrOptions !== null) {
+            // New object-form: runTask({ prompt, workspacePath, context })
+            ({ prompt, workspacePath, context } = promptOrOptions);
+        } else {
+            // Legacy positional form: runTask(prompt, workspacePath)
+            prompt        = promptOrOptions;
+            workspacePath = legacyWorkspacePath;
+        }
+
+        if (!prompt)         throw new Error("runTask: prompt is required");
+        if (!workspacePath)  throw new Error("runTask: workspacePath is required");
+
+        const body = { prompt, path: workspacePath };
+        if (context) body.context = context;
 
         const data = await this._json("/run", {
             method: "POST",
-            // Server /run expects { prompt, path } — it derives the project name from the path.
-            // If caller passes a short project name (not a path), we send it as-is and let
-            // the server resolve it. For absolute paths, path is the right field.
-            body:   JSON.stringify({ prompt, path: project }),
+            body:   JSON.stringify(body),
         });
 
         return data.id;
@@ -6277,6 +6394,12 @@ export class MCPClient {
             // Browsers can't set headers on EventSource; pass key as query param
             const src = new EventSource(`${url}?key=${encodeURIComponent(this.apiKey)}`);
 
+            // Always close + resolve/reject — prevents dangling SSE connections
+            const done = (fn, arg) => {
+                try { src.close(); } catch {}
+                fn(arg);
+            };
+
             src.onmessage = (e) => {
                 try { onMessage({ event: "message", data: JSON.parse(e.data) }); } catch {}
             };
@@ -6284,17 +6407,15 @@ export class MCPClient {
             const terminal = (eventName) => {
                 src.addEventListener(eventName, (e) => {
                     try { onMessage({ event: eventName, data: JSON.parse(e.data) }); } catch {}
-                    src.close();
-                    resolve();
+                    done(resolve, undefined);
                 });
             };
 
             terminal("completed");
             terminal("failed");
 
-            src.onerror = (err) => {
-                src.close();
-                reject(new Error("SSE connection error"));
+            src.onerror = () => {
+                done(reject, new Error("SSE connection error"));
             };
         });
     }
@@ -6337,12 +6458,15 @@ export class MCPClient {
 
     /** @private */
     _parseSSEBuffer(buffer, onMessage) {
-        const parts = buffer.split("\n\n");
+        const parts = buffer.split("
+
+");
         // Last part may be incomplete — keep it
         const incomplete = parts.pop();
 
         for (const block of parts) {
-            const lines = block.split("\n");
+            const lines = block.split("
+");
             let event = "message";
             let data  = null;
 
@@ -6697,6 +6821,7 @@ export const COMPRESS_MAX_CHARS     = 6000;
 export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
+export const MAX_AGENT_STEPS          = 25; // hard cap — agent loop MUST stop after this many steps
 
 export const CHARS_PER_TOKEN = 4;
 
@@ -7610,6 +7735,7 @@ export function recentCalls(n = 20) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\core\validator.js
 ========================================
 import path from "path";
+import fs   from "fs";
 
 export function validatePath(projectRoot, relativePath) {
     // Strip Next.js / Vite path aliases (e.g. @/components/Foo → components/Foo)
@@ -7623,11 +7749,25 @@ export function validatePath(projectRoot, relativePath) {
         throw new Error(`Invalid file path: ${relativePath}`);
     }
 
-    const resolved = path.resolve(projectRoot, relativePath);
+    const resolved     = path.resolve(projectRoot, relativePath);
     const resolvedRoot = path.resolve(projectRoot);
 
     if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
         throw new Error(`Path escapes project root: ${relativePath}`);
+    }
+
+    // Symlink traversal guard: resolve symlinks and re-check containment.
+    // This prevents workspace → symlink → /etc/passwd style attacks.
+    try {
+        const realResolved = fs.realpathSync(resolved);
+        const realRoot     = fs.realpathSync(resolvedRoot);
+        if (!realResolved.startsWith(realRoot + path.sep) && realResolved !== realRoot) {
+            throw new Error(`Symlink escapes project root: ${relativePath}`);
+        }
+    } catch (err) {
+        // If the file doesn’t exist yet (new file being created), realpathSync throws.
+        // ENOENT is acceptable — only re-throw symlink escape errors.
+        if (err.code !== "ENOENT") throw err;
     }
 
     return resolved;
@@ -8901,7 +9041,21 @@ export function drainQueue() {
     log.info("Queue drained for shutdown");
 }
 
+// ── Queue concurrency mutex ───────────────────────────────────────
+// processNext is called from multiple code-paths (setImmediate, timeout, etc.).
+// A simple boolean `running` is not safe when Node’s microtask queue can
+// re-enter before the flag is flipped. A locked Promise chain ensures only
+// one processNext execution runs at a time.
+let _processMutex = Promise.resolve();
+
 async function processNext() {
+    // Serialise all concurrent calls through a shared promise chain.
+    // Each call chains onto the previous one, so they queue up and run one-by-one.
+    _processMutex = _processMutex.then(_processNextImpl).catch(() => {});
+    return _processMutex;
+}
+
+async function _processNextImpl() {
     if (running || queue.length === 0) return;
 
     const id  = queue.shift();
@@ -9557,9 +9711,39 @@ function userWorkspaceDir(user, project) {
 function safeExtract(zipPath, destDir) {
     // adm-zip: pure JS, works on Windows, Linux, macOS, and Docker.
     fs.mkdirSync(destDir, { recursive: true });
-    const zip = new AdmZip(zipPath);
-    // extractAllTo overwrites existing files and handles nested folders.
-    zip.extractAllTo(destDir, true);
+    const zip      = new AdmZip(zipPath);
+    const entries  = zip.getEntries();
+    const resolvedDest = path.resolve(destDir);
+
+    for (const entry of entries) {
+        // Normalise the entry name to strip leading slashes and collapse dots
+        const entryName = entry.entryName.replace(/\\/g, "/").replace(/^\/{1,}/, "");
+
+        // Reject null bytes, absolute paths, and dot-dot traversal segments
+        if (
+            entryName.includes("\0") ||
+            path.isAbsolute(entryName) ||
+            entryName.split("/").some(seg => seg === "..")
+        ) {
+            log.warn(`Zip-slip blocked: skipping entry "${entry.entryName}"`);
+            continue;
+        }
+
+        const targetPath = path.resolve(resolvedDest, entryName);
+
+        // Final containment check — catches any edge-cases the above misses
+        if (!targetPath.startsWith(resolvedDest + path.sep) && targetPath !== resolvedDest) {
+            log.warn(`Zip-slip blocked (containment): skipping entry "${entry.entryName}"`);
+            continue;
+        }
+
+        if (entry.isDirectory) {
+            fs.mkdirSync(targetPath, { recursive: true });
+        } else {
+            fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+            fs.writeFileSync(targetPath, entry.getData());
+        }
+    }
 }
 
 function createZip(sourceDir, zipPath) {

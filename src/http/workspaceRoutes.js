@@ -54,9 +54,39 @@ function userWorkspaceDir(user, project) {
 function safeExtract(zipPath, destDir) {
     // adm-zip: pure JS, works on Windows, Linux, macOS, and Docker.
     fs.mkdirSync(destDir, { recursive: true });
-    const zip = new AdmZip(zipPath);
-    // extractAllTo overwrites existing files and handles nested folders.
-    zip.extractAllTo(destDir, true);
+    const zip      = new AdmZip(zipPath);
+    const entries  = zip.getEntries();
+    const resolvedDest = path.resolve(destDir);
+
+    for (const entry of entries) {
+        // Normalise the entry name to strip leading slashes and collapse dots
+        const entryName = entry.entryName.replace(/\\/g, "/").replace(/^\/{1,}/, "");
+
+        // Reject null bytes, absolute paths, and dot-dot traversal segments
+        if (
+            entryName.includes("\0") ||
+            path.isAbsolute(entryName) ||
+            entryName.split("/").some(seg => seg === "..")
+        ) {
+            log.warn(`Zip-slip blocked: skipping entry "${entry.entryName}"`);
+            continue;
+        }
+
+        const targetPath = path.resolve(resolvedDest, entryName);
+
+        // Final containment check — catches any edge-cases the above misses
+        if (!targetPath.startsWith(resolvedDest + path.sep) && targetPath !== resolvedDest) {
+            log.warn(`Zip-slip blocked (containment): skipping entry "${entry.entryName}"`);
+            continue;
+        }
+
+        if (entry.isDirectory) {
+            fs.mkdirSync(targetPath, { recursive: true });
+        } else {
+            fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+            fs.writeFileSync(targetPath, entry.getData());
+        }
+    }
 }
 
 function createZip(sourceDir, zipPath) {

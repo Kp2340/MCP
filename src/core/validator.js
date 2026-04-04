@@ -1,4 +1,5 @@
 import path from "path";
+import fs   from "fs";
 
 export function validatePath(projectRoot, relativePath) {
     // Strip Next.js / Vite path aliases (e.g. @/components/Foo → components/Foo)
@@ -12,11 +13,25 @@ export function validatePath(projectRoot, relativePath) {
         throw new Error(`Invalid file path: ${relativePath}`);
     }
 
-    const resolved = path.resolve(projectRoot, relativePath);
+    const resolved     = path.resolve(projectRoot, relativePath);
     const resolvedRoot = path.resolve(projectRoot);
 
     if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
         throw new Error(`Path escapes project root: ${relativePath}`);
+    }
+
+    // Symlink traversal guard: resolve symlinks and re-check containment.
+    // This prevents workspace → symlink → /etc/passwd style attacks.
+    try {
+        const realResolved = fs.realpathSync(resolved);
+        const realRoot     = fs.realpathSync(resolvedRoot);
+        if (!realResolved.startsWith(realRoot + path.sep) && realResolved !== realRoot) {
+            throw new Error(`Symlink escapes project root: ${relativePath}`);
+        }
+    } catch (err) {
+        // If the file doesn’t exist yet (new file being created), realpathSync throws.
+        // ENOENT is acceptable — only re-throw symlink escape errors.
+        if (err.code !== "ENOENT") throw err;
     }
 
     return resolved;

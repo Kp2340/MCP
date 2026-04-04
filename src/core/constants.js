@@ -62,6 +62,7 @@ export const COMPRESS_MAX_CHARS     = 6000;
 export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
+export const MAX_AGENT_STEPS          = 25; // hard cap — agent loop MUST stop after this many steps
 
 export const CHARS_PER_TOKEN = 4;
 
