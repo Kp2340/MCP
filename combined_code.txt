@@ -1,4 +1,9 @@
 ﻿========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\.ai-dev-index-cache.json
+========================================
+{"classes":[{"name":"McpClient","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpClient.kt","line":13},{"name":"McpSettings","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettings.kt","line":14},{"name":"State","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettings.kt","line":16},{"name":"McpSettingsComponent","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettingsComponent.kt","line":13},{"name":"McpToolWindow","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":26},{"name":"McpToolWindowFactory","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindowFactory.kt","line":12},{"name":"RunPromptAction","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\RunPromptAction.kt","line":11},{"name":"ExecutionState","file":"src\\agent\\executionState.js","line":127},{"name":"MCPClient","file":"src\\agent\\mcpClient.js","line":45},{"name":"MCPClient","file":"src\\client\\mcpClient.js","line":15},{"name":"TrainingCollector","file":"src\\training\\collector.js","line":34},{"name":"MCPClient","file":"vscode-extension\\extension.js","line":13}],"functions":[{"name":"exampleStream","file":"example.js","line":27},{"name":"exampleWait","file":"example.js","line":56},{"name":"exampleInspect","file":"example.js","line":78},{"name":"loadState","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettings.kt","line":25},{"name":"createComponent","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettingsComponent.kt","line":22},{"name":"isModified","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettingsComponent.kt","line":53},{"name":"apply","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettingsComponent.kt","line":60},{"name":"reset","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettingsComponent.kt","line":67},{"name":"disposeUIResources","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpSettingsComponent.kt","line":74},{"name":"buildUi","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":77},{"name":"onRun","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":114},{"name":"onCancel","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":159},{"name":"onRevert","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":165},{"name":"onWorkspaceSync","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":189},{"name":"handleStreamEvent","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":200},{"name":"showDiffViewer","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":227},{"name":"renderColorDiff","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":263},{"name":"hideDiffPanel","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":306},{"name":"buildPromptWithContext","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":319},{"name":"clearLog","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":337},{"name":"log","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":339},{"name":"setRunning","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":358},{"name":"refreshServerLabel","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":364},{"name":"checkServerHealth","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindow.kt","line":368},{"name":"createToolWindowContent","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\McpToolWindowFactory.kt","line":13},{"name":"actionPerformed","file":"intellij-plugin\\src\\main\\kotlin\\in\\decorom\\mcp\\RunPromptAction.kt","line":12},{"name":"makeCostState","file":"src\\agent\\agent.js","line":37},{"name":"trackChars","file":"src\\agent\\agent.js","line":41},{"name":"estimatedTokens","file":"src\\agent\\agent.js","line":45},{"name":"compressContext","file":"src\\agent\\agent.js","line":50},{"name":"extractAndStoreMemory","file":"src\\agent\\agent.js","line":78},{"name":"enforceAnalyzeBeforeBuild","file":"src\\agent\\agent.js","line":101},{"name":"executeWithRetry","file":"src\\agent\\agent.js","line":115},{"name":"filesToRead","file":"src\\agent\\agent.js","line":152},{"name":"runAgent","file":"src\\agent\\agent.js","line":175},{"name":"emitStep","file":"src\\agent\\agent.js","line":183},{"name":"checkAndEmitBudgetWarning","file":"src\\agent\\agent.js","line":269},{"name":"runAgent","file":"src\\agent\\agentRunner.js","line":21},{"name":"parseImportError","file":"src\\agent\\errorFixer.js","line":25},{"name":"extractFilePath","file":"src\\agent\\errorFixer.js","line":50},{"name":"parseSyntaxError","file":"src\\agent\\errorFixer.js","line":62},{"name":"extractLineNumber","file":"src\\agent\\errorFixer.js","line":69},{"name":"buildImportFix","file":"src\\agent\\errorFixer.js","line":89},{"name":"buildAnalyzeFix","file":"src\\agent\\errorFixer.js","line":123},{"name":"generateDirectFix","file":"src\\agent\\errorFixer.js","line":136},{"name":"extractErrorFilePath","file":"src\\agent\\errorFixer.js","line":181},{"name":"classifyFailure","file":"src\\agent\\executionState.js","line":73},{"name":"extractPathsFromArgs","file":"src\\agent\\executionState.js","line":111},{"name":"normalizePath","file":"src\\agent\\executionState.js","line":123},{"name":"makeExecutionState","file":"src\\agent\\executionState.js","line":231},{"name":"formatStateForPrompt","file":"src\\agent\\executionState.js","line":239},{"name":"routeByRule","file":"src\\agent\\executor.js","line":11},{"name":"normalizeArgs","file":"src\\agent\\executor.js","line":76},{"name":"hoistTopLevelArgs","file":"src\\agent\\executor.js","line":96},{"name":"executeStep","file":"src\\agent\\executor.js","line":120},{"name":"getClient","file":"src\\agent\\geminiClient.js","line":7},{"name":"isGeminiAvailable","file":"src\\agent\\geminiClient.js","line":22},{"name":"askLLM","file":"src\\agent\\geminiClient.js","line":44},{"name":"validateGoal","file":"src\\agent\\goalValidator.js","line":98},{"name":"logValidation","file":"src\\agent\\goalValidator.js","line":106},{"name":"validateWithBuild","file":"src\\agent\\goalValidator.js","line":124},{"name":"askLLM","file":"src\\agent\\llmClient.js","line":8},{"name":"isLlmAvailable","file":"src\\agent\\llmClient.js","line":25},{"name":"wrap","file":"src\\agent\\mcpClient.js","line":39},{"name":"callTool","file":"src\\agent\\mcpClient.js","line":53},{"name":"isOllamaAvailable","file":"src\\agent\\ollamaClient.js","line":19},{"name":"models","file":"src\\agent\\ollamaClient.js","line":35},{"name":"askLLM","file":"src\\agent\\ollamaClient.js","line":59},{"name":"handleFailureDeterministically","file":"src\\agent\\planner.js","line":68},{"name":"estimateTokens","file":"src\\agent\\planner.js","line":77},{"name":"buildPlannerContext","file":"src\\agent\\planner.js","line":83},{"name":"tryHeuristicPlan","file":"src\\agent\\planner.js","line":126},{"name":"intentBonus","file":"src\\agent\\planner.js","line":144},{"name":"errorBias","file":"src\\agent\\planner.js","line":145},{"name":"getProjectType","file":"src\\agent\\planner.js","line":158},{"name":"createPlan","file":"src\\agent\\planner.js","line":163},{"name":"updatePlan","file":"src\\agent\\planner.js","line":220},{"name":"tokens","file":"src\\agent\\promptCompiler.js","line":38},{"name":"truncate","file":"src\\agent\\promptCompiler.js","line":45},{"name":"relevanceScore","file":"src\\agent\\promptCompiler.js","line":55},{"name":"readCurrentFile","file":"src\\agent\\promptCompiler.js","line":98},{"name":"detectTargetFiles","file":"src\\agent\\promptCompiler.js","line":116},{"name":"compilePrompt","file":"src\\agent\\promptCompiler.js","line":148},{"name":"classifyIntentFromPrompt","file":"src\\agent\\retriever.js","line":63},{"name":"getIntentRule","file":"src\\agent\\retriever.js","line":74},{"name":"intentBoost","file":"src\\agent\\retriever.js","line":79},{"name":"tokenSet","file":"src\\agent\\retriever.js","line":87},{"name":"jaccardSimilarity","file":"src\\agent\\retriever.js","line":90},{"name":"deduplicate","file":"src\\agent\\retriever.js","line":97},{"name":"compress","file":"src\\agent\\retriever.js","line":106},{"name":"stateBoost","file":"src\\agent\\retriever.js","line":119},{"name":"retrieveContext","file":"src\\agent\\retriever.js","line":146},{"name":"reviewChanges","file":"src\\agent\\reviewer.js","line":39},{"name":"verifyStrReplace","file":"src\\agent\\selfCritique.js","line":41},{"name":"verifyApplyChanges","file":"src\\agent\\selfCritique.js","line":125},{"name":"llmCritique","file":"src\\agent\\selfCritique.js","line":152},{"name":"selfCritique","file":"src\\agent\\selfCritique.js","line":200},{"name":"shouldRunLLM","file":"src\\agent\\selfCritique.js","line":228},{"name":"resolveStepToTool","file":"src\\agent\\toolChainExecutor.js","line":21},{"name":"executeToolsDirect","file":"src\\agent\\toolChainExecutor.js","line":75},{"name":"executeToolChain","file":"src\\agent\\toolChainExecutor.js","line":136},{"name":"extractComponentFromPrompt","file":"src\\agent\\uiEditExecutor.js","line":26},{"name":"executeUiEdit","file":"src\\agent\\uiEditExecutor.js","line":57},{"name":"buildEditPrompt","file":"src\\agent\\uiEditExecutor.js","line":140},{"name":"runValidationPipeline","file":"src\\agent\\validationPipeline.js","line":37},{"name":"issuesAsSteps","file":"src\\agent\\validationPipeline.js","line":77},{"name":"buildDependencyGraph","file":"src\\analysis\\dependencyGraph.js","line":5},{"name":"walk","file":"src\\analysis\\dependencyGraph.js","line":8},{"name":"getExtLanguage","file":"src\\analysis\\symbolGraph.js","line":81},{"name":"extractFromFile","file":"src\\analysis\\symbolGraph.js","line":88},{"name":"walkProject","file":"src\\analysis\\symbolGraph.js","line":127},{"name":"walk","file":"src\\analysis\\symbolGraph.js","line":129},{"name":"buildSymbolGraph","file":"src\\analysis\\symbolGraph.js","line":154},{"name":"findDependents","file":"src\\analysis\\symbolGraph.js","line":221},{"name":"walk","file":"src\\analysis\\symbolGraph.js","line":226},{"name":"findSymbolDefinition","file":"src\\analysis\\symbolGraph.js","line":246},{"name":"getGraphSummary","file":"src\\analysis\\symbolGraph.js","line":267},{"name":"invalidateGraph","file":"src\\analysis\\symbolGraph.js","line":288},{"name":"extractFilesFromOutput","file":"src\\autoFixLoop\\autoFixLoop.js","line":39},{"name":"readFilesSafe","file":"src\\autoFixLoop\\autoFixLoop.js","line":51},{"name":"runToolsDirect","file":"src\\autoFixLoop\\autoFixLoop.js","line":64},{"name":"llmFix","file":"src\\autoFixLoop\\autoFixLoop.js","line":83},{"name":"runAutoFix","file":"src\\autoFixLoop\\autoFixLoop.js","line":144},{"name":"_fetch","file":"src\\client\\mcpClient.js","line":44},{"name":"_json","file":"src\\client\\mcpClient.js","line":60},{"name":"runTask","file":"src\\client\\mcpClient.js","line":74},{"name":"getStatus","file":"src\\client\\mcpClient.js","line":95},{"name":"listJobs","file":"src\\client\\mcpClient.js","line":106},{"name":"getQueue","file":"src\\client\\mcpClient.js","line":116},{"name":"stream","file":"src\\client\\mcpClient.js","line":128},{"name":"terminal","file":"src\\client\\mcpClient.js","line":153},{"name":"_streamNode","file":"src\\client\\mcpClient.js","line":172},{"name":"waitForCompletion","file":"src\\client\\mcpClient.js","line":241},{"name":"cleanup","file":"src\\client\\mcpClient.js","line":249},{"name":"_pollUntilDone","file":"src\\client\\mcpClient.js","line":277},{"name":"createClientFromEnv","file":"src\\client\\mcpClient.js","line":299},{"name":"baseUrl","file":"src\\client\\mcpClient.js","line":300},{"name":"apiKey","file":"src\\client\\mcpClient.js","line":304},{"name":"optional","file":"src\\core\\config.js","line":34},{"name":"parseApiKeys","file":"src\\core\\config.js","line":39},{"name":"parseIpAllowlist","file":"src\\core\\config.js","line":54},{"name":"parseAllowedRoots","file":"src\\core\\config.js","line":60},{"name":"LOG_LEVEL","file":"src\\core\\logger.js","line":11},{"name":"timestamp","file":"src\\core\\logger.js","line":16},{"name":"write","file":"src\\core\\logger.js","line":20},{"name":"createLogger","file":"src\\core\\logger.js","line":28},{"name":"exists","file":"src\\core\\projectDetector.js","line":28},{"name":"readJson","file":"src\\core\\projectDetector.js","line":32},{"name":"hasOdooMarker","file":"src\\core\\projectDetector.js","line":40},{"name":"detectNodeSubtype","file":"src\\core\\projectDetector.js","line":56},{"name":"detectGradleSubtype","file":"src\\core\\projectDetector.js","line":73},{"name":"detectProjectType","file":"src\\core\\projectDetector.js","line":96},{"name":"startWatcher","file":"src\\core\\projectRegistry.js","line":51},{"name":"loadStatic","file":"src\\core\\projectRegistry.js","line":64},{"name":"defaultsForType","file":"src\\core\\projectRegistry.js","line":92},{"name":"makeBranchPrefix","file":"src\\core\\projectRegistry.js","line":97},{"name":"getProject","file":"src\\core\\projectRegistry.js","line":118},{"name":"_autoRegister","file":"src\\core\\projectRegistry.js","line":143},{"name":"registerDynamicProject","file":"src\\core\\projectRegistry.js","line":182},{"name":"saveProject","file":"src\\core\\projectRegistry.js","line":210},{"name":"listProjects","file":"src\\core\\projectRegistry.js","line":224},{"name":"listDynamicProjects","file":"src\\core\\projectRegistry.js","line":233},{"name":"sanitizeArgs","file":"src\\core\\toolLogger.js","line":68},{"name":"fmtDuration","file":"src\\core\\toolLogger.js","line":86},{"name":"writeToFile","file":"src\\core\\toolLogger.js","line":92},{"name":"pushToRing","file":"src\\core\\toolLogger.js","line":99},{"name":"printToStderr","file":"src\\core\\toolLogger.js","line":105},{"name":"wrapTool","file":"src\\core\\toolLogger.js","line":124},{"name":"logToolCall","file":"src\\core\\toolLogger.js","line":171},{"name":"stats","file":"src\\core\\toolLogger.js","line":192},{"name":"recentCalls","file":"src\\core\\toolLogger.js","line":229},{"name":"validatePath","file":"src\\core\\validator.js","line":3},{"name":"validateChangeRequest","file":"src\\core\\validator.js","line":25},{"name":"sanitizeCommitMessage","file":"src\\core\\validator.js","line":45},{"name":"getLatestBranchNumber","file":"src\\git\\branch.js","line":4},{"name":"createNextBranch","file":"src\\git\\branch.js","line":19},{"name":"createCheckpoint","file":"src\\git\\checkpoint.js","line":27},{"name":"hasChanges","file":"src\\git\\checkpoint.js","line":30},{"name":"restoreCheckpoint","file":"src\\git\\checkpoint.js","line":62},{"name":"dropCheckpoint","file":"src\\git\\checkpoint.js","line":78},{"name":"commitChanges","file":"src\\git\\commit.js","line":4},{"name":"checkRateLimit","file":"src\\http\\auth.js","line":40},{"name":"resolveUser","file":"src\\http\\auth.js","line":60},{"name":"ipAllowlistMiddleware","file":"src\\http\\auth.js","line":70},{"name":"clientIp","file":"src\\http\\auth.js","line":74},{"name":"authMiddleware","file":"src\\http\\auth.js","line":83},{"name":"rateLimitMiddleware","file":"src\\http\\auth.js","line":116},{"name":"corsMiddleware","file":"src\\http\\cors.js","line":3},{"name":"attachHealthRoutes","file":"src\\http\\healthRoutes.js","line":41},{"name":"attachJobRoutes","file":"src\\http\\jobRoutes.js","line":38},{"name":"runner","file":"src\\http\\jobRoutes.js","line":105},{"name":"emit","file":"src\\http\\jobRoutes.js","line":107},{"name":"loadJobs","file":"src\\http\\jobStore.js","line":41},{"name":"persistJobs","file":"src\\http\\jobStore.js","line":74},{"name":"resolvePublicBase","file":"src\\http\\mcpRouter.js","line":28},{"name":"attachMcpRoutes","file":"src\\http\\mcpRouter.js","line":37},{"name":"makeId","file":"src\\http\\queue.js","line":29},{"name":"subscribeToJob","file":"src\\http\\queue.js","line":36},{"name":"unsubscribeFromJob","file":"src\\http\\queue.js","line":41},{"name":"emitJobStep","file":"src\\http\\queue.js","line":49},{"name":"emit","file":"src\\http\\queue.js","line":53},{"name":"evictOldJobs","file":"src\\http\\queue.js","line":77},{"name":"enqueue","file":"src\\http\\queue.js","line":90},{"name":"getJob","file":"src\\http\\queue.js","line":112},{"name":"getQueueStatus","file":"src\\http\\queue.js","line":119},{"name":"listJobs","file":"src\\http\\queue.js","line":125},{"name":"cancelJob","file":"src\\http\\queue.js","line":137},{"name":"drainQueue","file":"src\\http\\queue.js","line":155},{"name":"processNext","file":"src\\http\\queue.js","line":177},{"name":"duration","file":"src\\http\\queue.js","line":213},{"name":"startHttpServer","file":"src\\http\\startHttpServer.js","line":40},{"name":"shutdown","file":"src\\http\\startHttpServer.js","line":107},{"name":"getNetworkIp","file":"src\\http\\startupChecks.js","line":21},{"name":"runStartupChecks","file":"src\\http\\startupChecks.js","line":31},{"name":"attachUiRoutes","file":"src\\http\\uiRoutes.js","line":18},{"name":"loadHealth","file":"src\\http\\uiRoutes.js","line":164},{"name":"submitTask","file":"src\\http\\uiRoutes.js","line":188},{"name":"streamJob","file":"src\\http\\uiRoutes.js","line":208},{"name":"loadDiff","file":"src\\http\\uiRoutes.js","line":225},{"name":"escHtml","file":"src\\http\\uiRoutes.js","line":249},{"name":"acceptChanges","file":"src\\http\\uiRoutes.js","line":251},{"name":"rejectChanges","file":"src\\http\\uiRoutes.js","line":257},{"name":"loadJobs","file":"src\\http\\uiRoutes.js","line":269},{"name":"j_click","file":"src\\http\\uiRoutes.js","line":293},{"name":"userWorkspaceDir","file":"src\\http\\workspaceRoutes.js","line":47},{"name":"safeExtract","file":"src\\http\\workspaceRoutes.js","line":54},{"name":"createZip","file":"src\\http\\workspaceRoutes.js","line":62},{"name":"walkFiles","file":"src\\http\\workspaceRoutes.js","line":69},{"name":"attachWorkspaceRoutes","file":"src\\http\\workspaceRoutes.js","line":94},{"name":"project","file":"src\\http\\workspaceRoutes.js","line":104},{"name":"getCallerFromRequest","file":"src\\index.js","line":99},{"name":"run","file":"src\\index.js","line":427},{"name":"getParser","file":"src\\indexer\\languageLoader.js","line":5},{"name":"buildSemanticIndex","file":"src\\indexer\\semanticIndexer.js","line":10},{"name":"scanFile","file":"src\\indexer\\semanticIndexer.js","line":31},{"name":"walk","file":"src\\indexer\\semanticIndexer.js","line":53},{"name":"loadCachedIndex","file":"src\\indexer\\semanticIndexer.js","line":93},{"name":"buildExecutorPrompt","file":"src\\prompts\\executor.js","line":97},{"name":"getNextBranch","file":"src\\tools\\applyChanges.js","line":12},{"name":"hasChanges","file":"src\\tools\\applyChanges.js","line":29},{"name":"normalizeLF","file":"src\\tools\\applyChanges.js","line":35},{"name":"applyChanges","file":"src\\tools\\applyChanges.js","line":39},{"name":"renameSymbol","file":"src\\tools\\astReplace.js","line":55},{"name":"renameSymbolInProject","file":"src\\tools\\astReplace.js","line":121},{"name":"registerAstReplaceTools","file":"src\\tools\\astReplace.js","line":150},{"name":"escapeRegex","file":"src\\tools\\astReplace.js","line":227},{"name":"buildPreview","file":"src\\tools\\astReplace.js","line":235},{"name":"walkProject","file":"src\\tools\\astReplace.js","line":254},{"name":"walk","file":"src\\tools\\astReplace.js","line":256},{"name":"dispatchAstReplace","file":"src\\tools\\astReplaceDispatch.js","line":22},{"name":"action","file":"src\\tools\\astReplaceDispatch.js","line":31},{"name":"action","file":"src\\tools\\astReplaceDispatch.js","line":50},{"name":"buildProject","file":"src\\tools\\projectBuild.js","line":8},{"name":"output","file":"src\\tools\\projectBuild.js","line":31},{"name":"projectDiff","file":"src\\tools\\projectDiff.js","line":16},{"name":"diff","file":"src\\tools\\projectDiff.js","line":26},{"name":"stat","file":"src\\tools\\projectDiff.js","line":33},{"name":"projectFindSymbol","file":"src\\tools\\projectFindSymbol.js","line":8},{"name":"projectGitLog","file":"src\\tools\\projectGitLog.js","line":17},{"name":"log","file":"src\\tools\\projectGitLog.js","line":27},{"name":"projectIndex","file":"src\\tools\\projectIndex.js","line":6},{"name":"classCount","file":"src\\tools\\projectIndex.js","line":20},{"name":"functionCount","file":"src\\tools\\projectIndex.js","line":21},{"name":"getIndex","file":"src\\tools\\projectIndex.js","line":35},{"name":"applyPatch","file":"src\\tools\\projectPatch.js","line":9},{"name":"registerProject","file":"src\\tools\\projectRegister.js","line":29},{"name":"normCompare","file":"src\\tools\\projectRegister.js","line":73},{"name":"searchProject","file":"src\\tools\\projectSearch.js","line":14},{"name":"normalize","file":"src\\tools\\projectStrReplace.js","line":32},{"name":"escapeRegex","file":"src\\tools\\projectStrReplace.js","line":46},{"name":"fuzzyLineMatch","file":"src\\tools\\projectStrReplace.js","line":68},{"name":"hasChanges","file":"src\\tools\\projectStrReplace.js","line":94},{"name":"ensureGitIdentity","file":"src\\tools\\projectStrReplace.js","line":107},{"name":"get","file":"src\\tools\\projectStrReplace.js","line":108},{"name":"commitChanges","file":"src\\tools\\projectStrReplace.js","line":122},{"name":"resolveFilePath","file":"src\\tools\\projectStrReplace.js","line":148},{"name":"validateEdit","file":"src\\tools\\projectStrReplace.js","line":188},{"name":"buildNotFoundError","file":"src\\tools\\projectStrReplace.js","line":206},{"name":"computeImpact","file":"src\\tools\\projectStrReplace.js","line":231},{"name":"applyEditInMemory","file":"src\\tools\\projectStrReplace.js","line":273},{"name":"matchCount","file":"src\\tools\\projectStrReplace.js","line":292},{"name":"projectStrReplace","file":"src\\tools\\projectStrReplace.js","line":309},{"name":"projectSymbolGraph","file":"src\\tools\\projectSymbolGraph.js","line":24},{"name":"parseResults","file":"src\\tools\\projectTest.js","line":33},{"name":"testProject","file":"src\\tools\\projectTest.js","line":71},{"name":"stdout","file":"src\\tools\\projectTest.js","line":122},{"name":"stderr","file":"src\\tools\\projectTest.js","line":123},{"name":"readFiles","file":"src\\tools\\readFiles.js","line":7},{"name":"walkDir","file":"src\\tools\\scanProject.js","line":6},{"name":"scanProject","file":"src\\tools\\scanProject.js","line":51},{"name":"loadAliases","file":"src\\tools\\staticAnalyzer.js","line":29},{"name":"resolveImport","file":"src\\tools\\staticAnalyzer.js","line":52},{"name":"stripComments","file":"src\\tools\\staticAnalyzer.js","line":71},{"name":"extractImports","file":"src\\tools\\staticAnalyzer.js","line":109},{"name":"checkBrokenImports","file":"src\\tools\\staticAnalyzer.js","line":125},{"name":"walk","file":"src\\tools\\staticAnalyzer.js","line":128},{"name":"collectJsFiles","file":"src\\tools\\staticAnalyzer.js","line":153},{"name":"walk","file":"src\\tools\\staticAnalyzer.js","line":155},{"name":"checkSyntax","file":"src\\tools\\staticAnalyzer.js","line":172},{"name":"checkTypeScript","file":"src\\tools\\staticAnalyzer.js","line":189},{"name":"output","file":"src\\tools\\staticAnalyzer.js","line":197},{"name":"checkPythonSyntax","file":"src\\tools\\staticAnalyzer.js","line":211},{"name":"walk","file":"src\\tools\\staticAnalyzer.js","line":214},{"name":"checkGoVet","file":"src\\tools\\staticAnalyzer.js","line":244},{"name":"analyzeProject","file":"src\\tools\\staticAnalyzer.js","line":257},{"name":"recordSuccess","file":"src\\training\\collector.js","line":139},{"name":"printStats","file":"src\\training\\collector.js","line":156},{"name":"scoreExample","file":"src\\training\\formatter.js","line":59},{"name":"toHFChat","file":"src\\training\\formatter.js","line":86},{"name":"toAlpaca","file":"src\\training\\formatter.js","line":98},{"name":"formatDataset","file":"src\\training\\formatter.js","line":112},{"name":"resolveSafePath","file":"src\\utils\\fileUtils.js","line":4},{"name":"readFileLimited","file":"src\\utils\\fileUtils.js","line":15},{"name":"extractJSON","file":"src\\utils\\jsonUtils.js","line":8},{"name":"safeParse","file":"src\\utils\\jsonUtils.js","line":54},{"name":"deduplicate","file":"src\\utils\\requestDeduplicator.js","line":44},{"name":"inFlightCount","file":"src\\utils\\requestDeduplicator.js","line":64},{"name":"makeEmbedKey","file":"src\\utils\\requestDeduplicator.js","line":77},{"name":"flushBatch","file":"src\\vector\\embedder.js","line":14},{"name":"getEmbedder","file":"src\\vector\\embedder.js","line":47},{"name":"embed","file":"src\\vector\\embedder.js","line":59},{"name":"getCollection","file":"src\\vector\\indexCodebase.js","line":12},{"name":"invalidateCollectionCache","file":"src\\vector\\indexCodebase.js","line":27},{"name":"invalidateCache","file":"src\\vector\\memory.js","line":37},{"name":"getMemoryCollection","file":"src\\vector\\memory.js","line":42},{"name":"evictIfNeeded","file":"src\\vector\\memory.js","line":63},{"name":"scored","file":"src\\vector\\memory.js","line":72},{"name":"storeMemory","file":"src\\vector\\memory.js","line":99},{"name":"entry","file":"src\\vector\\memory.js","line":102},{"name":"queryMemory","file":"src\\vector\\memory.js","line":151},{"name":"tokenSet","file":"src\\vector\\memory.js","line":198},{"name":"jaccard","file":"src\\vector\\memory.js","line":199},{"name":"intentMatch","file":"src\\vector\\memory.js","line":217},{"name":"errorRelevance","file":"src\\vector\\memory.js","line":221},{"name":"ensureConnected","file":"src\\vector\\queryCodebase.js","line":14},{"name":"getCollection","file":"src\\vector\\queryCodebase.js","line":27},{"name":"queryCodebase","file":"src\\vector\\queryCodebase.js","line":60},{"name":"main","file":"src\\vector\\runIndex.js","line":4},{"name":"getManifestPath","file":"src\\vector\\runIndexCore.js","line":12},{"name":"loadManifest","file":"src\\vector\\runIndexCore.js","line":16},{"name":"saveManifest","file":"src\\vector\\runIndexCore.js","line":25},{"name":"chunkCode","file":"src\\vector\\runIndexCore.js","line":41},{"name":"chunk","file":"src\\vector\\runIndexCore.js","line":55},{"name":"indexProject","file":"src\\vector\\runIndexCore.js","line":74},{"name":"_indexProjectImpl","file":"src\\vector\\runIndexCore.js","line":81},{"name":"walk","file":"src\\vector\\runIndexCore.js","line":94},{"name":"write","file":"tests\\astReplace.test.js","line":24},{"name":"read","file":"tests\\astReplace.test.js","line":30},{"name":"routeByRule","file":"tests\\executor.routeByRule.test.js","line":15},{"name":"stateWithMod","file":"tests\\goalValidator.test.js","line":11},{"name":"stateWithError","file":"tests\\goalValidator.test.js","line":20},{"name":"tryHeuristicPlan","file":"tests\\planner.heuristic.test.js","line":6},{"name":"intentBonus","file":"tests\\planner.heuristic.test.js","line":22},{"name":"errorBias","file":"tests\\planner.heuristic.test.js","line":23},{"name":"write","file":"tests\\projectDetector.test.js","line":17},{"name":"makeState","file":"tests\\reviewer.test.js","line":19},{"name":"makeCost","file":"tests\\reviewer.test.js","line":28},{"name":"makeCost","file":"tests\\validationPipeline.test.js","line":21},{"name":"makeMcpClient","file":"tests\\validationPipeline.test.js","line":23},{"name":"stateWithMod","file":"tests\\validationPipeline.test.js","line":31},{"name":"_json","file":"vscode-extension\\extension.js","line":27},{"name":"health","file":"vscode-extension\\extension.js","line":39},{"name":"runTask","file":"vscode-extension\\extension.js","line":40},{"name":"getStatus","file":"vscode-extension\\extension.js","line":41},{"name":"getDiff","file":"vscode-extension\\extension.js","line":42},{"name":"revert","file":"vscode-extension\\extension.js","line":45},{"name":"listJobs","file":"vscode-extension\\extension.js","line":49},{"name":"getQueue","file":"vscode-extension\\extension.js","line":50},{"name":"pushWorkspace","file":"vscode-extension\\extension.js","line":54},{"name":"pullWorkspace","file":"vscode-extension\\extension.js","line":69},{"name":"deleteWorkspace","file":"vscode-extension\\extension.js","line":79},{"name":"stream","file":"vscode-extension\\extension.js","line":83},{"name":"waitForCompletion","file":"vscode-extension\\extension.js","line":114},{"name":"zipFolder","file":"vscode-extension\\extension.js","line":151},{"name":"unzipTo","file":"vscode-extension\\extension.js","line":177},{"name":"cfg","file":"vscode-extension\\extension.js","line":211},{"name":"log","file":"vscode-extension\\extension.js","line":212},{"name":"wsPath","file":"vscode-extension\\extension.js","line":213},{"name":"projName","file":"vscode-extension\\extension.js","line":214},{"name":"cmdSyncWorkspace","file":"vscode-extension\\extension.js","line":224},{"name":"cmdPullWorkspace","file":"vscode-extension\\extension.js","line":295},{"name":"buildClient","file":"vscode-extension\\extension.js","line":323},{"name":"setBar","file":"vscode-extension\\extension.js","line":331},{"name":"checkHealth","file":"vscode-extension\\extension.js","line":339},{"name":"getEditorCtx","file":"vscode-extension\\extension.js","line":357},{"name":"enrichPrompt","file":"vscode-extension\\extension.js","line":370},{"name":"getPanelHtml","file":"vscode-extension\\extension.js","line":388},{"name":"addMsg","file":"vscode-extension\\extension.js","line":506},{"name":"escHtml","file":"vscode-extension\\extension.js","line":514},{"name":"addDivider","file":"vscode-extension\\extension.js","line":517},{"name":"send","file":"vscode-extension\\extension.js","line":534},{"name":"renderDiff","file":"vscode-extension\\extension.js","line":557},{"name":"renderHistory","file":"vscode-extension\\extension.js","line":603},{"name":"openPanel","file":"vscode-extension\\extension.js","line":651},{"name":"activate","file":"vscode-extension\\extension.js","line":753},{"name":"deactivate","file":"vscode-extension\\extension.js","line":913}]}
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\.index_manifest_jsv.json
 ========================================
 {
@@ -243,16 +248,16 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start":           "node src/index.js",
-    "start:http":      "cross-env TRANSPORT=http node src/index.js",
-    "start:stdio":     "cross-env TRANSPORT=stdio node src/index.js",
-    "dev":             "cross-env LOG_LEVEL=DEBUG node src/index.js",
-    "tunnel":          "cloudflared tunnel --url http://localhost:3001",
-    "ngrok":           "ngrok http 3001",
-    "test":            "vitest run",
-    "test:watch":      "vitest",
-    "test:coverage":   "vitest run --coverage",
-    "index":           "node src/vector/runIndex.js"
+    "start": "node src/index.js",
+    "start:http": "cross-env TRANSPORT=http node src/index.js",
+    "start:stdio": "cross-env TRANSPORT=stdio node src/index.js",
+    "dev": "cross-env LOG_LEVEL=DEBUG node src/index.js",
+    "tunnel": "cloudflared tunnel --url http://localhost:3001",
+    "ngrok": "ngrok http 3001",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "index": "node src/vector/runIndex.js"
   },
   "repository": {
     "type": "git",
@@ -267,13 +272,14 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
   },
   "homepage": "https://github.com/Kp2340/MCP#readme",
   "dependencies": {
+    "@google/genai": "^1.48.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@xenova/transformers":      "^2.17.2",
-    "chromadb":                  "^3.3.3",
-    "cross-env":                 "^7.0.3",
-    "express":                   "^4.21.2",
-    "adm-zip":                   "^0.5.16",
-    "node-fetch":                "^3.3.2"
+    "@xenova/transformers": "^2.17.2",
+    "adm-zip": "^0.5.17",
+    "chromadb": "^3.3.3",
+    "cross-env": "^7.0.3",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "vitest": "^1.6.0"
@@ -1072,7 +1078,7 @@ export default defineConfig({
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\intellij-plugin\ARCHITECTURE.md
 ========================================
-# IntelliJ Plugin — Architecture Guide
+# IntelliJ Plugin — Architecture Guide (v1.4.0)
 
 ## Overview
 
@@ -1449,7 +1455,12 @@ class McpToolWindow(private val project: Project) {
         }
 
         return if (!selectedText.isNullOrBlank() && filePath != null) {
-            "[File: $filePath]\n```\n$selectedText\n```\n\n$prompt"
+            "[File: $filePath]
+```
+$selectedText
+```
+
+$prompt"
         } else {
             prompt
         }
@@ -1457,7 +1468,8 @@ class McpToolWindow(private val project: Project) {
 
     private fun log(msg: String) {
         SwingUtilities.invokeLater {
-            logArea.append("$msg\n")
+            logArea.append("$msg
+")
             logArea.caretPosition = logArea.document.length
         }
     }
@@ -1630,7 +1642,9 @@ import { runAutoFix }        from "./autoFixLoop/autoFixLoop.js";
 import { testProject }       from "./tools/projectTest.js";
 import { projectDiff }       from "./tools/projectDiff.js";
 import { projectGitLog }     from "./tools/projectGitLog.js";
-import { registerProject }   from "./tools/projectRegister.js";
+import { registerProject }         from "./tools/projectRegister.js";
+import { registerAstReplaceTools } from "./tools/astReplace.js";
+import { dispatchAstReplace }      from "./tools/astReplaceDispatch.js";
 
 // ── Core ──────────────────────────────────────────────────────────────────────
 import { getProject, listProjects } from "./core/projectRegistry.js";
@@ -1818,6 +1832,29 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
                 project: { type: "string" },
                 count:   { type: "number" }
             }, required: ["project"] }
+        },
+        {
+            name: "project_rename_symbol",
+            description: "Rename ALL whole-word occurrences of a symbol in one file. Safer than str_replace for renames — matches every occurrence and respects identifier boundaries (won't corrupt substrings). Supports dry-run preview before writing.",
+            inputSchema: { type: "object", properties: {
+                project: { type: "string" },
+                path:    { type: "string", description: "Relative file path, e.g. src/utils/auth.js" },
+                oldName: { type: "string", description: "Identifier to rename (exact, case-sensitive)" },
+                newName: { type: "string", description: "Replacement identifier" },
+                dryRun:  { type: "boolean", description: "Preview without writing (default: false)" },
+                backup:  { type: "boolean", description: "Write .bak before editing (default: false)" }
+            }, required: ["project", "path", "oldName", "newName"] }
+        },
+        {
+            name: "project_rename_symbol_all",
+            description: "Rename ALL whole-word occurrences of a symbol across every source file in the project. Use for global identifier renames (function, class, constant). Always run project_analyze after.",
+            inputSchema: { type: "object", properties: {
+                project:    { type: "string" },
+                oldName:    { type: "string", description: "Identifier to rename" },
+                newName:    { type: "string", description: "Replacement identifier" },
+                extensions: { type: "array", items: { type: "string" }, description: "File extensions to scan (default: all indexable)" },
+                dryRun:     { type: "boolean", description: "Preview only, no writes (default: false)" }
+            }, required: ["project", "oldName", "newName"] }
         },
         {
             name: "project_test",
@@ -2082,7 +2119,7 @@ import { retrieveContext, classifyIntentFromPrompt } from "./retriever.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { TrainingCollector } from "../training/collector.js";
 import { storeMemory, queryMemory } from "../vector/memory.js";
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { makeExecutionState, formatStateForPrompt } from "./executionState.js";
 import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { executeUiEdit } from "./uiEditExecutor.js";
@@ -2260,9 +2297,7 @@ export async function runAgent(prompt, emit = null) {
     const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch {} };
 
     console.error("Project:", project);
-    console.error("
-Creating plan...
-");
+    console.error("\nCreating plan...\n");
 
     const costState = makeCostState();
     const execState = makeExecutionState();
@@ -2299,8 +2334,7 @@ ${planContext}`;
         }
         const { results, success, stepsRun } = chainResult;
         if (success || stepsRun > 0) {
-            const executionContext = results.join("
-");
+            const executionContext = results.join("\n");
             collector.startRun(prompt);
             collector.endRun(stepsRun >= 2, execState);
             if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
@@ -2323,14 +2357,11 @@ ${planContext}`;
     const initialPlan = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
     trackChars(costState, initialPlan);
 
-    console.error("
-Initial Plan:
-" + initialPlan);
+    console.error("\nInitial Plan:\n" + initialPlan);
 
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
-            .split("
-")
+            .split("\n")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4)
     );
@@ -2384,8 +2415,7 @@ Initial Plan:
         const step = remainingSteps.shift();
         totalStepsDone++;
 
-        console.error(`
-[${totalStepsDone}] ${step}`);
+        console.error(`\n[${totalStepsDone}] ${step}`);
         console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
         emitStep(totalStepsDone, step);
 
@@ -2441,9 +2471,7 @@ ${stepContext}` : "");
         if (parsed.tool === "__deterministic_recovery__" && Array.isArray(parsed.toolSteps)) {
             console.error(`[agent] ⚡ Deterministic recovery: ${parsed.toolSteps.length} direct tool calls`);
             const { results } = await executeToolsDirect(parsed.toolSteps, mcp, execState);
-            executionContext += "
-" + results.join("
-");
+            executionContext += "\n" + results.join("\n");
             successfulSteps++;
             continue;
         }
@@ -2466,8 +2494,7 @@ ${cached.substring(0, 500)}`;
         let resultText = "";
         try {
             const result = await mcp.callTool(toolName, toolArgs);
-            resultText   = result?.content?.map(c => c.text || "").join("
-") || "";
+            resultText   = result?.content?.map(c => c.text || "").join("\n") || "";
         } catch (err) {
             console.error(`[agent] Tool error (${toolName}): ${err.message}`);
             resultText = `Tool error: ${err.message}`;
@@ -2475,8 +2502,7 @@ ${cached.substring(0, 500)}`;
 
         // Truncate very long results to keep context manageable
         const truncated = resultText.length > 4000
-            ? resultText.substring(0, 4000) + "
-...[truncated]"
+            ? resultText.substring(0, 4000) + "\n...[truncated]"
             : resultText;
 
         execState.recordToolCall(toolName, toolArgs, resultText, totalStepsDone);
@@ -2527,9 +2553,7 @@ ${truncated}`;
             if (recoveryTools) {
                 console.error(`[agent] ⚡ Deterministic recovery for ${errorType}`);
                 const { results: rResults } = await executeToolsDirect(recoveryTools, mcp, execState);
-                executionContext += "
-" + rResults.join("
-");
+                executionContext += "\n" + rResults.join("\n");
             } else if (replanCount < MAX_REPLANS && costState.llmCalls < MAX_LLM_CALLS_PER_RUN) {
                 // LLM replan fallback
                 replanCount++;
@@ -2541,8 +2565,7 @@ ${truncated}`;
                 if (replan) {
                     remainingSteps = enforceAnalyzeBeforeBuild(
                         replan
-                            .split("
-")
+                            .split("\n")
                             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
                             .filter(s => s.length > 4)
                     );
@@ -2584,10 +2607,8 @@ ${stateBlock}` : "");
             if (!fok || fp?.skipped || fp?.done) continue;
             try {
                 const fResult    = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
-                const fText      = fResult?.content?.map(c => c.text || "").join("
-") || "";
-                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "
-..." : fText;
+                const fText      = fResult?.content?.map(c => c.text || "").join("\n") || "";
+                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "\n..." : fText;
                 execState.recordToolCall(fp.tool, fp.args, fText, totalStepsDone);
                 executionContext += `
 
@@ -2608,8 +2629,7 @@ ${fTruncated}`;
         extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => {});
     }
 
-    console.error(`
-─── Agent finished ───`);
+    console.error(`\n─── Agent finished ───`);
     console.error(`  Steps done:   ${totalStepsDone}`);
     console.error(`  Successful:   ${successfulSteps}`);
     console.error(`  LLM calls:    ${costState.llmCalls} / ${MAX_LLM_CALLS_PER_RUN}`);
@@ -3161,7 +3181,7 @@ export function formatStateForPrompt(state) {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\executor.js
 ========================================
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 import { buildExecutorPrompt } from "../prompts/executor.js";
@@ -3213,6 +3233,24 @@ function routeByRule(step, project) {
 
     if (/\b(run tests|run test suite|run project tests|execute tests|verify tests|confirm tests|npm test|pytest|go test)\b/.test(s))
         return JSON.stringify({ tool: "project_test", args: { project } });
+
+    // Rename steps → route to AST-aware rename tool instead of str_replace
+    const renameAllMatch = s.match(/\brename\b.+\b(across|all|everywhere|project.?wide|globally)\b/i)
+        || s.match(/\b(global|project.?wide)\b.+\brename\b/i);
+    if (renameAllMatch) {
+        // Extract oldName→newName pattern like "rename userId to accountId"
+        const symbolPair = step.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i);
+        if (symbolPair) {
+            return JSON.stringify({ tool: "project_rename_symbol_all",
+                args: { project, oldName: symbolPair[1], newName: symbolPair[2] } });
+        }
+    }
+    const renameMatch = s.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i)
+        || step.match(/\brename\b.*\b(\w+)\b.*\bto\b.*\b(\w+)\b/i);
+    if (renameMatch && renameMatch[1] && renameMatch[2]) {
+        return JSON.stringify({ tool: "project_rename_symbol",
+            args: { project, path: "", oldName: renameMatch[1], newName: renameMatch[2] } });
+    }
 
     return null;
 }
@@ -3302,7 +3340,10 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     }
 
     // 3. Build memory block
-    const memoryBlock = memoryCtx ? `\nRelevant project memory:\n${memoryCtx}\n` : "";
+    const memoryBlock = memoryCtx ? `
+Relevant project memory:
+${memoryCtx}
+` : "";
 
     // 4. LLM call — prompt assembled from src/prompts/executor.js
     if (costState) costState.llmCalls++;
@@ -3324,6 +3365,89 @@ export async function executeStep(step, context, project, memoryCtx = "", costSt
     } catch (err) {
         console.error("[executor] LLM parse error:", err.message);
         return JSON.stringify({ tool: "project_analyze", args: { project } });
+    }
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\geminiClient.js
+========================================
+import { GoogleGenAI } from "@google/genai";
+import { config } from "../core/config.js";
+
+// Cache for Gemini API client
+let _geminiClient = null;
+
+function getClient() {
+    if (!_geminiClient) {
+        if (!config.GEMINI_API_KEY) {
+            throw new Error("GEMINI_API_KEY is not configured in .env or system environment.");
+        }
+        _geminiClient = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
+    }
+    return _geminiClient;
+}
+
+/**
+ * Check whether Gemini API is available (by verifying the API key is present).
+ *
+ * @returns {Promise<{ available: boolean, models: string[], error?: string }>}
+ */
+export async function isGeminiAvailable() {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { available: false, models: [], error: "GEMINI_API_KEY not set" };
+        }
+        // As long as the key is present, we assume availability.
+        return { available: true, models: [config.LLM_MODEL || "gemini-1.5-flash"] };
+    } catch (err) {
+        return { available: false, models: [], error: err.message };
+    }
+}
+
+/**
+ * Call the Google Gemini API.
+ *
+ * @param {string} model       - model name, e.g. "gemini-2.5-flash"
+ * @param {string} prompt      - full prompt string
+ * @param {object} [opts]      - optional overrides
+ * @param {number} [opts.temperature=0.1]
+ * @param {number} [opts.num_predict=2048]
+ * @param {number} [opts.timeout=180000]   - ignored, let the SDK handle timeouts.
+ */
+export async function askLLM(modelName, prompt, opts = {}) {
+    const ai = getClient();
+    
+    // Map non-Gemini models (like qwen) to a compatible fallback
+    let modelToUse = modelName || config.LLM_MODEL || "gemini-1.5-flash";
+    if (modelToUse.includes("qwen") || !modelToUse.includes("gemini")) {
+        modelToUse = "gemini-1.5-flash";
+    }
+
+    const maxTokens = opts.num_predict ?? 2048;
+    const temperature = opts.temperature ?? 0.1;
+    
+    try {
+        // Use the getGenerativeModel + generateContent pattern for the Google SDK
+        const model = ai.getGenerativeModel({ model: modelToUse });
+        
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: temperature,
+                maxOutputTokens: maxTokens,
+            }
+        });
+
+        const response = await result.response;
+        const text = response.text()?.trim() ?? "";
+        
+        if (!text) {
+             console.warn(`[gemini] Empty response from model "${modelToUse}"`);
+        }
+        return text;
+    } catch (err) {
+        throw new Error(`Gemini LLM failed: ${err.message}`);
     }
 }
 
@@ -3479,6 +3603,46 @@ export async function validateWithBuild(project, intent, mcpClient) {
 
 
 ========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\llmClient.js
+========================================
+import { askLLM as askOllama, isOllamaAvailable } from "./ollamaClient.js";
+import { askLLM as askGemini, isGeminiAvailable } from "./geminiClient.js";
+
+/**
+ * Ask LLM using a fallback strategy:
+ * Attempts Ollama first. If Ollama is down, falls back to Gemini.
+ */
+export async function askLLM(model, prompt, opts = {}) {
+    const ollamaStatus = await isOllamaAvailable();
+    if (ollamaStatus.available) {
+        try {
+            return await askOllama(model, prompt, opts);
+        } catch (err) {
+            console.warn(`[llmClient] Ollama failed during request. Falling back to Gemini... (${err.message})`);
+        }
+    }
+    
+    // Fallback to Gemini
+    return await askGemini(model, prompt, opts);
+}
+
+/**
+ * Aggregate status of available LLMs.
+ */
+export async function isLlmAvailable() {
+    const ollamaStatus = await isOllamaAvailable();
+    if (ollamaStatus.available) {
+        return ollamaStatus; // Return ollama status immediately if healthy
+    }
+    const geminiStatus = await isGeminiAvailable();
+    if (geminiStatus.available) {
+        return geminiStatus;
+    }
+    return { available: false, models: [], error: "No LLM is available (both Ollama and Gemini are down or unconfigured)." };
+}
+
+
+========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\mcpClient.js
 ========================================
 /**
@@ -3516,8 +3680,7 @@ import { storeMemory, queryMemory } from "../vector/memory.js";
 import { createLogger } from "../core/logger.js";
 
 const log = createLogger("mcp-client");
-const NL  = "
-";
+const NL  = "\n";
 
 // Ensure result always has { content: [{ type, text }] } shape
 function wrap(result) {
@@ -3758,7 +3921,7 @@ export async function askLLM(model, prompt, opts = {}) {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\planner.js
 ========================================
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { listProjects, getProject } from "../core/projectRegistry.js";
 import { queryMemory } from "../vector/memory.js";
 import {
@@ -4411,8 +4574,7 @@ function deduplicate(docs, threshold = 0.8) {
 
 // ─── Compressor ──────────────────────────────────────────────────────────────
 function compress(doc) {
-    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "
-..." : doc || "";
+    return doc && doc.length > MAX_SNIPPET ? doc.substring(0, MAX_SNIPPET) + "..." : doc || "";
 }
 
 // ─── ExecutionState-aware scoring helpers ────────────────────────────────────
@@ -4467,14 +4629,10 @@ export async function retrieveContext(prompt, project = null, execState = null) 
             // indexProject() is deduplicated internally: concurrent calls for the same
             // project share one build instead of launching parallel rebuilds.
             if (project) {
-                console.error("
-[retriever] Vector index missing or stale — rebuilding automatically...
-");
+                console.error("\n[retriever] Vector index missing or stale — rebuilding automatically...\n");
                 const projConfig = getProject(project);
                 await indexProject(projConfig.root, project);
-                console.error("
-[retriever] Vector index rebuilt.
-");
+                console.error("\n[retriever] Vector index rebuilt.\n");
             }
             // Retry once after rebuild; if it still fails, return empty context
             try {
@@ -4502,11 +4660,7 @@ export async function retrieveContext(prompt, project = null, execState = null) 
 
         useful.sort((a, b) => b.score - a.score);
         const unique = deduplicate(useful.map(s => s.doc));
-        return unique.slice(0, MAX_RESULTS).map(compress).join("
-
----
-
-");
+        return unique.slice(0, MAX_RESULTS).map(compress).join("\n\n---\n\n");
 
     } catch (err) {
         console.error("[retriever] Error:", err.message);
@@ -4540,7 +4694,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\reviewer.js
  * reviewChanges() accepts an optional `earlyMode` flag to distinguish the two.
  */
 
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { MAX_LLM_CALLS_PER_RUN, LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
 const MODEL = LLM_MODEL;
@@ -4665,7 +4819,7 @@ import fs   from "fs";
 import path from "path";
 import { getProject }  from "../core/projectRegistry.js";
 import { validatePath } from "../core/validator.js";
-import { askLLM }      from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
 const MODEL = LLM_MODEL;
@@ -4703,14 +4857,10 @@ function verifyStrReplace(toolCall, projectName) {
         // Check 1: exact match
         if (content.includes(edit.search)) continue;  // ✔ found
 
-        // Check 2: whitespace-normalised match (common LLM mistake: extra spaces, \r
- vs 
-)
+        // Check 2: whitespace-normalised match (common LLM mistake: extra spaces, \r\n vs \n)
         // AUTO-CORRECT: instead of failing, extract the verbatim string from the file
         // and patch the edit in-place so the tool call can proceed without a re-read.
-        const normaliseWs = s => s.replace(/\r
-/g, "
-").replace(/[ 	]+/g, " ");
+        const normaliseWs = s => s.replace(/\r\n/g, "\n").replace(/[ 	]+/g, " ");
         const normContent  = normaliseWs(content);
         const normSearch   = normaliseWs(edit.search);
         if (normContent.includes(normSearch)) {
@@ -4734,8 +4884,7 @@ function verifyStrReplace(toolCall, projectName) {
         }
 
         // Check 3: first line match (maybe the search has extra context at the end)
-        const firstLine = edit.search.split("
-")[0].trim();
+        const firstLine = edit.search.split("\n")[0].trim();
         if (firstLine.length > 10 && content.includes(firstLine)) {
             failures.push(
                 `Search string not found verbatim in ${edit.path}, ` +
@@ -4747,9 +4896,7 @@ function verifyStrReplace(toolCall, projectName) {
 
         failures.push(
             `Search string not found in ${edit.path}. ` +
-            `Search started with: "${edit.search.substring(0, 60).replace(/
-/g, "\
-")}". ` +
+            `Search started with: "${edit.search.substring(0, 60).replace(/\n/g, "\\n")}". ` +
             `The file was likely modified since last read. Re-read it first.`
         );
     }
@@ -4757,8 +4904,7 @@ function verifyStrReplace(toolCall, projectName) {
     if (failures.length > 0) {
         return {
             ok: false,
-            reason: failures.join("
-"),
+            reason: failures.join("\n"),
             suggestion: `Call project_read_files on the affected file(s) first to get current content, then retry str_replace.`
         };
     }
@@ -4879,8 +5025,7 @@ ${check.reason}`);
         const { ok, issues } = await llmCritique(toolCall, step, costState);
         if (!ok && issues.length > 0) {
             console.error(`[self-critique] ⚠ LLM critique: ${issues.join("; ")}`);
-            return { ok: false, reason: issues.join("
-"), suggestion: "Review the tool call arguments." };
+            return { ok: false, reason: issues.join("\n"), suggestion: "Review the tool call arguments." };
         }
     }
 
@@ -4937,6 +5082,21 @@ function resolveStepToTool(step, project) {
     if (/\b(search|find files|look for|grep)\b/.test(s))
         return { tool: "project_search", args: { project, query: step.replace(/^(search|find|look for)\s*/i, "").trim() } };
 
+    // Rename symbol routing — mirrors executor.js rule router
+    const renameAllPattern = s.match(/\brename\b.+\b(across|all|everywhere|project.?wide|globally)\b/i)
+        || s.match(/\b(global|project.?wide)\b.+\brename\b/i);
+    const symbolPair = step.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i);
+    if (renameAllPattern && symbolPair) {
+        return { tool: "project_rename_symbol_all", args: { project, oldName: symbolPair[1], newName: symbolPair[2] } };
+    }
+    if (symbolPair) {
+        return { tool: "project_rename_symbol_all", args: { project, oldName: symbolPair[1], newName: symbolPair[2] } };
+    }
+
+    if (/\bproject_rename_symbol_all\b/.test(s)) {
+        return { tool: "project_rename_symbol_all", args: { project, oldName: "", newName: "" } };
+    }
+
     // Cannot resolve without LLM
     return null;
 }
@@ -4955,7 +5115,8 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
         return { results: [], success: false, stepsRun: 0 };
     }
 
-    console.error(`\n[toolChain] ⚡ Direct recovery: ${toolSteps.length} tool call(s), 0 LLM`);
+    console.error(`
+[toolChain] ⚡ Direct recovery: ${toolSteps.length} tool call(s), 0 LLM`);
 
     const results = [];
     let stepsRun  = 0;
@@ -4977,10 +5138,12 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
 
         try {
             const result    = await mcpClient.callTool(tool, args);
-            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+            const resultText = result?.content?.map(c => c.text || "").join("
+").substring(0, 3000) || "";
 
             execState.recordToolCall(tool, args, resultText, stepsRun);
-            results.push(`[${tool}]:\n${resultText}`);
+            results.push(`[${tool}]:
+${resultText}`);
 
             console.error(`[toolChain]   ← ${resultText.length} chars`);
             if (resultText.length < 400) console.error(resultText);
@@ -5015,7 +5178,8 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
         return { results: [], success: false, stepsRun: 0 };
     }
 
-    console.error(`\n[toolChain] ⚡ Executing template "${templateName}" directly (${template.steps.length} steps, 0 LLM calls)`);
+    console.error(`
+[toolChain] ⚡ Executing template "${templateName}" directly (${template.steps.length} steps, 0 LLM calls)`);
 
     const results = [];
     let stepsRun  = 0;
@@ -5045,10 +5209,12 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
 
         try {
             const result    = await mcpClient.callTool(toolCall.tool, toolCall.args);
-            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
+            const resultText = result?.content?.map(c => c.text || "").join("
+").substring(0, 3000) || "";
 
             execState.recordToolCall(toolCall.tool, toolCall.args, resultText, stepsRun);
-            results.push(`[${toolCall.tool}]:\n${resultText}`);
+            results.push(`[${toolCall.tool}]:
+${resultText}`);
 
             console.error(`[toolChain]   ← ${resultText.length} chars`);
             if (resultText.length < 400) console.error(resultText);
@@ -5092,7 +5258,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\agent\uiEditExecutor.js
  * that don't exist in the file.
  */
 
-import { askLLM } from "./ollamaClient.js";
+import { askLLM } from "./llmClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
 
@@ -5147,15 +5313,13 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
         try {
             console.error(`[uiEdit] Looking up symbol: ${componentName}`);
             const symbolResult = await mcpClient.callTool("project_find_symbol", { project, name: componentName });
-            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("
-") || "";
+            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("\n") || "";
             execState.recordToolCall("project_find_symbol", { project, name: componentName }, symbolText, ++stepsRun);
             results.push(`[project_find_symbol]:
 ${symbolText}`);
 
             // Parse file path from result like: "function Footer  →  src\components\Footer.tsx:116"
-            const pathMatch = symbolText.match(/→\s*([^
-:]+\.(?:tsx?|jsx?|java|kt|py))/);
+            const pathMatch = symbolText.match(/→\s*([^\n:]+\.(?:tsx?|jsx?|java|kt|py))/);
             if (pathMatch) {
                 filePath = pathMatch[1].trim().replace(/\\/g, "/");
                 console.error(`[uiEdit] Found file: ${filePath}`);
@@ -5170,8 +5334,7 @@ ${symbolText}`);
         try {
             console.error(`[uiEdit] Searching for: ${componentName}`);
             const searchResult = await mcpClient.callTool("project_search", { project, query: componentName });
-            const searchText   = searchResult?.content?.map(c => c.text || "").join("
-") || "";
+            const searchText   = searchResult?.content?.map(c => c.text || "").join("\n") || "";
             execState.recordToolCall("project_search", { project, query: componentName }, searchText, ++stepsRun);
 
             // Extract first .tsx/.jsx file from results
@@ -5194,8 +5357,7 @@ ${symbolText}`);
     try {
         console.error(`[uiEdit] Reading file: ${filePath}`);
         const readResult  = await mcpClient.callTool("project_read_files", { project, paths: [filePath] });
-        const readText    = readResult?.content?.map(c => c.text || "").join("
-") || "";
+        const readText    = readResult?.content?.map(c => c.text || "").join("\n") || "";
         execState.recordToolCall("project_read_files", { project, paths: [filePath] }, readText, ++stepsRun);
         results.push(`[project_read_files]:
 ${readText}`);
@@ -5250,9 +5412,7 @@ CRITICAL RULES:
 
 JSON:`;
 
-    const normalizedContent = fileContent.replace(/\r
-/g, "
-");
+    const normalizedContent = fileContent.replace(/\r\n/g, "\n");
 
     // Attempt 1: focused snippet (faster, cheaper)
     const snippet1 = isBottomRequest
@@ -5273,9 +5433,7 @@ JSON:`;
             const parsed = JSON.parse(extracted);
             if (!parsed.search || !parsed.replace) throw new Error("Missing search or replace");
 
-            const normalizedSearch = parsed.search.replace(/\r
-/g, "
-").trim();
+            const normalizedSearch = parsed.search.replace(/\r\n/g, "\n").trim();
             if (!normalizedContent.includes(normalizedSearch)) {
                 console.error(`[uiEdit] Attempt ${attempt}: search string not found — ${normalizedSearch.substring(0, 80)}`);
                 if (attempt < 2) continue;  // retry with full file
@@ -5302,8 +5460,7 @@ JSON:`;
     try {
         console.error(`[uiEdit] Applying str_replace to ${filePath}`);
         const applyResult = await mcpClient.callTool("project_str_replace", editArgs);
-        const applyText   = applyResult?.content?.map(c => c.text || "").join("
-") || "";
+        const applyText   = applyResult?.content?.map(c => c.text || "").join("\n") || "";
         execState.recordToolCall("project_str_replace", editArgs, applyText, ++stepsRun);
         results.push(`[project_str_replace]:
 ${applyText}`);
@@ -5318,8 +5475,7 @@ ${applyText}`);
     try {
         console.error(`[uiEdit] Running build verification`);
         const buildResult = await mcpClient.callTool("project_build_and_fix", { project });
-        const buildText   = buildResult?.content?.map(c => c.text || "").join("
-") || "";
+        const buildText   = buildResult?.content?.map(c => c.text || "").join("\n") || "";
         execState.recordToolCall("project_build_and_fix", { project }, buildText, ++stepsRun);
         results.push(`[project_build_and_fix]:
 ${buildText}`);
@@ -5793,7 +5949,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\autoFixLoop\autoFixLoop.js
  */
 
 import { buildProject }   from "../tools/projectBuild.js";
-import { askLLM }         from "../agent/ollamaClient.js";
+import { askLLM } from "../agent/llmClient.js";
 import { getProject }     from "../core/projectRegistry.js";
 import { applyChanges }   from "../tools/applyChanges.js";
 import { projectStrReplace } from "../tools/projectStrReplace.js";
@@ -5829,9 +5985,10 @@ function readFilesSafe(filePaths, projectRoot, maxChars = 2000) {
         try {
             const full    = path.resolve(projectRoot, rel);
             const content = fs.readFileSync(full, "utf8").substring(0, maxChars);
-            return `--- ${rel} ---\n${content}`;
+            return `--- ${rel} ---
+${content}`;
         } catch { return null; }
-    }).filter(Boolean).join("\n\n");
+    }).filter(Boolean).join("\n");
 }
 
 // ── Deterministic tool runner (same as toolChainExecutor.executeToolsDirect) ──────────────
@@ -5925,7 +6082,14 @@ export async function runAutoFix(projectName) {
         const result    = await buildProject({ project: projectName });
         const rawOutput = result.content?.[0]?.text || "";
 
-        if (result.success) {
+        // Build success: output contains a positive signal and no error markers
+        const buildPassed = rawOutput.trim() === ""
+            || /build successful|build success|0 error|tests passed|compiled successfully/i.test(rawOutput)
+            || (/build skipped/i.test(rawOutput));  // Java/Kotlin — static analysis pass
+        const buildFailed = !buildPassed &&
+            /error|fail|exception|cannot find|unresolved/i.test(rawOutput);
+
+        if (!buildFailed) {
             log.info("Build successful");
             return { success: true, attempts: attempt };
         }
@@ -6173,15 +6337,12 @@ export class MCPClient {
 
     /** @private */
     _parseSSEBuffer(buffer, onMessage) {
-        const parts = buffer.split("
-
-");
+        const parts = buffer.split("\n\n");
         // Last part may be incomplete — keep it
         const incomplete = parts.pop();
 
         for (const block of parts) {
-            const lines = block.split("
-");
+            const lines = block.split("\n");
             let event = "message";
             let data  = null;
 
@@ -6284,7 +6445,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
 ========================================
 {
   "zeveal-backend": {
-    "root": "C:/Users/kushp/liferay-workspace/zeveal-backend-6/zeveal-backend",
+    "root": "/home/kushpatel/projects/zeveal-backend",
     "type": "liferay-backend",
     "buildCommand": "gradlew build",
     "branchPrefix": "ZB",
@@ -6293,7 +6454,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
     ]
   },
   "zeveal-frontend": {
-    "root": "C:/Users/kushp/liferay-workspace/zeveal-ui-3/zeveal-ui",
+    "root": "/home/kushpatel/projects/zeveal-ui",
     "type": "react-vite",
     "buildCommand": "npm run build",
     "branchPrefix": "ZF",
@@ -6339,7 +6500,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\config\projects.json
     "indexExtensions": []
   },
   "mcp": {
-    "root": "C:\\Users\\kushp\\IdeaProjects\\MCP",
+    "root": "C:/Users/kushp/IdeaProjects/MCP",
     "type": "nodejs",
     "buildCommand": "",
     "branchPrefix": "M",
@@ -6423,6 +6584,7 @@ const keyMap  = parseApiKeys(rawKeys);
 export const config = {
     // Server
     PORT:     parseInt(optional("PORT", "3001"), 10),
+    HOST:     optional("HOST", "0.0.0.0"), 
     BASE_URL: optional("BASE_URL", "http://localhost:3001"),
 
     // Auth
@@ -6437,6 +6599,7 @@ export const config = {
 
     // LLM
     OLLAMA_HOST: optional("OLLAMA_HOST", "http://localhost:11434"),
+    GEMINI_API_KEY: optional("GEMINI_API_KEY", ""),
     LLM_MODEL:   optional("LLM_MODEL",   "qwen2.5-coder:7b"),
 
     // Vector DB
@@ -6663,7 +6826,20 @@ export const TOOL_CHAIN_TEMPLATES = [
             "Run static analysis to identify issues",
             "Find the relevant symbol in the project",
             "Read the relevant files",
-            "Apply targeted refactor using project_str_replace",
+            "Rename symbol across project using project_rename_symbol_all",
+            "Apply any remaining structural changes using project_str_replace",
+            "Run static analysis",
+            "Run build and fix to verify"
+        ]
+    },
+    {
+        name:        "rename_symbol",
+        keywords:    ["rename", "rename function", "rename class", "rename variable", "rename method", "rename constant"],
+        projectTypes: null,
+        intent:      "fix",
+        steps: [
+            "Find the relevant symbol in the project",
+            "Rename symbol across project using project_rename_symbol_all",
             "Run static analysis",
             "Run build and fix to verify"
         ]
@@ -7808,7 +7984,7 @@ import { config }         from "../core/config.js";
 import { createLogger }   from "../core/logger.js";
 import { stats as toolStats, recentCalls } from "../core/toolLogger.js";
 import { CHROMA_HOST, CHROMA_PORT, OLLAMA_HOST } from "../core/constants.js";
-import { isOllamaAvailable }                      from "../agent/ollamaClient.js";
+import { isLlmAvailable } from "../agent/llmClient.js";
 
 const log       = createLogger("health");
 const startedAt = Date.now();
@@ -7909,7 +8085,7 @@ export function attachHealthRoutes(app) {
         // Check Ollama via shared client (consistent with LLM call path)
         try {
             const t0 = Date.now();
-            const ollamaStatus = await isOllamaAvailable();
+            const ollamaStatus = await isLlmAvailable();
             const ms = Date.now() - t0;
             results.ollama = ollamaStatus.available
                 ? { status: "healthy",   latencyMs: ms, models: ollamaStatus.models }
@@ -7942,8 +8118,22 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\jobRoutes.js
  *
  * REST endpoints for the agent job queue.
  *
- * Security: project name is NEVER accepted from the caller.
- * The project is always derived from the workspace path sent by the IDE extension.
+ * ── Project resolution (workspace-first model) ─────────────────────────────
+ *
+ * Clients may send ONE of:
+ *
+ *   A) { prompt, project: "myapp" }
+ *      → look up pre-registered project by name (projects.json or prior
+ *        server-side project_register call).
+ *      → classic server-admin workflow; most secure.
+ *
+ *   B) { prompt, workspacePath: "/remote/data/workspaces/alice/myapp" }
+ *      → path MUST sit inside an ALLOWED_ROOTS prefix (config.ALLOWED_ROOTS).
+ *      → server auto-registers the project dynamically.
+ *      → used by Workspace Sync flow after POST /workspace/push.
+ *
+ * The client NEVER controls arbitrary filesystem paths; any workspacePath
+ * outside ALLOWED_ROOTS is rejected with 403.
  *
  * Endpoints:
  *   POST /run          Submit a task
@@ -7951,127 +8141,130 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\jobRoutes.js
  *   GET  /stream/:id   Live SSE progress
  *   GET  /jobs         List all jobs
  *   GET  /queue        Queue status
- *   GET  /diff/:id     Git diff of changes made by a completed job (for review panel)
- *   POST /revert/:id   Undo agent changes (safe git revert by default, ?hard=true for reset)
+ *   GET  /diff/:id     Git diff of changes made by a completed job
+ *   POST /revert/:id   Undo agent changes
  */
 
-import path        from "path";
+import path from "path";
+import fs            from "fs";
 import { spawnSync } from "child_process";
 import { enqueue, getJob, listJobs, getQueueStatus,
          subscribeToJob, unsubscribeFromJob, emitJobStep, cancelJob } from "./queue.js";
-import { createLogger }                from "../core/logger.js";
-import { runAgent }                    from "../agent/agentRunner.js";
-import { registerDynamicProject, saveProject,
-         listProjects, getProject, listDynamicProjects } from "../core/projectRegistry.js";
-import { createCheckpoint }           from "../git/checkpoint.js";
+import { createLogger }                    from "../core/logger.js";
+import { config }                          from "../core/config.js";
+import { runAgent }                        from "../agent/agentRunner.js";
+import { registerDynamicProject, listProjects, getProject } from "../core/projectRegistry.js";
+import { createCheckpoint }               from "../git/checkpoint.js";
 
 const log = createLogger("job-routes");
 
-/**
- * Wraps an async route handler so any rejected promise is forwarded to
- * Express's next(err) — caught by the global error handler in startHttpServer.
- * Without this wrapper, async throws in route handlers crash silently.
- */
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// ── security: validate workspacePath against ALLOWED_ROOTS ────────────────────
+function validateWorkspacePath(wsPath) {
+    if (!wsPath || typeof wsPath !== "string") return null;
+    const normalised = path.resolve(wsPath.trim());
+
+    // If ALLOWED_ROOTS is not configured, block all dynamic path requests.
+    // The admin must explicitly opt-in via ALLOWED_ROOTS in .env.
+    const roots = config.ALLOWED_ROOTS;
+    if (roots.length === 0) {
+        return { error: "Dynamic workspace paths are disabled. Set ALLOWED_ROOTS in .env or use a pre-registered project name." };
+    }
+
+    const allowed = roots.some(root => normalised.startsWith(root + path.sep) || normalised === root);
+    if (!allowed) {
+        return { error: `Path "${normalised}" is outside all allowed roots. Allowed: ${roots.join(", ")}` };
+    }
+    if (!fs.existsSync(normalised)) {
+        return { error: `Workspace path does not exist on this server: "${normalised}"` };
+    }
+    return { path: normalised };
+}
 
 export function attachJobRoutes(app) {
 
     // ── POST /run ──────────────────────────────────────────────────────────────
-    //
-    // SECURITY: Only pre-registered project names (from projects.json or
-    // server-side project_register) are accepted. Arbitrary filesystem paths
-    // from clients are NEVER trusted — doing so would allow any API-key holder
-    // to point the agent at any directory on this machine.
-    //
-    // Clients send: { prompt: "...", project: "jsv" }   ← project name only
-    // Legacy field:  { prompt: "...", path: "/abs/path" } ← still accepted but
-    //                the basename is used ONLY to look up a pre-registered project;
-    //                the path itself is NEVER used as a filesystem root.
     app.post("/run", asyncRoute(async (req, res) => {
-        const {prompt, project: projectParam, path: legacyPath} = req.body || {};
+        const { prompt, project: projectParam, workspacePath } = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
-            return res.status(400).json({error: "prompt (string) is required"});
+            return res.status(400).json({ error: "prompt (string) is required" });
         }
 
-        // Resolve the project name from the request.
-        // Accept either `project` (preferred) or derive from basename of `path` (legacy).
         let project;
+        let resolvedRoot;
+
+        // ── Mode A: pre-registered project name ───────────────────────────────
         if (projectParam && typeof projectParam === "string") {
             project = projectParam.trim().toLowerCase().replace(/[^a-zA-Z0-9-_]/g, "-");
-        } else if (legacyPath && typeof legacyPath === "string") {
-            // Legacy: IDE sent an absolute path. Use basename as the lookup key ONLY.
-            project = path.basename(legacyPath.trim())
+
+            if (!listProjects().includes(project)) {
+                log.warn(`Unknown project "${project}" from ${req.ip} (user: ${req.user})`);
+                const body = { error: `Project "${project}" is not registered on this server.`,
+                               hint: "Ask the server admin to add it to projects.json, or push your workspace via POST /workspace/push." };
+                if (config.EXPOSE_PROJECT_LIST) body.knownProjects = listProjects();
+                return res.status(403).json(body);
+            }
+            resolvedRoot = getProject(project).root;
+
+        // ── Mode B: workspace path (from Workspace Sync) ───────────────────────
+        } else if (workspacePath) {
+            const validated = validateWorkspacePath(workspacePath);
+            if (validated.error) {
+                log.warn(`Rejected workspace path from ${req.ip}: ${validated.error}`);
+                return res.status(403).json({ error: validated.error });
+            }
+            resolvedRoot = validated.path;
+
+            // Derive a safe project name from the last path segment
+            project = path.basename(resolvedRoot)
                 .replace(/[^a-zA-Z0-9-_]/g, "-")
                 .toLowerCase();
+
+            // Auto-register if not already known
+            if (!listProjects().includes(project)) {
+                registerDynamicProject(project, resolvedRoot);
+                log.info(`Auto-registered dynamic project "${project}" → ${resolvedRoot}`);
+            }
+
         } else {
             return res.status(400).json({
-                error: "project (string) is required — send the registered project name, e.g. \"jsv\""
+                error: "Provide either 'project' (registered name) or 'workspacePath' (path inside ALLOWED_ROOTS)."
             });
         }
 
-        if (!project || project.length < 1) {
-            return res.status(400).json({error: "Cannot resolve project name"});
-        }
-
-        // ── SECURITY GATE ────────────────────────────────────────────────────
-        // Project MUST be pre-registered on the server (projects.json or
-        // explicit server-side project_register call).
-        // We never auto-register from a client-supplied path.
-        if (!listProjects().includes(project)) {
-            log.warn(`Rejected unknown project "${project}" from ${req.ip} (user: ${req.user})`);
-
-            // Give a helpful specific error: if the caller sent a path and that path
-            // doesn't exist on this machine, explain the remote-machine problem clearly.
-            let hint = "Ask the server admin to add it to projects.json.";
-            if (legacyPath && typeof legacyPath === "string") {
-                const { default: fs } = await import("fs");
-                const { default: nodePath } = await import("path");
-                const absPath = nodePath.resolve(legacyPath.trim());
-                if (!fs.existsSync(absPath)) {
-                    hint = `The path "${legacyPath}" does not exist on this server machine. ` +
-                        `This server runs on a different computer — you cannot use your local path here. ` +
-                        `Ask the server admin to clone/copy your project to the server and add it to projects.json.`;
-                }
-            }
-
-            const { config } = await import("../core/config.js");
-            const body = { error: `Project "${project}" is not registered on this server.`, hint };
-            if (config.EXPOSE_PROJECT_LIST) body.knownProjects = listProjects();
-            return res.status(403).json(body);
-        }
-
+        // ── enqueue ───────────────────────────────────────────────────────────
         const runner = async (job) => {
-            log.info(`Running agent | job=${job.id} | project=${project}`);
+            log.info(`Running agent | job=${job.id} | project=${project} | root=${resolvedRoot}`);
             const emit = (step, detail) => emitJobStep(job.id, step, detail);
 
-            // Create a git stash checkpoint before the agent touches any files.
-            // This gives users a guaranteed rollback point beyond the last commit.
             try {
                 const proj = getProject(project);
-                const cp = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
-                if (cp.stashed) log.info(`Checkpoint stash created: ${cp.ref} for job ${job.id}`);
+                const cp   = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
+                if (cp.stashed) log.info(`Checkpoint stash: ${cp.ref} for job ${job.id}`);
             } catch (cpErr) {
                 log.warn(`Checkpoint failed (non-fatal): ${cpErr.message}`);
             }
 
             await runAgent(`${prompt} project: ${project}`, emit);
-            return `Agent completed task for project: ${project}`;
+            return `Agent completed for project: ${project}`;
         };
 
-        const job = enqueue(prompt, project, runner);
+        const job    = enqueue(prompt, project, runner);
         const status = getQueueStatus();
         log.info(`Enqueued job ${job.id} | project=${project} | queue_depth=${status.pending + (status.running ? 1 : 0)}`);
 
         res.status(202).json({
-            id: job.id,
-            status: job.status,
+            id:         job.id,
+            status:     job.status,
             project,
-            position: status.pending,
-            createdAt: job.createdAt,
-            streamUrl: `/stream/${job.id}`,
-            statusUrl: `/status/${job.id}`,
-            diffUrl: `/diff/${job.id}`
+            resolvedRoot,
+            position:   status.pending,
+            createdAt:  job.createdAt,
+            streamUrl:  `/stream/${job.id}`,
+            statusUrl:  `/status/${job.id}`,
+            diffUrl:    `/diff/${job.id}`
         });
     }));
 
@@ -8919,7 +9112,7 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\src\http\startupChecks.js
 import os   from "os";
 import { config } from "../core/config.js";
 import { createLogger } from "../core/logger.js";
-import { isOllamaAvailable } from "../agent/ollamaClient.js";
+import { isLlmAvailable } from "../agent/llmClient.js";
 
 const log = createLogger("startup");
 
@@ -8974,7 +9167,7 @@ export async function runStartupChecks() {
     }
 
     // ── Ollama liveness probe (async, non-blocking) ──────────────────────────────────
-    isOllamaAvailable().then(({ available, models, error }) => {
+    isLlmAvailable().then(({ available, models, error }) => {
         if (available) {
             log.info(`Ollama reachable at ${config.OLLAMA_HOST}`);
             if (models.length > 0) {
@@ -9809,10 +10002,7 @@ function hasChanges(root) {
 
 /** Normalize line endings to LF before writing — prevents CRLF corruption. */
 function normalizeLF(content) {
-    return content.replace(/\r
-/g, "
-").replace(/\r/g, "
-");
+    return content.replace(/\r/g, "/n").replace(/\r/g, "/n");
 }
 
 export function applyChanges({ project, files, commitMessage, increment }) {
@@ -9877,6 +10067,349 @@ Impact analysis — files that import the written file(s):`);
     return {
         content: [{ type: "text", text: `Changes committed: ${safeMessage}${impactLines.join(" ")}` }]
     };
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\astReplace.js
+========================================
+/**
+ * src/tools/astReplace.js
+ *
+ * AST-aware symbol rename for the MCP agent.
+ *
+ * Problem with plain str_replace for renames:
+ *   str_replace replaces the FIRST occurrence of a literal string.
+ *   A rename like "userId" → "accountId" needs ALL occurrences changed,
+ *   and must not touch substrings (e.g. "getUserId" should NOT become
+ *   "getAccountId" unless the caller explicitly wants that).
+ *
+ * This module provides:
+ *   renameSymbol(root, filePath, oldName, newName, options)
+ *     — Renames every whole-word occurrence of `oldName` to `newName`
+ *       in the file at `filePath` under project root `root`.
+ *     — Returns { ok, replacements, preview, backup } so callers can
+ *       decide whether to commit the change.
+ *
+ *   renameSymbolInProject(root, oldName, newName, extensions)
+ *     — Walks the entire project and renames across all matching files.
+ *     — Returns { ok, files: [{ path, replacements }] }
+ *
+ * Why not a real AST?
+ *   Full AST parsing (acorn, babel, ts-morph) requires the file to be
+ *   syntactically correct AND adds heavy dependencies. For the vast majority
+ *   of agent rename tasks (variable, function, class, constant names), a
+ *   word-boundary regex is correct and far lighter. Edge cases (renaming
+ *   inside strings/comments) are explicitly flagged in the output.
+ *
+ * MCP tool registration is handled in src/index.js by calling
+ *   registerAstReplaceTools(server, registry)
+ */
+
+import fs   from 'fs';
+import path from 'path';
+import { validatePath } from '../core/validator.js';
+import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from '../core/constants.js';
+
+// ---------------------------------------------------------------------------
+// Core rename logic
+// ---------------------------------------------------------------------------
+
+/**
+ * Rename all whole-word occurrences of `oldName` to `newName` in one file.
+ *
+ * @param {string}  root      - absolute project root
+ * @param {string}  filePath  - relative file path inside project
+ * @param {string}  oldName   - symbol to rename (exact identifier)
+ * @param {string}  newName   - replacement identifier
+ * @param {object}  opts
+ * @param {boolean} [opts.dryRun=false]    - preview only, don't write
+ * @param {boolean} [opts.backup=false]    - write .bak file before editing
+ * @returns {{ ok: boolean, replacements: number, preview: string, error?: string, backupPath?: string }}
+ */
+export function renameSymbol(root, filePath, oldName, newName, opts = {}) {
+    const { dryRun = false, backup = false } = opts;
+
+    // Validate names are valid JS identifiers
+    const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+    if (!IDENT.test(oldName)) return { ok: false, replacements: 0, preview: '', error: `oldName "${oldName}" is not a valid identifier` };
+    if (!IDENT.test(newName)) return { ok: false, replacements: 0, preview: '', error: `newName "${newName}" is not a valid identifier` };
+
+    let fullPath;
+    try {
+        fullPath = validatePath(root, filePath);
+    } catch (e) {
+        return { ok: false, replacements: 0, preview: '', error: e.message };
+    }
+
+    let content;
+    try {
+        content = fs.readFileSync(fullPath, 'utf-8');
+    } catch (e) {
+        return { ok: false, replacements: 0, preview: '', error: `Cannot read ${filePath}: ${e.message}` };
+    }
+
+    // Word-boundary regex: matches `oldName` only when surrounded by
+    // non-identifier characters (spaces, punctuation, line starts/ends).
+    // \b works for ASCII identifiers. For identifiers starting/ending with
+    // $ or _ \b is still correct since those are \w characters.
+    const re = new RegExp(`\\b${escapeRegex(oldName)}\\b`, 'g');
+    const matches = [...content.matchAll(re)];
+    const replacements = matches.length;
+
+    if (replacements === 0) {
+        return { ok: true, replacements: 0, preview: `No occurrences of "${oldName}" found in ${filePath}`, error: undefined };
+    }
+
+    const updated = content.replace(re, newName);
+
+    // Build a compact diff-style preview (first 5 changed lines)
+    const previewLines = buildPreview(content, updated, oldName, newName, 5);
+
+    if (!dryRun) {
+        let backupPath;
+        if (backup) {
+            backupPath = fullPath + '.bak';
+            try { fs.writeFileSync(backupPath, content); } catch { /* non-fatal */ }
+        }
+        try {
+            fs.writeFileSync(fullPath, updated, 'utf-8');
+        } catch (e) {
+            return { ok: false, replacements, preview: previewLines, error: `Write failed: ${e.message}` };
+        }
+        return { ok: true, replacements, preview: previewLines, backupPath };
+    }
+
+    return { ok: true, replacements, preview: previewLines };
+}
+
+/**
+ * Rename a symbol across all source files in the project.
+ *
+ * @param {string}   root        - absolute project root
+ * @param {string}   oldName     - symbol to rename
+ * @param {string}   newName     - replacement
+ * @param {string[]} [extensions] - file extensions to scan (default: INDEXABLE_EXTENSIONS)
+ * @param {boolean}  [dryRun]    - preview only
+ * @returns {{ ok: boolean, totalReplacements: number, files: Array<{path, replacements, preview}> }}
+ */
+export function renameSymbolInProject(root, oldName, newName, extensions, dryRun = false) {
+    const exts   = extensions ?? INDEXABLE_EXTENSIONS;
+    const files  = walkProject(root, exts);
+    const result = [];
+    let   total  = 0;
+
+    for (const relPath of files) {
+        const r = renameSymbol(root, relPath, oldName, newName, { dryRun });
+        if (r.replacements > 0) {
+            total += r.replacements;
+            result.push({ path: relPath, replacements: r.replacements, preview: r.preview, ok: r.ok });
+        }
+    }
+
+    return { ok: true, totalReplacements: total, files: result };
+}
+
+// ---------------------------------------------------------------------------
+// MCP tool registration
+// ---------------------------------------------------------------------------
+
+/**
+ * Register two MCP tools:
+ *   project_rename_symbol        - renames in a single file
+ *   project_rename_symbol_all    - renames across the whole project
+ *
+ * @param {import('@modelcontextprotocol/sdk/server/index.js').Server} server
+ * @param {object} registry   - projectRegistry module
+ */
+export function registerAstReplaceTools(server, registry) {
+
+    // ── project_rename_symbol ──────────────────────────────────────────────
+    server.tool(
+        'project_rename_symbol',
+        {
+            description: 'Rename ALL whole-word occurrences of a symbol in one file. Safer than str_replace for renames because it matches every occurrence and respects word boundaries (won\'t corrupt substrings).',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    project:  { type: 'string', description: 'Registered project name' },
+                    path:     { type: 'string', description: 'Relative file path, e.g. src/utils/auth.js' },
+                    oldName:  { type: 'string', description: 'Identifier to rename (exact, case-sensitive)' },
+                    newName:  { type: 'string', description: 'Replacement identifier' },
+                    dryRun:   { type: 'boolean', description: 'If true, preview changes without writing (default: false)' },
+                    backup:   { type: 'boolean', description: 'If true, write a .bak file before editing (default: false)' }
+                },
+                required: ['project', 'path', 'oldName', 'newName']
+            }
+        },
+        async ({ project, path: filePath, oldName, newName, dryRun = false, backup = false }) => {
+            try {
+                const proj = registry.getProject(project);
+                const result = renameSymbol(proj.root, filePath, oldName, newName, { dryRun, backup });
+                if (!result.ok) {
+                    return { content: [{ type: 'text', text: `Error: ${result.error}` }] };
+                }
+                const action  = dryRun ? 'Preview' : 'Renamed';
+                const summary = `${action}: "${oldName}" → "${newName}" | ${result.replacements} occurrence(s) in ${filePath}\n${result.preview}`;
+                return { content: [{ type: 'text', text: summary }] };
+            } catch (e) {
+                return { content: [{ type: 'text', text: `project_rename_symbol error: ${e.message}` }] };
+            }
+        }
+    );
+
+    // ── project_rename_symbol_all ──────────────────────────────────────────
+    server.tool(
+        'project_rename_symbol_all',
+        {
+            description: 'Rename ALL whole-word occurrences of a symbol across every source file in the project. Use for global identifier renames (function, class, constant). Always run project_analyze after.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    project:    { type: 'string', description: 'Registered project name' },
+                    oldName:    { type: 'string', description: 'Identifier to rename' },
+                    newName:    { type: 'string', description: 'Replacement identifier' },
+                    extensions: { type: 'array', items: { type: 'string' }, description: 'File extensions to scan, e.g. [".js",".ts"] (default: all indexable extensions)' },
+                    dryRun:     { type: 'boolean', description: 'Preview only, no writes (default: false)' }
+                },
+                required: ['project', 'oldName', 'newName']
+            }
+        },
+        async ({ project, oldName, newName, extensions, dryRun = false }) => {
+            try {
+                const proj   = registry.getProject(project);
+                const result = renameSymbolInProject(proj.root, oldName, newName, extensions, dryRun);
+                if (result.totalReplacements === 0) {
+                    return { content: [{ type: 'text', text: `No occurrences of "${oldName}" found in project.` }] };
+                }
+                const action = dryRun ? 'Preview' : 'Renamed';
+                const lines  = [
+                    `${action}: "${oldName}" → "${newName}" | ${result.totalReplacements} total occurrence(s) across ${result.files.length} file(s)`,
+                    ...result.files.map(f => `  ${f.path}: ${f.replacements} occurrence(s)`)
+                ];
+                return { content: [{ type: 'text', text: lines.join('\n') }] };
+            } catch (e) {
+                return { content: [{ type: 'text', text: `project_rename_symbol_all error: ${e.message}` }] };
+            }
+        }
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Build a compact preview showing up to `maxLines` changed lines,
+ * formatted as a mini unified diff.
+ */
+function buildPreview(before, after, oldName, newName, maxLines) {
+    const beforeLines = before.split('\n');
+    const afterLines  = after.split('\n');
+    const preview     = [];
+    const re          = new RegExp(`\\b${escapeRegex(oldName)}\\b`);
+
+    for (let i = 0; i < beforeLines.length && preview.length < maxLines; i++) {
+        if (re.test(beforeLines[i])) {
+            preview.push(`- ${beforeLines[i].trim()}`);
+            preview.push(`+ ${afterLines[i].trim()}`);
+        }
+    }
+    return preview.join('\n');
+}
+
+/**
+ * Walk the project directory tree, returning relative paths of files
+ * matching `extensions`. Skips IGNORE_FOLDERS.
+ */
+function walkProject(root, extensions) {
+    const results = [];
+    function walk(dir) {
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                if (!IGNORE_FOLDERS.includes(entry.name)) walk(fullPath);
+            } else if (extensions.some(ext => entry.name.endsWith(ext))) {
+                results.push(path.relative(root, fullPath).replace(/\\/g, '/'));
+            }
+        }
+    }
+    walk(root);
+    return results;
+}
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\astReplaceDispatch.js
+========================================
+/**
+ * src/tools/astReplaceDispatch.js
+ *
+ * Dispatch handler for the AST-aware rename tools.
+ * Called by the CallToolRequestSchema handler in index.js:
+ *
+ *   const astResult = await dispatchAstReplace(name, args, getProject);
+ *   if (astResult !== null) return astResult;
+ *
+ * Returns null when the tool name is not handled here,
+ * so the caller falls through to its own dispatch.
+ */
+
+import { renameSymbol, renameSymbolInProject } from './astReplace.js';
+
+/**
+ * @param {string}   name        - tool name from MCP request
+ * @param {object}   args        - tool arguments
+ * @param {Function} getProject  - getProject(projectName) from projectRegistry
+ * @returns {object|null}        - MCP content response, or null if not handled
+ */
+export async function dispatchAstReplace(name, args, getProject) {
+    if (name === 'project_rename_symbol') {
+        try {
+            const proj = getProject(args.project);
+            const r    = renameSymbol(
+                proj.root, args.path, args.oldName, args.newName,
+                { dryRun: args.dryRun ?? false, backup: args.backup ?? false }
+            );
+            if (!r.ok) return { content: [{ type: 'text', text: `Error: ${r.error}` }] };
+            const action = (args.dryRun ?? false) ? 'Preview' : 'Renamed';
+            return { content: [{ type: 'text', text:
+                `${action}: "${args.oldName}" \u2192 "${args.newName}" | ${r.replacements} occurrence(s) in ${args.path}\n${r.preview}`
+            }] };
+        } catch (e) {
+            return { content: [{ type: 'text', text: `project_rename_symbol error: ${e.message}` }] };
+        }
+    }
+
+    if (name === 'project_rename_symbol_all') {
+        try {
+            const proj = getProject(args.project);
+            const r    = renameSymbolInProject(
+                proj.root, args.oldName, args.newName,
+                args.extensions, args.dryRun ?? false
+            );
+            if (r.totalReplacements === 0) {
+                return { content: [{ type: 'text', text: `No occurrences of "${args.oldName}" found in project.` }] };
+            }
+            const action = (args.dryRun ?? false) ? 'Preview' : 'Renamed';
+            const lines  = [
+                `${action}: "${args.oldName}" \u2192 "${args.newName}" | ${r.totalReplacements} total occurrence(s) across ${r.files.length} file(s)`,
+                ...r.files.map(f => `  ${f.path}: ${f.replacements} occurrence(s)`)
+            ];
+            return { content: [{ type: 'text', text: lines.join('\n') }] };
+        } catch (e) {
+            return { content: [{ type: 'text', text: `project_rename_symbol_all error: ${e.message}` }] };
+        }
+    }
+
+    return null;  // not handled — caller should continue its own dispatch
 }
 
 
@@ -10393,32 +10926,79 @@ export function searchProject({ project, query, fileType = null }) {
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectStrReplace.js
 ========================================
 import fs from "fs";
+import path from "path";
 import { spawnSync } from "child_process";
 import { getProject } from "../core/projectRegistry.js";
 import { validatePath, sanitizeCommitMessage } from "../core/validator.js";
 import { createLogger } from "../core/logger.js";
 import { findDependents } from "../analysis/symbolGraph.js";
+
+const log = createLogger("str-replace");
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const MAX_EDITS_PER_CALL   = 20;
+const MAX_IMPACT_DISPLAYED = 8;
+const SEARCH_DIRS = [
+    "src/components", "src/app", "src", "app",
+    "components", "addons", "lib", "pkg",
+];
+
+// ── Normalisation ────────────────────────────────────────────────────────────
+
+/**
+ * Normalize a string for comparison without destroying code content.
+ *
+ * - CRLF / bare CR  → LF           (line-ending portability)
+ * - JSON-escaped \n → real newline  (LLM often emits \n literally)
+ * - JSON-escaped \t → real tab      (same reason)
+ *
+ * NOT trimmed — leading/trailing whitespace is meaningful in code.
+ * NOT collapsed — collapsing spaces would destroy indentation.
+ */
+function normalize(s) {
+    return s
+        .replace(/\r\n/g, "\n")   // CRLF → LF
+        .replace(/\r/g,   "\n")   // bare CR → LF
+        .replace(/\\n/g,  "\n")   // JSON-escaped newline → real newline
+        .replace(/\\t/g,  "\t");  // JSON-escaped tab → real tab
+}
+
+/**
+ * Escape all regex metacharacters so a search string is treated literally.
+ *
+ * Without this, search strings containing . ( ) [ ] * + ? ^ $ | \ would
+ * either throw or produce unexpected matches.
+ */
+function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ── Fuzzy matching ────────────────────────────────────────────────────────────
+
 /**
  * Fuzzy line-by-line match fallback.
  *
- * When exact string match fails (e.g. LLM generated search from truncated context),
- * try to find the search block by matching its non-empty lines as a contiguous
- * sequence inside the file. Returns the exact substring from the file if found,
- * null otherwise.
+ * When exact string match fails (e.g. LLM generated search from truncated
+ * context), try to find the search block by matching its non-empty lines as a
+ * contiguous sequence inside the file.  Returns the exact substring from the
+ * file if found, null otherwise.
  *
- * This recovers from:
- *  - Leading/trailing whitespace differences
- *  - Single-line truncation at the boundary of the 4K context window
- *  - Minor LLM paraphrasing of whitespace
+ * Recovers from:
+ *  - Leading/trailing whitespace differences per line
+ *  - Single-line truncation at the boundary of the 4 K context window
+ *  - Minor LLM whitespace paraphrasing
+ *
+ * Deliberately restricted to multi-line searches — single-line fuzzy matches
+ * produce too many false positives.
  */
 function fuzzyLineMatch(fileContent, searchStr) {
-    const fileLines   = fileContent.split("
-");                                        // FIX: was split("")
-    const searchLines = searchStr.split("
-").map(l => l.trimEnd()).filter(l => l.trim().length > 0); // FIX: was split("")
+    const fileLines   = fileContent.split("\n");
+    const searchLines = searchStr
+        .split("\n")
+        .map(l => l.trimEnd())
+        .filter(l => l.trim().length > 0);
 
-    if (searchLines.length === 0) return null;
-    // Only attempt fuzzy match for multi-line searches (single-line false positives are too risky)
     if (searchLines.length < 2) return null;
 
     for (let i = 0; i <= fileLines.length - searchLines.length; i++) {
@@ -10430,217 +11010,298 @@ function fuzzyLineMatch(fileContent, searchStr) {
             }
         }
         if (matched) {
-            // Return the exact slice from the file (preserves original whitespace/endings)
-            const startLine = i;
-            const endLine   = i + searchLines.length - 1;
-            return fileLines.slice(startLine, endLine + 1).join("
-");                  // FIX: was join("")
+            return fileLines.slice(i, i + searchLines.length).join("\n");
         }
     }
     return null;
 }
 
-
-const log = createLogger("str-replace");
+// ── Git helpers ───────────────────────────────────────────────────────────────
 
 function hasChanges(root) {
-    const r = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+    const r = spawnSync("git", ["status", "--porcelain"], {
+        cwd: root, encoding: "utf8",
+    });
     return (r.stdout || "").trim().length > 0;
 }
 
 /**
- * Normalize a string for comparison.
- * - Convert CRLF -> LF
- * - Convert JSON-escaped newlines (
- from LLM output) -> real newlines
- * - Convert JSON-escaped tabs (	) -> real tabs
- * - Do NOT trim — trimming causes false "not found" when search string
- *   starts or ends with meaningful whitespace/indentation.
- * - Do NOT strip backslashes or collapse spaces — that destroys code content.
+ * Ensure git user identity is configured so commits don't fail on fresh
+ * machines.  Checks local repo config first, then global — only injects a
+ * fallback if both are empty, so the developer's real identity is never
+ * overwritten.
  */
-function normalize(s) {
-    return s
-        .replace(/\r
-/g, "
-")                 // CRLF -> LF
-        .replace(/\r/g, "
-")                   // bare CR -> LF
-        .replace(/\
-/g, "
-")                  // FIX: JSON-escaped newline -> real newline
-        .replace(/\	/g, "	");                 // FIX: JSON-escaped tab -> real tab
-}
+function ensureGitIdentity(root) {
+    const get = (scope, key) =>
+        spawnSync("git", ["config", scope, key], { cwd: root, encoding: "utf8" }).stdout.trim();
 
-/**
- * Escape all regex special characters so the search string is treated
- * as a literal string, not a pattern.
- * Root cause #3: search strings with () [] . * + ? ^ $ | \ were
- * interpreted as regex, causing unexpected matches or errors.
- */
-function escapeRegex(s) {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function projectStrReplace({ project, edits, commitMessage }) {
-    const config = getProject(project);
-    const root   = config.root;
-
-    // ── Git identity guard ──────────────────────────────────────────────────
-    // On fresh machines git user.email/user.name may not be configured,
-    // causing "git commit" to fail with exit code 128.
-    // Check local repo config first, then global — only inject fallback if BOTH empty.
-    // This avoids overwriting the developer's real global git identity.
-    const localEmail  = spawnSync("git", ["config", "--local",  "user.email"], { cwd: root, encoding: "utf8" }).stdout.trim();
-    const globalEmail = spawnSync("git", ["config", "--global", "user.email"], { cwd: root, encoding: "utf8" }).stdout.trim();
-    if (!localEmail && !globalEmail) {
+    if (!get("--local", "user.email") && !get("--global", "user.email")) {
         spawnSync("git", ["config", "user.email", "aidev@mcp.local"], { cwd: root });
         spawnSync("git", ["config", "user.name",  "AI Dev MCP"],       { cwd: root });
         log.info("Set fallback git identity for commit");
     }
+}
 
+/**
+ * Stage all changes and commit.  Returns the git output on success.
+ * Throws a descriptive Error on failure so callers can surface it cleanly.
+ */
+function commitChanges(root, message) {
+    spawnSync("git", ["add", "."], { cwd: root });
+
+    const safeMessage = sanitizeCommitMessage(message || "str-replace edit");
+    const result = spawnSync("git", ["commit", "-m", safeMessage], {
+        cwd: root, encoding: "utf8",
+    });
+
+    if (result.status !== 0) {
+        throw new Error(
+            `Git commit failed: ${(result.stderr || result.stdout || "").trim()}`,
+        );
+    }
+
+    return result.stdout.trim();
+}
+
+// ── Path resolution ───────────────────────────────────────────────────────────
+
+/**
+ * Resolve a relative path to an absolute path, searching common source
+ * directories when the path doesn't exist at the root.
+ *
+ * Throws a descriptive Error (not a raw path) when the file cannot be found,
+ * so the LLM agent gets an actionable message.
+ */
+function resolveFilePath(root, relativePath) {
+    // Reject obviously dangerous inputs before even calling validatePath.
+    if (!relativePath || typeof relativePath !== "string") {
+        throw new Error("edit.path must be a non-empty string");
+    }
+
+    // Block absolute paths — they bypass the project root sandbox.
+    if (path.isAbsolute(relativePath)) {
+        throw new Error(
+            `Absolute paths are not allowed: "${relativePath}". ` +
+            `Use a path relative to the project root.`,
+        );
+    }
+
+    // Direct match
+    try {
+        const fullPath = validatePath(root, relativePath);
+        if (fs.existsSync(fullPath)) return fullPath;
+    } catch { /* path traversal attempt — fall through to give cleaner error */ }
+
+    // Search common source directories
+    for (const dir of SEARCH_DIRS) {
+        try {
+            const candidate = validatePath(root, `${dir}/${relativePath}`);
+            if (fs.existsSync(candidate)) return candidate;
+        } catch { /* invalid path — skip */ }
+    }
+
+    throw new Error(
+        `File not found: "${relativePath}".\n` +
+        `Tip: use the relative path from the project root, e.g. "src/utils/auth.js"`,
+    );
+}
+
+// ── Edit validation ───────────────────────────────────────────────────────────
+
+/**
+ * Validate a single edit object's shape before any filesystem work.
+ * Throws early with a clear message so callers don't waste I/O on bad input.
+ */
+function validateEdit(edit, index) {
+    if (!edit || typeof edit !== "object") {
+        throw new Error(`edits[${index}] must be an object`);
+    }
+    const { path: p, search, replace } = edit;
+    if (!p || typeof p !== "string")       throw new Error(`edits[${index}].path must be a non-empty string`);
+    if (typeof search  !== "string")       throw new Error(`edits[${index}].search must be a string`);
+    if (typeof replace !== "string")       throw new Error(`edits[${index}].replace must be a string`);
+    if (search.trim().length === 0)        throw new Error(`edits[${index}].search must not be empty`);
+}
+
+// ── Rich diagnostic ───────────────────────────────────────────────────────────
+
+/**
+ * Build a rich diagnostic error message for the LLM agent when neither exact
+ * nor fuzzy search succeeds.  The hint shows where the first search line was
+ * found in the file so the agent can re-anchor its search string.
+ */
+function buildNotFoundError(relativePath, search, normalizedFile, normalizedSearch) {
+    const searchLines = normalizedSearch.split("\n");
+    const firstLine   = searchLines[0].trim();
+    const hintIdx     = normalizedFile.indexOf(firstLine);
+
+    const hint = hintIdx !== -1
+        ? `\nFirst line found at char ${hintIdx}: ` +
+        `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"`
+        : "No partial match found — the file may have changed since it was read.";
+
+    return new Error(
+        `Search string not found in "${relativePath}".\n` +
+        `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
+        hint +
+        `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
+    );
+}
+
+// ── Impact analysis ───────────────────────────────────────────────────────────
+
+/**
+ * Collect all files that import any of the edited files (up to depth 2).
+ * Returns an array of formatted strings for the result message.
+ * Never throws — impact analysis is best-effort and must not block a commit.
+ */
+function computeImpact(project, editedPaths) {
+    try {
+        const normalised  = editedPaths.map(p => p.replace(/\\/g, "/"));
+        const allAffected = new Set();
+
+        for (const file of normalised) {
+            findDependents(project, file, 2).forEach(f => allAffected.add(f));
+        }
+        // Remove the files we just edited
+        normalised.forEach(f => allAffected.delete(f));
+
+        if (allAffected.size === 0) return [];
+
+        const lines = ["\nImpact analysis — files that import the edited file(s):"];
+        [...allAffected]
+            .slice(0, MAX_IMPACT_DISPLAYED)
+            .forEach(f => lines.push(`  - ${f}`));
+
+        if (allAffected.size > MAX_IMPACT_DISPLAYED) {
+            lines.push(`  ... and ${allAffected.size - MAX_IMPACT_DISPLAYED} more`);
+        }
+
+        log.info(`Impact: ${allAffected.size} file(s) import edited file(s)`);
+        return lines;
+    } catch (err) {
+        log.warn(`Impact analysis skipped: ${err.message}`);
+        return [];
+    }
+}
+
+// ── Core single-edit applier ──────────────────────────────────────────────────
+
+/**
+ * Apply one edit to one file in-memory.
+ *
+ * Returns the updated file content as a string (caller is responsible for
+ * writing to disk).  This keeps the function pure and easily testable.
+ *
+ * Throws descriptive Errors for:
+ *  - Search string not found (after fuzzy fallback)
+ *  - Ambiguous search string (matches > 1 location)
+ */
+function applyEditInMemory(relativePath, rawOriginal, search, replace) {
+    const normalizedFile    = normalize(rawOriginal);
+    const normalizedSearch  = normalize(search);
+    const normalizedReplace = normalize(replace);
+
+    // ── Find the search string ────────────────────────────────────────────
+    let effectiveSearch = normalizedSearch;
+
+    if (!normalizedFile.includes(normalizedSearch)) {
+        const fuzzyMatch = fuzzyLineMatch(normalizedFile, normalizedSearch);
+        if (fuzzyMatch) {
+            log.info(`str-replace: exact match failed, fuzzy match succeeded for ${relativePath}`);
+            effectiveSearch = fuzzyMatch;
+        } else {
+            throw buildNotFoundError(relativePath, search, normalizedFile, normalizedSearch);
+        }
+    }
+
+    // ── Ambiguity check ───────────────────────────────────────────────────
+    const matchCount = (normalizedFile.match(new RegExp(escapeRegex(effectiveSearch), "g")) || []).length;
+    if (matchCount > 1) {
+        throw new Error(
+            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".\n` +
+            `Make the search string longer/more specific so it matches exactly once.`,
+        );
+    }
+
+    // ── Apply replacement, always write LF-only ───────────────────────────
+    return normalizedFile
+        .replace(effectiveSearch, normalizedReplace)
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n");
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export function projectStrReplace({ project, edits, commitMessage }) {
+    // ── Input validation ──────────────────────────────────────────────────
+    if (!project || typeof project !== "string") {
+        throw new Error("project must be a non-empty string");
+    }
     if (!Array.isArray(edits) || edits.length === 0) {
         throw new Error("edits must be a non-empty array");
     }
+    if (edits.length > MAX_EDITS_PER_CALL) {
+        throw new Error(
+            `Too many edits in one call (${edits.length}). ` +
+            `Maximum is ${MAX_EDITS_PER_CALL}. Split into multiple calls.`,
+        );
+    }
 
+    edits.forEach(validateEdit);
+
+    // ── Project setup ─────────────────────────────────────────────────────
+    const config = getProject(project);
+    const root   = config.root;
+
+    ensureGitIdentity(root);
+
+    // ── Apply all edits (collect results before any disk write) ───────────
+    // We resolve paths and compute updated content for ALL edits before
+    // writing anything.  This way, a bad search string on edit #3 won't
+    // leave the repo in a half-modified state.
+    const pendingWrites = [];
+
+    for (let i = 0; i < edits.length; i++) {
+        const { path: relativePath, search, replace } = edits[i];
+
+        const fullPath   = resolveFilePath(root, relativePath);
+        const rawContent = fs.readFileSync(fullPath, "utf8");
+        const updated    = applyEditInMemory(relativePath, rawContent, search, replace);
+
+        pendingWrites.push({ fullPath, relativePath, updated });
+    }
+
+    // ── All edits validated — now write to disk ───────────────────────────
     const results = [];
-
-    for (const edit of edits) {
-        const { path: relativePath, search, replace } = edit;
-
-        if (!relativePath || typeof search !== "string" || typeof replace !== "string") {
-            throw new Error("Each edit must have path, search, and replace fields");
-        }
-
-        // ── Resolve file path ────────────────────────────────────────────────
-        let fullPath = validatePath(root, relativePath);
-        if (!fs.existsSync(fullPath)) {
-            const searchDirs = ["src/components", "src/app", "src", "app", "components", "addons", "lib", "pkg"];
-            let found = false;
-            for (const dir of searchDirs) {
-                try {
-                    const candidate = validatePath(root, `${dir}/${relativePath}`);
-                    if (fs.existsSync(candidate)) { fullPath = candidate; found = true; break; }
-                } catch { /* invalid — skip */ }
-            }
-            if (!found) {
-                throw new Error(
-                    `File not found: "${relativePath}".
-` +
-                    `Tip: use the relative path from the project root, e.g. "src/utils/auth.js"`
-                );
-            }
-        }
-
-        const rawOriginal = fs.readFileSync(fullPath, "utf8");
-
-        // ── Root cause #1: CRLF + .trim() mismatch ──────────────────────────
-        // Previous code called .trim() on the search string. This stripped
-        // leading/trailing newlines that are part of the actual content,
-        // so the search string never matched even though it was "correct".
-        // Fix: normalize line endings only, never trim.
-        const normalizedFile   = normalize(rawOriginal);
-        const normalizedSearch  = normalize(search);   // NO .trim()
-        const normalizedReplace = normalize(replace);
-
-        // ── Search string not found — try fuzzy fallback before giving up ────
-        let effectiveSearch = normalizedSearch;
-        if (!normalizedFile.includes(normalizedSearch)) {
-            // Attempt fuzzy line-by-line match (recovers from truncation / whitespace drift)
-            const fuzzyMatch = fuzzyLineMatch(normalizedFile, normalizedSearch);
-            if (fuzzyMatch) {
-                log.info(`str-replace: exact match failed, fuzzy match succeeded for ${relativePath}`);
-                effectiveSearch = fuzzyMatch;
-            } else {
-                // Both exact and fuzzy failed — give rich diagnostic for LLM retry
-                const searchLines  = normalizedSearch.split("
-");                      // FIX: was split("")
-                const firstLine    = searchLines[0].trim();
-                const hintIdx      = normalizedFile.indexOf(firstLine);
-                const hint = hintIdx !== -1
-                    ? `
-First line found at char ${hintIdx}: "${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/
-/g, "↵")}"` // FIX: was /n/g
-                    : "No partial match found — the file may have changed since it was read.";
-                throw new Error(
-                    `Search string not found in "${relativePath}".
-` +
-                    `Searched (first 150 chars): "${search.slice(0, 150).replace(/
-/g, "↵")}"` + // FIX: was /
-/g missing escape
-                    hint +
-                    `
-Fix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`
-                );
-            }
-        }
-
-        // Ambiguous match check: effectiveSearch must appear exactly once
-        const escapedSearch = escapeRegex(effectiveSearch);
-        const matchCount    = (normalizedFile.match(new RegExp(escapedSearch, "g")) || []).length;
-        if (matchCount > 1) {
-            throw new Error(
-                `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".
-` +
-                `Make the search string longer/more specific so it matches exactly once.`
-            );
-        }
-
-        // Apply: use effectiveSearch (may be fuzzy-resolved) for the actual replace.
-        // Write with LF-only endings — never re-introduce CRLF on Windows.
-        const updated = normalizedFile.replace(effectiveSearch, normalizedReplace);
-        fs.writeFileSync(fullPath, updated.replace(/\r
-/g, "
-").replace(/\r/g, "
-"), "utf8");
+    for (const { fullPath, relativePath, updated } of pendingWrites) {
+        fs.writeFileSync(fullPath, updated, "utf8");
         log.info(`str-replace: edited ${relativePath}`);
         results.push(`  edited: ${relativePath}`);
     }
 
-    spawnSync("git", ["add", "."], { cwd: root });
-
+    // ── Commit ────────────────────────────────────────────────────────────
     if (!hasChanges(root)) {
-        log.warn(`str-replace: no net changes — files already match target`);
+        log.warn("str-replace: no net changes — files already match target");
         return {
-            content: [{ type: "text", text: `str-replace applied (no net change):
-${results.join("
-")}` }]
+            content: [{
+                type: "text",
+                text: `str-replace applied (no net change):\n${results.join("\n")}`,
+            }],
         };
     }
 
-    const safeMessage = sanitizeCommitMessage(commitMessage || "str-replace edit");
-    const result = spawnSync("git", ["commit", "-m", safeMessage], { cwd: root, encoding: "utf8" });
-    if (result.status !== 0) {
-        throw new Error(`Git commit failed: ${(result.stderr || result.stdout || "").trim()}`);
-    }
+    commitChanges(root, commitMessage);
 
-    // Impact analysis: find all files that import any of the edited files.
-    // Surfaced in the tool result so the agent knows what else may need updating.
-    const impactLines = [];
-    try {
-        const editedFiles = edits.map(e => e.path.replace(/\\/g, "/"));
-        const allAffected = new Set();
-        for (const editedFile of editedFiles) {
-            const dependents = findDependents(project, editedFile, 2);
-            dependents.forEach(f => allAffected.add(f));
-        }
-        // Remove the files we just edited from the affected set
-        editedFiles.forEach(f => allAffected.delete(f));
-        if (allAffected.size > 0) {
-            impactLines.push(`
-Impact analysis — files that import the edited file(s):`);
-            [...allAffected].slice(0, 8).forEach(f => impactLines.push(`  - ${f}`));
-            if (allAffected.size > 8) impactLines.push(`  ... and ${allAffected.size - 8} more`);
-            log.info(`Impact: ${allAffected.size} file(s) import edited file(s)`);
-        }
-    } catch (impactErr) {
-        log.warn(`Impact analysis skipped: ${impactErr.message}`);
-    }
+    // ── Impact analysis ───────────────────────────────────────────────────
+    const editedPaths  = edits.map(e => e.path);
+    const impactLines  = computeImpact(project, editedPaths);
 
     return {
-        content: [{ type: "text", text: `str-replace applied:
-${results.join("
-")}${impactLines.join("
-")}` }]
+        content: [{
+            type: "text",
+            text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}`,
+        }],
     };
 }
 
@@ -12246,7 +12907,7 @@ export async function queryMemory(project, prompt, opts = {}) {
                 if (e.confidence) line += ` [conf: ${e.confidence.toFixed(1)}]`;
                 return line;
             })
-            .join("- ");
+            .join("\n");
 
 
     } catch (err) {
@@ -12546,6 +13207,138 @@ async function _indexProjectImpl(projectRoot, projectName, extraExtensions = [])
         `${indexed} indexed, ${skipped} unchanged (skipped), ${deleted} deleted files purged`
     );
 }
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\tests\astReplace.test.js
+========================================
+/**
+ * tests/astReplace.test.js
+ *
+ * Tests for the AST-aware symbol rename utility.
+ * Uses a real temp directory to test actual file writes.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs   from 'fs';
+import path from 'path';
+import os   from 'os';
+import { renameSymbol, renameSymbolInProject } from '../src/tools/astReplace.js';
+
+let tmpDir;
+
+beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-ast-'));
+});
+
+afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+function write(rel, content) {
+    const full = path.join(tmpDir, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content, 'utf-8');
+}
+
+function read(rel) {
+    return fs.readFileSync(path.join(tmpDir, rel), 'utf-8');
+}
+
+describe('renameSymbol — single file', () => {
+
+    it('renames all whole-word occurrences', () => {
+        write('src/auth.js', 'function userId() {}\nconst x = userId();\n');
+        const r = renameSymbol(tmpDir, 'src/auth.js', 'userId', 'accountId');
+        expect(r.ok).toBe(true);
+        expect(r.replacements).toBe(2);
+        expect(read('src/auth.js')).toContain('accountId');
+        expect(read('src/auth.js')).not.toContain('userId');
+    });
+
+    it('does not rename substrings (word-boundary respected)', () => {
+        write('src/api.js', 'function getUserId() { return userId; }\n');
+        const r = renameSymbol(tmpDir, 'src/api.js', 'userId', 'accountId');
+        expect(r.ok).toBe(true);
+        expect(r.replacements).toBe(1);  // only standalone `userId`, not inside `getUserId`
+        const content = read('src/api.js');
+        expect(content).toContain('getUserId');    // unchanged
+        expect(content).toContain('accountId');    // standalone replaced
+    });
+
+    it('returns 0 replacements when symbol not found', () => {
+        write('src/empty.js', 'const x = 1;\n');
+        const r = renameSymbol(tmpDir, 'src/empty.js', 'userId', 'accountId');
+        expect(r.ok).toBe(true);
+        expect(r.replacements).toBe(0);
+    });
+
+    it('dry-run does not write the file', () => {
+        const original = 'const userId = 1;\n';
+        write('src/dry.js', original);
+        const r = renameSymbol(tmpDir, 'src/dry.js', 'userId', 'accountId', { dryRun: true });
+        expect(r.ok).toBe(true);
+        expect(r.replacements).toBe(1);
+        expect(read('src/dry.js')).toBe(original);  // file unchanged
+    });
+
+    it('backup creates a .bak file', () => {
+        write('src/bak.js', 'const userId = 1;\n');
+        renameSymbol(tmpDir, 'src/bak.js', 'userId', 'accountId', { backup: true });
+        expect(fs.existsSync(path.join(tmpDir, 'src/bak.js.bak'))).toBe(true);
+    });
+
+    it('rejects invalid identifier names', () => {
+        write('src/x.js', 'const a = 1;\n');
+        const r1 = renameSymbol(tmpDir, 'src/x.js', 'not-valid', 'b');
+        expect(r1.ok).toBe(false);
+        const r2 = renameSymbol(tmpDir, 'src/x.js', 'a', '123bad');
+        expect(r2.ok).toBe(false);
+    });
+
+    it('returns error for non-existent file', () => {
+        const r = renameSymbol(tmpDir, 'src/ghost.js', 'foo', 'bar');
+        expect(r.ok).toBe(false);
+        expect(r.error).toMatch(/Cannot read/);
+    });
+
+    it('builds a mini diff preview', () => {
+        write('src/preview.js', 'const userId = getUserId();\nconst id = userId + 1;\n');
+        const r = renameSymbol(tmpDir, 'src/preview.js', 'userId', 'accountId');
+        expect(r.preview).toContain('- ');
+        expect(r.preview).toContain('+ ');
+    });
+});
+
+describe('renameSymbolInProject — whole project', () => {
+
+    it('renames across multiple files', () => {
+        write('src/a.js', 'const userId = 1;\n');
+        write('src/b.js', 'export function getUser(userId) { return userId; }\n');
+        write('src/c.js', 'import { getUser } from \'./b.js\';\n');  // no userId here
+        const r = renameSymbolInProject(tmpDir, 'userId', 'accountId', ['.js']);
+        expect(r.ok).toBe(true);
+        expect(r.files).toHaveLength(2);  // a.js and b.js
+        expect(r.totalReplacements).toBe(3);  // 1 in a.js, 2 in b.js
+        expect(read('src/a.js')).toContain('accountId');
+        expect(read('src/b.js')).toContain('accountId');
+        expect(read('src/c.js')).not.toContain('accountId');
+    });
+
+    it('dry-run leaves all files unchanged', () => {
+        write('src/x.js', 'const foo = 1; const bar = foo;\n');
+        const original = read('src/x.js');
+        renameSymbolInProject(tmpDir, 'foo', 'baz', ['.js'], true);
+        expect(read('src/x.js')).toBe(original);
+    });
+
+    it('returns 0 files when symbol is absent', () => {
+        write('src/nothing.js', 'const a = 1;\n');
+        const r = renameSymbolInProject(tmpDir, 'ghost', 'replacement', ['.js']);
+        expect(r.totalReplacements).toBe(0);
+        expect(r.files).toHaveLength(0);
+    });
+});
 
 
 ========================================
@@ -13360,9 +14153,9 @@ describe("issuesAsSteps", () => {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\vscode-extension\extension.js
 ========================================
-// AI Dev MCP — VS Code Extension v1.5.0
+// AI Dev MCP — VS Code Extension v1.6.0
+// v1.6.0: cross-platform zip (Windows/macOS/Linux), improved chat webview, better error messages
 // v1.5.0: workspace sync — push local folder to remote server, run job, pull changes back
-//         so remote users can use a shared server without running their own instance
 
 "use strict";
 const vscode = require("vscode");
@@ -13501,9 +14294,10 @@ class MCPClient {
     }
 }
 
-// ─── Zip helpers (Node built-ins only, no extra deps) ────────────────────────
-// We use the system `powershell Compress-Archive` on Windows to create zips
-// and `Expand-Archive` to extract them. This avoids any npm dependency.
+// ─── Zip helpers — cross-platform (Windows / macOS / Linux) ──────────────────
+// Windows → PowerShell Compress-Archive / Expand-Archive (built-in)
+// macOS   → zip / unzip  (pre-installed)
+// Linux   → zip / unzip  (install with: sudo apt install zip unzip)
 const cp   = require("child_process");
 const fs   = require("fs");
 const os   = require("os");
@@ -13511,22 +14305,54 @@ const path = require("path");
 
 function zipFolder(srcDir, destZip) {
     return new Promise((resolve, reject) => {
-        const ps = cp.spawn("powershell", [
-            "-NoProfile", "-Command",
-            `Compress-Archive -Force -Path '${srcDir}\\*' -DestinationPath '${destZip}'`
-        ]);
-        ps.on("close", code => code === 0 ? resolve() : reject(new Error(`zip exit ${code}`)));
+        let proc;
+        if (process.platform === "win32") {
+            const src  = srcDir.replace(/'/g, "''");
+            const dest = destZip.replace(/'/g, "''");
+            proc = cp.spawn("powershell", [
+                "-NoProfile", "-NonInteractive", "-Command",
+                `Compress-Archive -Force -Path '${src}\\*' -DestinationPath '${dest}'`
+            ]);
+        } else {
+            // macOS / Linux: zip -r <dest> . from inside the folder
+            proc = cp.spawn("zip", ["-r", "-q", destZip, "."], { cwd: srcDir });
+        }
+        let stderr = "";
+        proc.stderr?.on("data", d => { stderr += d.toString(); });
+        proc.on("close", code => {
+            if (code === 0) resolve();
+            else reject(new Error(`zip failed (exit ${code})${stderr ? ": " + stderr.slice(0, 200) : ""}`));
+        });
+        proc.on("error", err =>
+            reject(new Error(`zip not found: ${err.message} — on Linux run: sudo apt install zip unzip`))
+        );
     });
 }
 
 function unzipTo(zipPath, destDir) {
     return new Promise((resolve, reject) => {
         fs.mkdirSync(destDir, { recursive: true });
-        const ps = cp.spawn("powershell", [
-            "-NoProfile", "-Command",
-            `Expand-Archive -Force -Path '${zipPath}' -DestinationPath '${destDir}'`
-        ]);
-        ps.on("close", code => code === 0 ? resolve() : reject(new Error(`unzip exit ${code}`)));
+        let proc;
+        if (process.platform === "win32") {
+            const src  = zipPath.replace(/'/g, "''");
+            const dest = destDir.replace(/'/g, "''");
+            proc = cp.spawn("powershell", [
+                "-NoProfile", "-NonInteractive", "-Command",
+                `Expand-Archive -Force -Path '${src}' -DestinationPath '${dest}'`
+            ]);
+        } else {
+            // macOS / Linux: unzip -o -q <zip> -d <dest>
+            proc = cp.spawn("unzip", ["-o", "-q", zipPath, "-d", destDir]);
+        }
+        let stderr = "";
+        proc.stderr?.on("data", d => { stderr += d.toString(); });
+        proc.on("close", code => {
+            if (code === 0) resolve();
+            else reject(new Error(`unzip failed (exit ${code})${stderr ? ": " + stderr.slice(0, 200) : ""}`));
+        });
+        proc.on("error", err =>
+            reject(new Error(`unzip not found: ${err.message} — on Linux run: sudo apt install zip unzip`))
+        );
     });
 }
 
@@ -14382,8 +15208,8 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\vscode-extension\package.json
 {
   "name": "aidev-mcp",
   "displayName": "AI Dev MCP",
-  "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access.",
-  "version": "1.5.0",
+  "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access. Works on Windows, macOS and Linux.",
+  "version": "1.6.0",
   "publisher": "kush-patel",
   "license": "MIT",
   "icon": "icon.png",

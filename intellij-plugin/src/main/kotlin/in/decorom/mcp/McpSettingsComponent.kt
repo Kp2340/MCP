@@ -33,16 +33,15 @@ class McpSettingsComponent : Configurable {
             panel.add(field, gbc)
         }
 
-        row("Server URL:",      baseUrlField,     0)
-        row("API Key:",         apiKeyField,      1)
-        row("Default project:", defaultProjField, 2)
+        row("Server URL:", baseUrlField, 0)
+        row("API Key:",    apiKeyField,  1)
 
         // help hint
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE
         panel.add(JLabel("<html><small>Leave API Key blank if your server has no auth configured.</small></html>"), gbc)
 
         // filler row to push everything to the top
-        gbc.gridy = 4; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.VERTICAL
+        gbc.gridy = 3; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.VERTICAL
         panel.add(JPanel(), gbc)
 
         mainPanel = panel
@@ -52,23 +51,20 @@ class McpSettingsComponent : Configurable {
 
     override fun isModified(): Boolean {
         val s = McpSettings.instance
-        return baseUrlField.text.trim()              != s.baseUrl ||
-               String(apiKeyField.password).trim()   != s.apiKey  ||
-               defaultProjField.text.trim()          != s.defaultProject
+        return baseUrlField.text.trim()            != s.baseUrl ||
+               String(apiKeyField.password).trim() != s.apiKey
     }
 
     override fun apply() {
         val s = McpSettings.instance
-        s.baseUrl        = baseUrlField.text.trim()
-        s.apiKey         = String(apiKeyField.password).trim()
-        s.defaultProject = defaultProjField.text.trim()
+        s.baseUrl = baseUrlField.text.trim()
+        s.apiKey  = String(apiKeyField.password).trim()
     }
 
     override fun reset() {
         val s = McpSettings.instance
-        baseUrlField.text     = s.baseUrl
-        apiKeyField.text      = s.apiKey
-        defaultProjField.text = s.defaultProject
+        baseUrlField.text = s.baseUrl
+        apiKeyField.text  = s.apiKey
     }
 
     override fun disposeUIResources() { mainPanel = null }

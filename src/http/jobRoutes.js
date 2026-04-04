@@ -3,8 +3,22 @@
  *
  * REST endpoints for the agent job queue.
  *
- * Security: project name is NEVER accepted from the caller.
- * The project is always derived from the workspace path sent by the IDE extension.
+ * ── Project resolution (workspace-first model) ─────────────────────────────
+ *
+ * Clients may send ONE of:
+ *
+ *   A) { prompt, project: "myapp" }
+ *      → look up pre-registered project by name (projects.json or prior
+ *        server-side project_register call).
+ *      → classic server-admin workflow; most secure.
+ *
+ *   B) { prompt, workspacePath: "/remote/data/workspaces/alice/myapp" }
+ *      → path MUST sit inside an ALLOWED_ROOTS prefix (config.ALLOWED_ROOTS).
+ *      → server auto-registers the project dynamically.
+ *      → used by Workspace Sync flow after POST /workspace/push.
+ *
+ * The client NEVER controls arbitrary filesystem paths; any workspacePath
+ * outside ALLOWED_ROOTS is rejected with 403.
  *
  * Endpoints:
  *   POST /run          Submit a task
@@ -12,127 +26,130 @@
  *   GET  /stream/:id   Live SSE progress
  *   GET  /jobs         List all jobs
  *   GET  /queue        Queue status
- *   GET  /diff/:id     Git diff of changes made by a completed job (for review panel)
- *   POST /revert/:id   Undo agent changes (safe git revert by default, ?hard=true for reset)
+ *   GET  /diff/:id     Git diff of changes made by a completed job
+ *   POST /revert/:id   Undo agent changes
  */
 
-import path        from "path";
+import path from "path";
+import fs            from "fs";
 import { spawnSync } from "child_process";
 import { enqueue, getJob, listJobs, getQueueStatus,
          subscribeToJob, unsubscribeFromJob, emitJobStep, cancelJob } from "./queue.js";
-import { createLogger }                from "../core/logger.js";
-import { runAgent }                    from "../agent/agentRunner.js";
-import { registerDynamicProject, saveProject,
-         listProjects, getProject, listDynamicProjects } from "../core/projectRegistry.js";
-import { createCheckpoint }           from "../git/checkpoint.js";
+import { createLogger }                    from "../core/logger.js";
+import { config }                          from "../core/config.js";
+import { runAgent }                        from "../agent/agentRunner.js";
+import { registerDynamicProject, listProjects, getProject } from "../core/projectRegistry.js";
+import { createCheckpoint }               from "../git/checkpoint.js";
 
 const log = createLogger("job-routes");
 
-/**
- * Wraps an async route handler so any rejected promise is forwarded to
- * Express's next(err) — caught by the global error handler in startHttpServer.
- * Without this wrapper, async throws in route handlers crash silently.
- */
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// ── security: validate workspacePath against ALLOWED_ROOTS ────────────────────
+function validateWorkspacePath(wsPath) {
+    if (!wsPath || typeof wsPath !== "string") return null;
+    const normalised = path.resolve(wsPath.trim());
+
+    // If ALLOWED_ROOTS is not configured, block all dynamic path requests.
+    // The admin must explicitly opt-in via ALLOWED_ROOTS in .env.
+    const roots = config.ALLOWED_ROOTS;
+    if (roots.length === 0) {
+        return { error: "Dynamic workspace paths are disabled. Set ALLOWED_ROOTS in .env or use a pre-registered project name." };
+    }
+
+    const allowed = roots.some(root => normalised.startsWith(root + path.sep) || normalised === root);
+    if (!allowed) {
+        return { error: `Path "${normalised}" is outside all allowed roots. Allowed: ${roots.join(", ")}` };
+    }
+    if (!fs.existsSync(normalised)) {
+        return { error: `Workspace path does not exist on this server: "${normalised}"` };
+    }
+    return { path: normalised };
+}
 
 export function attachJobRoutes(app) {
 
     // ── POST /run ──────────────────────────────────────────────────────────────
-    //
-    // SECURITY: Only pre-registered project names (from projects.json or
-    // server-side project_register) are accepted. Arbitrary filesystem paths
-    // from clients are NEVER trusted — doing so would allow any API-key holder
-    // to point the agent at any directory on this machine.
-    //
-    // Clients send: { prompt: "...", project: "jsv" }   ← project name only
-    // Legacy field:  { prompt: "...", path: "/abs/path" } ← still accepted but
-    //                the basename is used ONLY to look up a pre-registered project;
-    //                the path itself is NEVER used as a filesystem root.
     app.post("/run", asyncRoute(async (req, res) => {
-        const {prompt, project: projectParam, path: legacyPath} = req.body || {};
+        const { prompt, project: projectParam, workspacePath } = req.body || {};
 
         if (!prompt || typeof prompt !== "string") {
-            return res.status(400).json({error: "prompt (string) is required"});
+            return res.status(400).json({ error: "prompt (string) is required" });
         }
 
-        // Resolve the project name from the request.
-        // Accept either `project` (preferred) or derive from basename of `path` (legacy).
         let project;
+        let resolvedRoot;
+
+        // ── Mode A: pre-registered project name ───────────────────────────────
         if (projectParam && typeof projectParam === "string") {
             project = projectParam.trim().toLowerCase().replace(/[^a-zA-Z0-9-_]/g, "-");
-        } else if (legacyPath && typeof legacyPath === "string") {
-            // Legacy: IDE sent an absolute path. Use basename as the lookup key ONLY.
-            project = path.basename(legacyPath.trim())
+
+            if (!listProjects().includes(project)) {
+                log.warn(`Unknown project "${project}" from ${req.ip} (user: ${req.user})`);
+                const body = { error: `Project "${project}" is not registered on this server.`,
+                               hint: "Ask the server admin to add it to projects.json, or push your workspace via POST /workspace/push." };
+                if (config.EXPOSE_PROJECT_LIST) body.knownProjects = listProjects();
+                return res.status(403).json(body);
+            }
+            resolvedRoot = getProject(project).root;
+
+        // ── Mode B: workspace path (from Workspace Sync) ───────────────────────
+        } else if (workspacePath) {
+            const validated = validateWorkspacePath(workspacePath);
+            if (validated.error) {
+                log.warn(`Rejected workspace path from ${req.ip}: ${validated.error}`);
+                return res.status(403).json({ error: validated.error });
+            }
+            resolvedRoot = validated.path;
+
+            // Derive a safe project name from the last path segment
+            project = path.basename(resolvedRoot)
                 .replace(/[^a-zA-Z0-9-_]/g, "-")
                 .toLowerCase();
+
+            // Auto-register if not already known
+            if (!listProjects().includes(project)) {
+                registerDynamicProject(project, resolvedRoot);
+                log.info(`Auto-registered dynamic project "${project}" → ${resolvedRoot}`);
+            }
+
         } else {
             return res.status(400).json({
-                error: "project (string) is required — send the registered project name, e.g. \"jsv\""
+                error: "Provide either 'project' (registered name) or 'workspacePath' (path inside ALLOWED_ROOTS)."
             });
         }
 
-        if (!project || project.length < 1) {
-            return res.status(400).json({error: "Cannot resolve project name"});
-        }
-
-        // ── SECURITY GATE ────────────────────────────────────────────────────
-        // Project MUST be pre-registered on the server (projects.json or
-        // explicit server-side project_register call).
-        // We never auto-register from a client-supplied path.
-        if (!listProjects().includes(project)) {
-            log.warn(`Rejected unknown project "${project}" from ${req.ip} (user: ${req.user})`);
-
-            // Give a helpful specific error: if the caller sent a path and that path
-            // doesn't exist on this machine, explain the remote-machine problem clearly.
-            let hint = "Ask the server admin to add it to projects.json.";
-            if (legacyPath && typeof legacyPath === "string") {
-                const { default: fs } = await import("fs");
-                const { default: nodePath } = await import("path");
-                const absPath = nodePath.resolve(legacyPath.trim());
-                if (!fs.existsSync(absPath)) {
-                    hint = `The path "${legacyPath}" does not exist on this server machine. ` +
-                        `This server runs on a different computer — you cannot use your local path here. ` +
-                        `Ask the server admin to clone/copy your project to the server and add it to projects.json.`;
-                }
-            }
-
-            const { config } = await import("../core/config.js");
-            const body = { error: `Project "${project}" is not registered on this server.`, hint };
-            if (config.EXPOSE_PROJECT_LIST) body.knownProjects = listProjects();
-            return res.status(403).json(body);
-        }
-
+        // ── enqueue ───────────────────────────────────────────────────────────
         const runner = async (job) => {
-            log.info(`Running agent | job=${job.id} | project=${project}`);
+            log.info(`Running agent | job=${job.id} | project=${project} | root=${resolvedRoot}`);
             const emit = (step, detail) => emitJobStep(job.id, step, detail);
 
-            // Create a git stash checkpoint before the agent touches any files.
-            // This gives users a guaranteed rollback point beyond the last commit.
             try {
                 const proj = getProject(project);
-                const cp = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
-                if (cp.stashed) log.info(`Checkpoint stash created: ${cp.ref} for job ${job.id}`);
+                const cp   = createCheckpoint(proj.root, `ai-dev-mcp job ${job.id}`);
+                if (cp.stashed) log.info(`Checkpoint stash: ${cp.ref} for job ${job.id}`);
             } catch (cpErr) {
                 log.warn(`Checkpoint failed (non-fatal): ${cpErr.message}`);
             }
 
             await runAgent(`${prompt} project: ${project}`, emit);
-            return `Agent completed task for project: ${project}`;
+            return `Agent completed for project: ${project}`;
         };
 
-        const job = enqueue(prompt, project, runner);
+        const job    = enqueue(prompt, project, runner);
         const status = getQueueStatus();
         log.info(`Enqueued job ${job.id} | project=${project} | queue_depth=${status.pending + (status.running ? 1 : 0)}`);
 
         res.status(202).json({
-            id: job.id,
-            status: job.status,
+            id:         job.id,
+            status:     job.status,
             project,
-            position: status.pending,
-            createdAt: job.createdAt,
-            streamUrl: `/stream/${job.id}`,
-            statusUrl: `/status/${job.id}`,
-            diffUrl: `/diff/${job.id}`
+            resolvedRoot,
+            position:   status.pending,
+            createdAt:  job.createdAt,
+            streamUrl:  `/stream/${job.id}`,
+            statusUrl:  `/status/${job.id}`,
+            diffUrl:    `/diff/${job.id}`
         });
     }));
 

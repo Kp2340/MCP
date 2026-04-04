@@ -2,7 +2,7 @@
   <id>in.decorom.mcp</id>
   <name>AI Dev MCP</name>
   <vendor url="https://github.com/Kp2340/MCP">kush-patel</vendor>
-  <version>1.3.0</version>
+  <version>1.5.0</version>
 
   <description><![CDATA[
     <p>Connect IntelliJ IDEA to your self-hosted AI coding agent.</p>
@@ -10,11 +10,12 @@
     <h3>Features</h3>
     <ul>
       <li>Sidebar panel — submit prompts, watch live SSE streaming output</li>
-      <li>Auto-detects project name from open project folder</li>
-      <li>Injects selected code as context automatically</li>
+      <li><b>Auto-detects project name</b> from open IntelliJ project — zero config</li>
+      <li>Injects selected code + file path as context automatically</li>
+      <li><b>Inline editor actions</b> — right-click any code: Fix, Explain, Refactor, Write Tests</li>
       <li><b>Workspace Sync</b> — zip &amp; push local project to remote server, run agent, pull changes back</li>
+      <li>Colour-coded diff viewer with Accept / Revert controls</li>
       <li>All zip/unzip done with pure Kotlin (no external tools needed)</li>
-      <li>Commits all changes in a single git commit</li>
       <li>Keyboard shortcut: <b>Ctrl+Shift+M</b></li>
     </ul>
     <h3>Requirements</h3>
@@ -23,6 +24,18 @@
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>1.5.0</h3>
+    <ul>
+      <li><b>Inline editor actions</b> — right-click any code: Fix with MCP, Explain, Refactor, Write Tests</li>
+      <li>Actions available in <b>Tools → AI Dev MCP</b> menu with keyboard shortcuts (Ctrl+Shift+F10/F11/F12)</li>
+      <li>Zero-config UX — project always auto-detected, no name field anywhere</li>
+      <li>Real Workspace Sync — zip → upload → run → pull with IntelliJ progress dialog</li>
+      <li>Colour-coded diff rendered in JTextPane (green/red/blue)</li>
+    </ul>
+    <h3>1.4.0</h3>
+    <ul>
+      <li>Removed <b>Project name</b> field from Settings and sidebar — project is always auto-detected from the open project</li>
+    </ul>
     <h3>1.3.0</h3>
     <ul>
       <li>Added <b>Workspace Sync</b> button — zip local folder, push to server, run agent, pull changes back</li>
@@ -68,5 +81,43 @@
             description="Send a prompt to your AI Dev MCP server">
       <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift M"/>
     </action>
+
+    <!-- Inline editor action group — appears in right-click context menu + Tools menu -->
+    <group id="McpEditorGroup"
+           text="AI Dev MCP"
+           description="AI Dev MCP inline code actions"
+           popup="true">
+
+      <action id="McpFixAction"
+              class="in.decorom.mcp.McpFixAction"
+              text="Fix with MCP"
+              description="Send selected code to MCP agent for bug fixing">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F10"/>
+      </action>
+
+      <action id="McpExplainAction"
+              class="in.decorom.mcp.McpExplainAction"
+              text="Explain with MCP"
+              description="Ask MCP agent to explain the selected code">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F11"/>
+      </action>
+
+      <action id="McpRefactorAction"
+              class="in.decorom.mcp.McpRefactorAction"
+              text="Refactor with MCP"
+              description="Ask MCP agent to refactor selected code">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
+      </action>
+
+      <action id="McpWriteTestsAction"
+              class="in.decorom.mcp.McpWriteTestsAction"
+              text="Write Tests with MCP"
+              description="Ask MCP agent to generate unit tests for selected code"/>
+
+      <!-- Add sub-group to editor right-click popup -->
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <!-- Also add to Tools menu -->
+      <add-to-group group-id="ToolsMenu"       anchor="last"/>
+    </group>
   </actions>
 </idea-plugin>

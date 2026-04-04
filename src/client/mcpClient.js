@@ -206,15 +206,12 @@ export class MCPClient {
 
     /** @private */
     _parseSSEBuffer(buffer, onMessage) {
-        const parts = buffer.split("
-
-");
+        const parts = buffer.split("\n\n");
         // Last part may be incomplete — keep it
         const incomplete = parts.pop();
 
         for (const block of parts) {
-            const lines = block.split("
-");
+            const lines = block.split("\n");
             let event = "message";
             let data  = null;
 

@@ -14,9 +14,8 @@ import com.intellij.openapi.components.Storage
 class McpSettings : PersistentStateComponent<McpSettings.State> {
 
     data class State(
-        var baseUrl: String        = "https://ai.decorom.in",
-        var apiKey: String         = "",
-        var defaultProject: String = ""
+        var baseUrl: String = "https://ai.decorom.in",
+        var apiKey: String  = ""
     )
 
     private var myState = State()
@@ -31,10 +30,6 @@ class McpSettings : PersistentStateComponent<McpSettings.State> {
     var apiKey: String
         get() = myState.apiKey
         set(v) { myState.apiKey = v }
-
-    var defaultProject: String
-        get() = myState.defaultProject
-        set(v) { myState.defaultProject = v }
 
     companion object {
         val instance: McpSettings

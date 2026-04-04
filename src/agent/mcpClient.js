@@ -33,8 +33,7 @@ import { storeMemory, queryMemory } from "../vector/memory.js";
 import { createLogger } from "../core/logger.js";
 
 const log = createLogger("mcp-client");
-const NL  = "
-";
+const NL  = "\n";
 
 // Ensure result always has { content: [{ type, text }] } shape
 function wrap(result) {

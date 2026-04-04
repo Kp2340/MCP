@@ -1,4 +1,4 @@
-# IntelliJ Plugin — Architecture Guide
+# IntelliJ Plugin — Architecture Guide (v1.4.0)
 
 ## Overview
 
@@ -375,7 +375,12 @@ class McpToolWindow(private val project: Project) {
         }
 
         return if (!selectedText.isNullOrBlank() && filePath != null) {
-            "[File: $filePath]\n```\n$selectedText\n```\n\n$prompt"
+            "[File: $filePath]
+```
+$selectedText
+```
+
+$prompt"
         } else {
             prompt
         }
@@ -383,7 +388,8 @@ class McpToolWindow(private val project: Project) {
 
     private fun log(msg: String) {
         SwingUtilities.invokeLater {
-            logArea.append("$msg\n")
+            logArea.append("$msg
+")
             logArea.caretPosition = logArea.document.length
         }
     }
