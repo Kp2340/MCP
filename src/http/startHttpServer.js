@@ -4,12 +4,12 @@
  * Centralised HTTP server startup extracted from index.js.
  *
  * Adds vs old inline code:
- *   - express.json({ limit: '10mb' }) — prevents OOM from oversized payloads
+ *   - express.json({ limit: '10mb' }) - prevents OOM from oversized payloads
  *   - express.urlencoded limit (10 MB)
- *   - Global synchronous error handler — catches thrown errors in route handlers
+ *   - Global error handler - catches sync throws AND async errors forwarded via next(err)
  *   - Graceful SIGTERM / SIGINT shutdown:
- *       1. drainQueue() — mark pending jobs failed, close all SSE clients
- *       2. httpServer.close() — stop accepting new connections
+ *       1. drainQueue() - mark pending jobs failed, close all SSE clients
+ *       2. httpServer.close() - stop accepting new connections
  *       3. process.exit(0); force-exit after 15 s if blocked
  *
  * HOW TO WIRE IN index.js: call startHttpServer(mcpServer) after MCP server init.
@@ -17,17 +17,17 @@
 
 import http    from 'http';
 import express from 'express';
-import { corsMiddleware }     from './cors.js';
+import { corsMiddleware }          from './cors.js';
 import { authMiddleware, ipAllowlistMiddleware, rateLimitMiddleware } from './auth.js';
-import { attachMcpRoutes }    from './mcpRouter.js';
-import { attachJobRoutes }    from './jobRoutes.js';
-import { attachHealthRoutes } from './healthRoutes.js';
-import { attachUiRoutes }       from './uiRoutes.js';
-import { attachWorkspaceRoutes } from './workspaceRoutes.js';
-import { runStartupChecks }   from './startupChecks.js';
-import { drainQueue }         from './queue.js';
-import { config }             from '../core/config.js';
-import { createLogger }       from '../core/logger.js';
+import { attachMcpRoutes }         from './mcpRouter.js';
+import { attachJobRoutes }         from './jobRoutes.js';
+import { attachHealthRoutes }      from './healthRoutes.js';
+import { attachUiRoutes }          from './uiRoutes.js';
+import { attachWorkspaceRoutes }   from './workspaceRoutes.js';
+import { runStartupChecks }        from './startupChecks.js';
+import { drainQueue }              from './queue.js';
+import { config }                  from '../core/config.js';
+import { createLogger }            from '../core/logger.js';
 
 const log = createLogger('http');
 
@@ -40,21 +40,20 @@ const log = createLogger('http');
 export function startHttpServer(mcpServer) {
     const app = express();
 
-    // ── Body size limit ───────────────────────────────────────────────────────
-    // 10 MB cap — generous enough for large file payloads, bounded against abuse.
+    // Body size limit - 10 MB cap, generous enough for large file payloads.
     app.use(express.json({ limit: '10mb' }));
     app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-    // ── Cross-cutting middleware ───────────────────────────────────────────────
+    // Cross-cutting middleware
     app.use(corsMiddleware);
     app.use(ipAllowlistMiddleware);
     app.use(authMiddleware);
 
-    // ── Routes ────────────────────────────────────────────────────────────────
+    // Routes
     attachHealthRoutes(app);          // GET /health  (public, no auth)
     attachMcpRoutes(app, mcpServer);  // POST /mcp  GET /sse  POST /message
 
-    // Rate-limit only /run — it triggers expensive agent + LLM runs
+    // Rate-limit only /run - it triggers expensive agent + LLM runs
     app.use('/run', rateLimitMiddleware);
 
     attachJobRoutes(app);        // POST /run  GET /status /stream /diff /jobs /queue
@@ -62,12 +61,14 @@ export function startHttpServer(mcpServer) {
     attachWorkspaceRoutes(app);  // POST /workspace/push  GET /workspace/pull/:p  DELETE /workspace/:p
     attachUiRoutes(app);         // GET /ui
 
-    // ── 404 fallback ─────────────────────────────────────────────────────────
+    // 404 fallback
     app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
-    // ── Global synchronous error handler ─────────────────────────────────────
+    // Global error handler (sync + async)
     // Catches errors thrown synchronously inside route handlers.
-    // Async route errors must still be caught inside each route (Express 4 limit).
+    // Async errors are forwarded here via the asyncRoute() wrapper in jobRoutes.js
+    // which calls next(err) - so this handler covers both cases.
+    // Any async route NOT wrapped with asyncRoute() must catch its own errors.
     // eslint-disable-next-line no-unused-vars
     app.use((err, _req, res, _next) => {
         log.error('Unhandled route error:', err.message);
@@ -76,7 +77,7 @@ export function startHttpServer(mcpServer) {
         }
     });
 
-    // ── HTTP server ───────────────────────────────────────────────────────────
+    // HTTP server
     const httpServer = http.createServer(app);
 
     httpServer.listen(config.PORT, () => {
@@ -91,23 +92,23 @@ export function startHttpServer(mcpServer) {
         log.info(`  Projects:  http://localhost:${config.PORT}/api/projects`);
     });
 
-    // ── Graceful shutdown ─────────────────────────────────────────────────────
-    // SIGTERM — Docker stop, systemd stop, process managers
-    // SIGINT  — Ctrl+C in terminal
+    // Graceful shutdown
+    // SIGTERM - Docker stop, systemd stop, process managers
+    // SIGINT  - Ctrl+C in terminal
     //
     // Sequence:
-    //   1. drainQueue() — mark pending jobs failed, close all SSE streams
-    //   2. httpServer.close() — stop accepting connections, wait for active ones
+    //   1. drainQueue() - mark pending jobs failed, close all SSE streams
+    //   2. httpServer.close() - stop accepting connections, wait for active ones
     //   3. process.exit(0) on clean close
     //   4. Force-exit after 15 s if something is blocking
     //
-    // Running jobs are NOT killed — they finish or hit JOB_TIMEOUT_MS.
+    // Running jobs are NOT killed - they finish or hit JOB_TIMEOUT_MS.
     let shuttingDown = false;
 
     function shutdown(signal) {
         if (shuttingDown) return;
         shuttingDown = true;
-        log.info(`${signal} received — graceful shutdown starting...`);
+        log.info(`${signal} received - graceful shutdown starting...`);
 
         drainQueue();
 
@@ -118,7 +119,7 @@ export function startHttpServer(mcpServer) {
         });
 
         setTimeout(() => {
-            log.warn('Shutdown timed out after 15 s — forcing exit');
+            log.warn('Shutdown timed out after 15 s - forcing exit');
             process.exit(1);
         }, 15_000).unref();
     }

@@ -136,9 +136,9 @@ Final result:", result);
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleInspect() {
-    console.log("
+    console.log(`
 ── Example 3: Inspect queue + jobs ──────────────────
-");
+`);
 
     const queue = await client.getQueue();
     console.log("Queue:", queue);
@@ -316,52 +316,11 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\patch-agent.js
 ========================================
-// patch-agent.js has been deleted.
-// stepCapGuard() is now permanently embedded in src/agent/agent.js source.
-// See: while (remainingSteps.length > 0) { if (stepCapGuard()) break; ... }
-// This file is intentionally left as a tombstone to prevent accidental re-creation.
-// Safe to delete this file entirely.
-
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const agentPath = path.join(__dirname, "src", "agent", "agent.js");
-
-let src = fs.readFileSync(agentPath, "utf8");
-
-// Already patched?
-if (src.includes("stepCapGuard()") && src.includes("HARD STEP CAP")) {
-    // Check the guard is actually *inside* the while loop (not just defined)
-    const whileIdx = src.indexOf("while (remainingSteps.length > 0)");
-    const guardIdx = src.indexOf("if (stepCapGuard()) break;");
-    if (whileIdx !== -1 && guardIdx !== -1 && guardIdx > whileIdx && guardIdx < whileIdx + 200) {
-        console.log("[patch-agent] Already patched — no changes needed.");
-        process.exit(0);
-    }
-}
-
-// Target: the opening of the while loop — inject guard as FIRST statement
-const WHILE_OPEN = "while (remainingSteps.length > 0) {";
-const GUARD_BLOCK =
-    "while (remainingSteps.length > 0) {
-" +
-    "        // ── HARD STEP CAP ── Must be first check — no bypass, no exception
-" +
-    "        if (stepCapGuard()) break;
-";
-
-if (!src.includes(WHILE_OPEN)) {
-    console.error("[patch-agent] ERROR: Could not find while loop anchor. Pattern not found:");
-    console.error(`  '${WHILE_OPEN}'`);
-    process.exit(1);
-}
-
-src = src.replace(WHILE_OPEN, GUARD_BLOCK);
-fs.writeFileSync(agentPath, src, "utf8");
-console.log("[patch-agent] ✅ stepCapGuard() injected into while loop in src/agent/agent.js");
-console.log("[patch-agent] You can now delete this script: del patch-agent.js");
+// patch-agent.js — TOMBSTONE. Do not run, do not restore.
+//
+// stepCapGuard() is permanently embedded in src/agent/agent.js.
+// This file exists only to prevent accidental re-creation by tooling.
+// All executable code has been removed.
 
 
 ========================================
@@ -1662,7 +1621,7 @@ Teammates install via:
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\index.js
 ========================================
 /**
- * src/index.js — AI Dev MCP Server v5.3.0
+ * src/index.js — AI Dev MCP Server v5.4.0
  *
  * ONE command starts everything: node src/index.js
  *
@@ -3405,8 +3364,11 @@ function routeByRule(step, project) {
     const renameMatch = s.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i)
         || step.match(/\brename\b.*\b(\w+)\b.*\bto\b.*\b(\w+)\b/i);
     if (renameMatch && renameMatch[1] && renameMatch[2]) {
-        return JSON.stringify({ tool: "project_rename_symbol",
-            args: { project, path: "", oldName: renameMatch[1], newName: renameMatch[2] } });
+        // Do NOT pass path: "" — the tool requires a valid file path or it fails silently.
+        // Route single-file renames through project_rename_symbol_all so the agent
+        // can find the right file via find_symbol first, or let the LLM supply the path.
+        return JSON.stringify({ tool: "project_rename_symbol_all",
+            args: { project, oldName: renameMatch[1], newName: renameMatch[2] } });
     }
 
     return null;
@@ -11275,33 +11237,74 @@ const SEARCH_DIRS = [
     "components", "addons", "lib", "pkg",
 ];
 
+// ── Snapshot / system-file guard ─────────────────────────────────────────────
+// These files must never be edited by the agent:
+//   combined_code.txt        — generated snapshot, overwritten on every export
+//   .ai-dev-index-cache.json — semantic index cache, regenerated automatically
+//   .index_manifest_*        — index manifests, same reason
+//   export-project.ps1       — tooling script, not application source
+//   patch-agent.js           — one-shot migration tombstone, must not be re-run
+const BLOCKED_FILES = [
+    "combined_code.txt",
+    ".ai-dev-index-cache.json",
+    "export-project.ps1",
+    "patch-agent.js",
+];
+// Prefix match covers .index_manifest_jsv.json, .index_manifest_abc.json, etc.
+const BLOCKED_PREFIXES = [".index_manifest"];
+
+/**
+ * Throw if the edit targets a system/generated file or escapes the project root.
+ * Called before any filesystem I/O.
+ */
+function assertEditAllowed(root, relativePath) {
+    const normalised   = relativePath.replace(/\\/g, "/");
+    const basename     = path.basename(normalised);
+    const basenameLow  = basename.toLowerCase();
+
+    const resolved     = path.resolve(root, normalised);
+    const resolvedRoot = path.resolve(root);
+    if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
+        throw new Error(
+            `Path traversal detected: "${relativePath}" resolves outside project root. ` +
+            `Use a path relative to the project root.`,
+        );
+    }
+
+    const isBlocked =
+        BLOCKED_FILES.some(f => basenameLow === f.toLowerCase()) ||
+        BLOCKED_PREFIXES.some(p => basenameLow.startsWith(p.toLowerCase()));
+    if (isBlocked) {
+        throw new Error(
+            `Refusing to edit system/generated file "${relativePath}". ` +
+            `This file is not application source. ` +
+            `Edit the real source under src/ or tests/ instead.`,
+        );
+    }
+}
+
 // ── Normalisation ────────────────────────────────────────────────────────────
 
 /**
  * Normalize a string for comparison without destroying code content.
  *
  * - CRLF / bare CR  → LF           (line-ending portability)
- * - JSON-escaped 
- → real newline  (LLM often emits 
- literally)
- * - JSON-escaped 	 → real tab      (same reason)
+ * - JSON-escaped \n → real newline  (LLM often emits \n literally)
+ * - JSON-escaped \t → real tab      (same reason)
  *
  * NOT trimmed — leading/trailing whitespace is meaningful in code.
  * NOT collapsed — collapsing spaces would destroy indentation.
  */
 function normalize(s) {
     return s
-        .replace(/\r\n/g, "\n")   // CRLF → LF
-        .replace(/\r/g,   "\n")   // bare CR → LF
-        .replace(/\\n/g,  "\n")   // JSON-escaped newline → real newline
-        .replace(/\	/g,  "	");  // JSON-escaped tab → real tab
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g,   "\n")
+        .replace(/\\n/g,  "\n")
+        .replace(/\\t/g,  "\t");
 }
 
 /**
  * Escape all regex metacharacters so a search string is treated literally.
- *
- * Without this, search strings containing . ( ) [ ] * + ? ^ $ | \ would
- * either throw or produce unexpected matches.
  */
 function escapeRegex(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -11314,12 +11317,12 @@ function escapeRegex(s) {
  *
  * When exact string match fails (e.g. LLM generated search from truncated
  * context), try to find the search block by matching its non-empty lines as a
- * contiguous sequence inside the file.  Returns the exact substring from the
+ * contiguous sequence inside the file. Returns the exact substring from the
  * file if found, null otherwise.
  *
  * Recovers from:
  *  - Leading/trailing whitespace differences per line
- *  - Single-line truncation at the boundary of the 4 K context window
+ *  - Single-line truncation at the boundary of the 4K context window
  *  - Minor LLM whitespace paraphrasing
  *
  * Deliberately restricted to multi-line searches — single-line fuzzy matches
@@ -11360,7 +11363,7 @@ function hasChanges(root) {
 
 /**
  * Ensure git user identity is configured so commits don't fail on fresh
- * machines.  Checks local repo config first, then global — only injects a
+ * machines. Checks local repo config first, then global — only injects a
  * fallback if both are empty, so the developer's real identity is never
  * overwritten.
  */
@@ -11376,7 +11379,7 @@ function ensureGitIdentity(root) {
 }
 
 /**
- * Stage all changes and commit.  Returns the git output on success.
+ * Stage all changes and commit. Returns the git output on success.
  * Throws a descriptive Error on failure so callers can surface it cleanly.
  */
 function commitChanges(root, message) {
@@ -11406,12 +11409,10 @@ function commitChanges(root, message) {
  * so the LLM agent gets an actionable message.
  */
 function resolveFilePath(root, relativePath) {
-    // Reject obviously dangerous inputs before even calling validatePath.
     if (!relativePath || typeof relativePath !== "string") {
         throw new Error("edit.path must be a non-empty string");
     }
 
-    // Block absolute paths — they bypass the project root sandbox.
     if (path.isAbsolute(relativePath)) {
         throw new Error(
             `Absolute paths are not allowed: "${relativePath}". ` +
@@ -11419,13 +11420,11 @@ function resolveFilePath(root, relativePath) {
         );
     }
 
-    // Direct match
     try {
         const fullPath = validatePath(root, relativePath);
         if (fs.existsSync(fullPath)) return fullPath;
     } catch { /* path traversal attempt — fall through to give cleaner error */ }
 
-    // Search common source directories
     for (const dir of SEARCH_DIRS) {
         try {
             const candidate = validatePath(root, `${dir}/${relativePath}`);
@@ -11434,8 +11433,7 @@ function resolveFilePath(root, relativePath) {
     }
 
     throw new Error(
-        `File not found: "${relativePath}".
-` +
+        `File not found: "${relativePath}".\n` +
         `Tip: use the relative path from the project root, e.g. "src/utils/auth.js"`,
     );
 }
@@ -11461,7 +11459,7 @@ function validateEdit(edit, index) {
 
 /**
  * Build a rich diagnostic error message for the LLM agent when neither exact
- * nor fuzzy search succeeds.  The hint shows where the first search line was
+ * nor fuzzy search succeeds. The hint shows where the first search line was
  * found in the file so the agent can re-anchor its search string.
  */
 function buildNotFoundError(relativePath, search, normalizedFile, normalizedSearch) {
@@ -11470,18 +11468,15 @@ function buildNotFoundError(relativePath, search, normalizedFile, normalizedSear
     const hintIdx     = normalizedFile.indexOf(firstLine);
 
     const hint = hintIdx !== -1
-        ? `
-First line found at char ${hintIdx}: ` +
-        `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"`
+        ? `\nFirst line found at char ${hintIdx}: ` +
+          `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "\u21b5")}"`
         : "No partial match found — the file may have changed since it was read.";
 
     return new Error(
-        `Search string not found in "${relativePath}".
-` +
-        `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
+        `Search string not found in "${relativePath}".\n` +
+        `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "\u21b5")}"` +
         hint +
-        `
-Fix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
+        `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
     );
 }
 
@@ -11500,7 +11495,6 @@ function computeImpact(project, editedPaths) {
         for (const file of normalised) {
             findDependents(project, file, 2).forEach(f => allAffected.add(f));
         }
-        // Remove the files we just edited
         normalised.forEach(f => allAffected.delete(f));
 
         if (allAffected.size === 0) return [];
@@ -11528,7 +11522,7 @@ function computeImpact(project, editedPaths) {
  * Apply one edit to one file in-memory.
  *
  * Returns the updated file content as a string (caller is responsible for
- * writing to disk).  This keeps the function pure and easily testable.
+ * writing to disk). This keeps the function pure and easily testable.
  *
  * Throws descriptive Errors for:
  *  - Search string not found (after fuzzy fallback)
@@ -11539,7 +11533,6 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
     const normalizedSearch  = normalize(search);
     const normalizedReplace = normalize(replace);
 
-    // ── Find the search string ────────────────────────────────────────────
     let effectiveSearch = normalizedSearch;
 
     if (!normalizedFile.includes(normalizedSearch)) {
@@ -11552,17 +11545,14 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
         }
     }
 
-    // ── Ambiguity check ───────────────────────────────────────────────────
     const matchCount = (normalizedFile.match(new RegExp(escapeRegex(effectiveSearch), "g")) || []).length;
     if (matchCount > 1) {
         throw new Error(
-            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".
-` +
+            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".\n` +
             `Make the search string longer/more specific so it matches exactly once.`,
         );
     }
 
-    // ── Apply replacement, always write LF-only ───────────────────────────
     return normalizedFile
         .replace(effectiveSearch, normalizedReplace)
         .replace(/\r\n/g, "\n")
@@ -11571,32 +11561,12 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-// ── Snapshot-file guard ───────────────────────────────────────────────────────
-// combined_code.txt is a read-only snapshot artifact generated by export-project.ps1.
-// Editing it instead of real source files is a silent bug that leaves the codebase
-// out of sync. Reject any attempt to edit it so the agent is forced to target the
-// correct file under src/ or tests/.
-const SNAPSHOT_FILES = ["combined_code.txt"];
-
 export function projectStrReplace({ project, edits, commitMessage }) {
-    // ── Input validation ──────────────────────────────────────────────────
     if (!project || typeof project !== "string") {
         throw new Error("project must be a non-empty string");
     }
     if (!Array.isArray(edits) || edits.length === 0) {
         throw new Error("edits must be a non-empty array");
-    }
-
-    // Block edits to snapshot / artifact files — they are not source of truth.
-    for (const edit of edits) {
-        const basename = (edit.path || "").replace(/\\/g, "/").split("/").pop();
-        if (SNAPSHOT_FILES.includes(basename)) {
-            throw new Error(
-                `Refusing to edit snapshot file "${edit.path}". ` +
-                `This file is generated by export-project.ps1 and is not source of truth. ` +
-                `Edit the real source file under src/ or tests/ instead.`,
-            );
-        }
     }
     if (edits.length > MAX_EDITS_PER_CALL) {
         throw new Error(
@@ -11607,16 +11577,17 @@ export function projectStrReplace({ project, edits, commitMessage }) {
 
     edits.forEach(validateEdit);
 
-    // ── Project setup ─────────────────────────────────────────────────────
     const config = getProject(project);
     const root   = config.root;
 
     ensureGitIdentity(root);
 
-    // ── Apply all edits (collect results before any disk write) ───────────
-    // We resolve paths and compute updated content for ALL edits before
-    // writing anything.  This way, a bad search string on edit #3 won't
-    // leave the repo in a half-modified state.
+    for (const edit of edits) {
+        assertEditAllowed(root, edit.path);
+    }
+
+    // Apply all edits in memory before writing anything to disk.
+    // A bad search string on edit #3 won't leave the repo half-modified.
     const pendingWrites = [];
 
     for (let i = 0; i < edits.length; i++) {
@@ -11629,7 +11600,7 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         pendingWrites.push({ fullPath, relativePath, updated });
     }
 
-    // ── All edits validated — now write to disk ───────────────────────────
+    // All edits validated — now write to disk
     const results = [];
     for (const { fullPath, relativePath, updated } of pendingWrites) {
         fs.writeFileSync(fullPath, updated, "utf8");
@@ -11637,32 +11608,29 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         results.push(`  edited: ${relativePath}`);
     }
 
-    // ── Commit ────────────────────────────────────────────────────────────
     if (!hasChanges(root)) {
         log.warn("str-replace: no net changes — files already match target");
         return {
             content: [{
                 type: "text",
-                text: `str-replace applied (no net change):
-${results.join("\n")}`,
+                text: `str-replace applied (no net change):\n${results.join("\n")}`,
             }],
         };
     }
 
     commitChanges(root, commitMessage);
 
-    // ── Impact analysis ───────────────────────────────────────────────────
-    const editedPaths  = edits.map(e => e.path);
-    const impactLines  = computeImpact(project, editedPaths);
+    const editedPaths = edits.map(e => e.path);
+    const impactLines = computeImpact(project, editedPaths);
 
     return {
         content: [{
             type: "text",
-            text: `str-replace applied:
-${results.join("\n")}${impactLines.join("\n")}`,
+            text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}`,
         }],
     };
 }
+
 
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\src\tools\projectSymbolGraph.js
@@ -13811,6 +13779,17 @@ describe("classifyFailure", () => {
 });
 
 describe("ExecutionState", () => {
+    it("initializes idleSteps to 0", () => {
+        const s = makeExecutionState();
+        expect(s.idleSteps).toBe(0);
+    });
+
+    it("initializes traceId as a non-empty string", () => {
+        const s = makeExecutionState();
+        expect(typeof s.traceId).toBe("string");
+        expect(s.traceId.length).toBeGreaterThan(0);
+    });
+
     it("tracks files read", () => {
         const state = makeExecutionState();
         state.recordToolCall("project_read_files", { paths: ["src/foo.js"] }, "", 1);

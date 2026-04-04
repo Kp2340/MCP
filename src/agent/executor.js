@@ -65,8 +65,11 @@ function routeByRule(step, project) {
     const renameMatch = s.match(/\brename\b\s+(\w+)\s+(?:to|->|=>|as)\s+(\w+)/i)
         || step.match(/\brename\b.*\b(\w+)\b.*\bto\b.*\b(\w+)\b/i);
     if (renameMatch && renameMatch[1] && renameMatch[2]) {
-        return JSON.stringify({ tool: "project_rename_symbol",
-            args: { project, path: "", oldName: renameMatch[1], newName: renameMatch[2] } });
+        // Do NOT pass path: "" — the tool requires a valid file path or it fails silently.
+        // Route single-file renames through project_rename_symbol_all so the agent
+        // can find the right file via find_symbol first, or let the LLM supply the path.
+        return JSON.stringify({ tool: "project_rename_symbol_all",
+            args: { project, oldName: renameMatch[1], newName: renameMatch[2] } });
     }
 
     return null;

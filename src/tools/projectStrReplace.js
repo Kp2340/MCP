@@ -17,38 +17,74 @@ const SEARCH_DIRS = [
     "components", "addons", "lib", "pkg",
 ];
 
+// ── Snapshot / system-file guard ─────────────────────────────────────────────
+// These files must never be edited by the agent:
+//   combined_code.txt        — generated snapshot, overwritten on every export
+//   .ai-dev-index-cache.json — semantic index cache, regenerated automatically
+//   .index_manifest_*        — index manifests, same reason
+//   export-project.ps1       — tooling script, not application source
+//   patch-agent.js           — one-shot migration tombstone, must not be re-run
+const BLOCKED_FILES = [
+    "combined_code.txt",
+    ".ai-dev-index-cache.json",
+    "export-project.ps1",
+    "patch-agent.js",
+];
+// Prefix match covers .index_manifest_jsv.json, .index_manifest_abc.json, etc.
+const BLOCKED_PREFIXES = [".index_manifest"];
+
+/**
+ * Throw if the edit targets a system/generated file or escapes the project root.
+ * Called before any filesystem I/O.
+ */
+function assertEditAllowed(root, relativePath) {
+    const normalised   = relativePath.replace(/\\/g, "/");
+    const basename     = path.basename(normalised);
+    const basenameLow  = basename.toLowerCase();
+
+    const resolved     = path.resolve(root, normalised);
+    const resolvedRoot = path.resolve(root);
+    if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
+        throw new Error(
+            `Path traversal detected: "${relativePath}" resolves outside project root. ` +
+            `Use a path relative to the project root.`,
+        );
+    }
+
+    const isBlocked =
+        BLOCKED_FILES.some(f => basenameLow === f.toLowerCase()) ||
+        BLOCKED_PREFIXES.some(p => basenameLow.startsWith(p.toLowerCase()));
+    if (isBlocked) {
+        throw new Error(
+            `Refusing to edit system/generated file "${relativePath}". ` +
+            `This file is not application source. ` +
+            `Edit the real source under src/ or tests/ instead.`,
+        );
+    }
+}
+
 // ── Normalisation ────────────────────────────────────────────────────────────
 
 /**
  * Normalize a string for comparison without destroying code content.
  *
  * - CRLF / bare CR  → LF           (line-ending portability)
- * - JSON-escaped 
- → real newline  (LLM often emits 
- literally)
- * - JSON-escaped 	 → real tab      (same reason)
+ * - JSON-escaped \n → real newline  (LLM often emits \n literally)
+ * - JSON-escaped \t → real tab      (same reason)
  *
  * NOT trimmed — leading/trailing whitespace is meaningful in code.
  * NOT collapsed — collapsing spaces would destroy indentation.
  */
 function normalize(s) {
     return s
-        .replace(/\r
-/g, "
-")   // CRLF → LF
-        .replace(/\r/g,   "
-")   // bare CR → LF
-        .replace(/\
-/g,  "
-")   // JSON-escaped newline → real newline
-        .replace(/\	/g,  "	");  // JSON-escaped tab → real tab
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g,   "\n")
+        .replace(/\\n/g,  "\n")
+        .replace(/\\t/g,  "\t");
 }
 
 /**
  * Escape all regex metacharacters so a search string is treated literally.
- *
- * Without this, search strings containing . ( ) [ ] * + ? ^ $ | \ would
- * either throw or produce unexpected matches.
  */
 function escapeRegex(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -61,23 +97,21 @@ function escapeRegex(s) {
  *
  * When exact string match fails (e.g. LLM generated search from truncated
  * context), try to find the search block by matching its non-empty lines as a
- * contiguous sequence inside the file.  Returns the exact substring from the
+ * contiguous sequence inside the file. Returns the exact substring from the
  * file if found, null otherwise.
  *
  * Recovers from:
  *  - Leading/trailing whitespace differences per line
- *  - Single-line truncation at the boundary of the 4 K context window
+ *  - Single-line truncation at the boundary of the 4K context window
  *  - Minor LLM whitespace paraphrasing
  *
  * Deliberately restricted to multi-line searches — single-line fuzzy matches
  * produce too many false positives.
  */
 function fuzzyLineMatch(fileContent, searchStr) {
-    const fileLines   = fileContent.split("
-");
+    const fileLines   = fileContent.split("\n");
     const searchLines = searchStr
-        .split("
-")
+        .split("\n")
         .map(l => l.trimEnd())
         .filter(l => l.trim().length > 0);
 
@@ -92,8 +126,7 @@ function fuzzyLineMatch(fileContent, searchStr) {
             }
         }
         if (matched) {
-            return fileLines.slice(i, i + searchLines.length).join("
-");
+            return fileLines.slice(i, i + searchLines.length).join("\n");
         }
     }
     return null;
@@ -110,7 +143,7 @@ function hasChanges(root) {
 
 /**
  * Ensure git user identity is configured so commits don't fail on fresh
- * machines.  Checks local repo config first, then global — only injects a
+ * machines. Checks local repo config first, then global — only injects a
  * fallback if both are empty, so the developer's real identity is never
  * overwritten.
  */
@@ -126,7 +159,7 @@ function ensureGitIdentity(root) {
 }
 
 /**
- * Stage all changes and commit.  Returns the git output on success.
+ * Stage all changes and commit. Returns the git output on success.
  * Throws a descriptive Error on failure so callers can surface it cleanly.
  */
 function commitChanges(root, message) {
@@ -156,12 +189,10 @@ function commitChanges(root, message) {
  * so the LLM agent gets an actionable message.
  */
 function resolveFilePath(root, relativePath) {
-    // Reject obviously dangerous inputs before even calling validatePath.
     if (!relativePath || typeof relativePath !== "string") {
         throw new Error("edit.path must be a non-empty string");
     }
 
-    // Block absolute paths — they bypass the project root sandbox.
     if (path.isAbsolute(relativePath)) {
         throw new Error(
             `Absolute paths are not allowed: "${relativePath}". ` +
@@ -169,13 +200,11 @@ function resolveFilePath(root, relativePath) {
         );
     }
 
-    // Direct match
     try {
         const fullPath = validatePath(root, relativePath);
         if (fs.existsSync(fullPath)) return fullPath;
     } catch { /* path traversal attempt — fall through to give cleaner error */ }
 
-    // Search common source directories
     for (const dir of SEARCH_DIRS) {
         try {
             const candidate = validatePath(root, `${dir}/${relativePath}`);
@@ -184,8 +213,7 @@ function resolveFilePath(root, relativePath) {
     }
 
     throw new Error(
-        `File not found: "${relativePath}".
-` +
+        `File not found: "${relativePath}".\n` +
         `Tip: use the relative path from the project root, e.g. "src/utils/auth.js"`,
     );
 }
@@ -211,30 +239,24 @@ function validateEdit(edit, index) {
 
 /**
  * Build a rich diagnostic error message for the LLM agent when neither exact
- * nor fuzzy search succeeds.  The hint shows where the first search line was
+ * nor fuzzy search succeeds. The hint shows where the first search line was
  * found in the file so the agent can re-anchor its search string.
  */
 function buildNotFoundError(relativePath, search, normalizedFile, normalizedSearch) {
-    const searchLines = normalizedSearch.split("
-");
+    const searchLines = normalizedSearch.split("\n");
     const firstLine   = searchLines[0].trim();
     const hintIdx     = normalizedFile.indexOf(firstLine);
 
     const hint = hintIdx !== -1
-        ? `
-First line found at char ${hintIdx}: ` +
-        `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/
-/g, "↵")}"`
+        ? `\nFirst line found at char ${hintIdx}: ` +
+          `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "\u21b5")}"`
         : "No partial match found — the file may have changed since it was read.";
 
     return new Error(
-        `Search string not found in "${relativePath}".
-` +
-        `Searched (first 150 chars): "${search.slice(0, 150).replace(/
-/g, "↵")}"` +
+        `Search string not found in "${relativePath}".\n` +
+        `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "\u21b5")}"` +
         hint +
-        `
-Fix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
+        `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
     );
 }
 
@@ -253,13 +275,11 @@ function computeImpact(project, editedPaths) {
         for (const file of normalised) {
             findDependents(project, file, 2).forEach(f => allAffected.add(f));
         }
-        // Remove the files we just edited
         normalised.forEach(f => allAffected.delete(f));
 
         if (allAffected.size === 0) return [];
 
-        const lines = ["
-Impact analysis — files that import the edited file(s):"];
+        const lines = ["\nImpact analysis — files that import the edited file(s):"];
         [...allAffected]
             .slice(0, MAX_IMPACT_DISPLAYED)
             .forEach(f => lines.push(`  - ${f}`));
@@ -282,7 +302,7 @@ Impact analysis — files that import the edited file(s):"];
  * Apply one edit to one file in-memory.
  *
  * Returns the updated file content as a string (caller is responsible for
- * writing to disk).  This keeps the function pure and easily testable.
+ * writing to disk). This keeps the function pure and easily testable.
  *
  * Throws descriptive Errors for:
  *  - Search string not found (after fuzzy fallback)
@@ -293,7 +313,6 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
     const normalizedSearch  = normalize(search);
     const normalizedReplace = normalize(replace);
 
-    // ── Find the search string ────────────────────────────────────────────
     let effectiveSearch = normalizedSearch;
 
     if (!normalizedFile.includes(normalizedSearch)) {
@@ -306,78 +325,28 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
         }
     }
 
-    // ── Ambiguity check ───────────────────────────────────────────────────
     const matchCount = (normalizedFile.match(new RegExp(escapeRegex(effectiveSearch), "g")) || []).length;
     if (matchCount > 1) {
         throw new Error(
-            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".
-` +
+            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".\n` +
             `Make the search string longer/more specific so it matches exactly once.`,
         );
     }
 
-    // ── Apply replacement, always write LF-only ───────────────────────────
     return normalizedFile
         .replace(effectiveSearch, normalizedReplace)
-        .replace(/\r
-/g, "
-")
-        .replace(/\r/g, "
-");
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n");
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-// ── Snapshot / system-file guard ─────────────────────────────────────────────
-// These files must never be edited by the agent:
-//   combined_code.txt        — generated snapshot, overwritten on every export
-//   .ai-dev-index-cache.json — semantic index cache, regenerated automatically
-//   .index_manifest_*        — index manifests, same reason
-//   export-project.ps1       — tooling script, not application source
-//   patch-agent.js           — one-shot migration tombstone, must not be re-run
-const BLOCKED_FILES = [
-    "combined_code.txt",
-    ".ai-dev-index-cache.json",
-    "export-project.ps1",
-    "patch-agent.js",
-];
-// Prefix match (covers .index_manifest_jsv.json, .index_manifest_abc.json, etc.)
-const BLOCKED_PREFIXES = [".index_manifest"];
-
 export function projectStrReplace({ project, edits, commitMessage }) {
-    // ── Input validation ──────────────────────────────────────────────────
     if (!project || typeof project !== "string") {
         throw new Error("project must be a non-empty string");
     }
     if (!Array.isArray(edits) || edits.length === 0) {
         throw new Error("edits must be a non-empty array");
-    }
-
-    // Block edits to snapshot/system/generated files and catch path-traversal.
-    const proj = getProject(project);
-    for (const edit of edits) {
-        const normalised = (edit.path || "").replace(/\\/g, "/");
-        const basename   = normalised.split("/").pop();
-
-        // Path-traversal guard: resolved path must stay inside project root.
-        const resolved = path.resolve(proj.root, normalised);
-        if (!resolved.startsWith(path.resolve(proj.root))) {
-            throw new Error(
-                `Path traversal detected: "${edit.path}" resolves outside project root. ` +
-                `Use a path relative to the project root.`,
-            );
-        }
-
-        // Blocked filename guard (exact match + prefix match).
-        const isBlocked =
-            BLOCKED_FILES.includes(basename) ||
-            BLOCKED_PREFIXES.some(prefix => basename.startsWith(prefix));
-        if (isBlocked) {
-            throw new Error(
-                `Refusing to edit system/generated file "${edit.path}". ` +
-                `This file is not application source. Edit the real source under src/ or tests/ instead.`,
-            );
-        }
     }
     if (edits.length > MAX_EDITS_PER_CALL) {
         throw new Error(
@@ -388,16 +357,17 @@ export function projectStrReplace({ project, edits, commitMessage }) {
 
     edits.forEach(validateEdit);
 
-    // ── Project setup ─────────────────────────────────────────────────────
     const config = getProject(project);
     const root   = config.root;
 
     ensureGitIdentity(root);
 
-    // ── Apply all edits (collect results before any disk write) ───────────
-    // We resolve paths and compute updated content for ALL edits before
-    // writing anything.  This way, a bad search string on edit #3 won't
-    // leave the repo in a half-modified state.
+    for (const edit of edits) {
+        assertEditAllowed(root, edit.path);
+    }
+
+    // Apply all edits in memory before writing anything to disk.
+    // A bad search string on edit #3 won't leave the repo half-modified.
     const pendingWrites = [];
 
     for (let i = 0; i < edits.length; i++) {
@@ -410,7 +380,7 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         pendingWrites.push({ fullPath, relativePath, updated });
     }
 
-    // ── All edits validated — now write to disk ───────────────────────────
+    // All edits validated — now write to disk
     const results = [];
     for (const { fullPath, relativePath, updated } of pendingWrites) {
         fs.writeFileSync(fullPath, updated, "utf8");
@@ -418,32 +388,25 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         results.push(`  edited: ${relativePath}`);
     }
 
-    // ── Commit ────────────────────────────────────────────────────────────
     if (!hasChanges(root)) {
         log.warn("str-replace: no net changes — files already match target");
         return {
             content: [{
                 type: "text",
-                text: `str-replace applied (no net change):
-${results.join("
-")}`,
+                text: `str-replace applied (no net change):\n${results.join("\n")}`,
             }],
         };
     }
 
     commitChanges(root, commitMessage);
 
-    // ── Impact analysis ───────────────────────────────────────────────────
-    const editedPaths  = edits.map(e => e.path);
-    const impactLines  = computeImpact(project, editedPaths);
+    const editedPaths = edits.map(e => e.path);
+    const impactLines = computeImpact(project, editedPaths);
 
     return {
         content: [{
             type: "text",
-            text: `str-replace applied:
-${results.join("
-")}${impactLines.join("
-")}`,
+            text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}`,
         }],
     };
 }

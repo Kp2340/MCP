@@ -1,5 +1,5 @@
 /**
- * src/index.js — AI Dev MCP Server v5.3.0
+ * src/index.js — AI Dev MCP Server v5.4.0
  *
  * ONE command starts everything: node src/index.js
  *

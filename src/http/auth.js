@@ -19,9 +19,16 @@ const log = createLogger("auth");
 // /message = Paired with /sse above
 // /health  = Always public for monitoring
 //
-// NOTE: /mcp (Streamable HTTP) is NOT public — it is protected by authMiddleware below.
-// IDE extensions and CLI tools (Gemini CLI, Claude Code, Cursor) CAN send x-api-key headers,
-// so we enforce auth on the modern transport.
+// ⚠ SECURITY: /sse and /message are intentionally unauthenticated because the
+// claude.ai web connector cannot send custom request headers. If this server is
+// exposed to the internet you MUST restrict access at the network layer instead:
+//   - Cloudflare Access / Zero Trust in front of the tunnel
+//   - Tailscale ACLs so only your devices can reach port 3001
+//   - IP_ALLOWLIST in .env (Layer 1 above) to whitelist known IPs
+// Application-layer auth cannot protect these two endpoints.
+//
+// /mcp (Streamable HTTP) IS protected — IDE extensions and CLI tools
+// (Gemini CLI, Claude Code, Cursor) can send x-api-key headers.
 const PUBLIC_PATHS = new Set(["/health", "/health/", "/sse", "/message"]);
 
 // ── Rate limit state ──────────────────────────────────────────────────────────
