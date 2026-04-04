@@ -99,9 +99,9 @@ Final result:", result);
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function exampleInspect() {
-    console.log("
+    console.log(`
 ── Example 3: Inspect queue + jobs ──────────────────
-");
+`);
 
     const queue = await client.getQueue();
     console.log("Queue:", queue);

@@ -42,6 +42,17 @@ describe("classifyFailure", () => {
 });
 
 describe("ExecutionState", () => {
+    it("initializes idleSteps to 0", () => {
+        const s = makeExecutionState();
+        expect(s.idleSteps).toBe(0);
+    });
+
+    it("initializes traceId as a non-empty string", () => {
+        const s = makeExecutionState();
+        expect(typeof s.traceId).toBe("string");
+        expect(s.traceId.length).toBeGreaterThan(0);
+    });
+
     it("tracks files read", () => {
         const state = makeExecutionState();
         state.recordToolCall("project_read_files", { paths: ["src/foo.js"] }, "", 1);

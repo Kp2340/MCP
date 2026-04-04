@@ -272,6 +272,5 @@ export function formatStateForPrompt(state) {
         lines.push(`Recent tools: ${recent}`);
     }
 
-    return lines.length > 0 ? lines.join("
-") : "No actions taken yet.";
+    return lines.length > 0 ? lines.join("\n") : "No actions taken yet.";
 }
