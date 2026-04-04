@@ -132,6 +132,9 @@ export class ExecutionState {
         this.toolsUsed     = [];         // [{ tool, stepIndex }]
         this.errors        = [];         // [{ type, text, stepIndex }]
         this.stepCount     = 0;
+        this.idleSteps     = 0;           // incremented when no progress is made; used by progressGuard()
+        this.traceId       = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        this.exitReason    = null;        // set when agent loop exits: "STEP_CAP" | "IDLE" | null
         // Tool result cache: avoid re-running identical tool calls within a run
         // Key: "toolName::JSON(args)" → Value: result text
         this._toolCache    = new Map();
@@ -168,7 +171,9 @@ export class ExecutionState {
         }
 
         // Normalize all tracked paths to forward slashes
-        const paths = extractPathsFromArgs(tool, args).map(normalizePath);
+        const paths           = extractPathsFromArgs(tool, args).map(normalizePath);
+        const prevModifiedSize = this.filesModified.size;
+        const prevErrorCount   = this.errors.length;
 
         if (tool === "project_read_files") {
             paths.forEach(p => this.filesRead.add(p));
@@ -199,6 +204,12 @@ export class ExecutionState {
                 stepIndex
             });
         }
+
+        // Idle-step tracking: reset on meaningful progress, increment otherwise.
+        // Used by progressGuard() in agent.js to kill stalled runs.
+        const madeProgress = this.filesModified.size > prevModifiedSize
+            || this.errors.length > prevErrorCount;
+        this.idleSteps = madeProgress ? 0 : this.idleSteps + 1;
     }
 
     /** True if any failure of the given type has occurred this run. */
@@ -239,6 +250,9 @@ export function makeExecutionState() {
 export function formatStateForPrompt(state) {
     const lines = [];
 
+    if (state.traceId) {
+        lines.push(`Trace ID: ${state.traceId}`);
+    }
     if (state.filesRead.size > 0) {
         lines.push(`Files read: ${[...state.filesRead].slice(0, 8).join(", ")}`);
     }
@@ -258,5 +272,6 @@ export function formatStateForPrompt(state) {
         lines.push(`Recent tools: ${recent}`);
     }
 
-    return lines.length > 0 ? lines.join("\n") : "No actions taken yet.";
+    return lines.length > 0 ? lines.join("
+") : "No actions taken yet.";
 }

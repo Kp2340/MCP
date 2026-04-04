@@ -63,8 +63,40 @@ export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
 export const MAX_AGENT_STEPS          = 25; // hard cap — agent loop MUST stop after this many steps
+export const MAX_RETRIES              = 2;  // per-step retry cap in executeWithRetry
+
+// Progress heuristic kill — abort if no meaningful progress after N consecutive idle steps
+export const MAX_IDLE_STEPS           = 5;  // steps with no file changes and no new errors
 
 export const CHARS_PER_TOKEN = 4;
+
+// ─── Tool name enum — single source of truth for all tool name strings ────────────────────
+// Use TOOLS.X everywhere instead of bare string literals.
+// Prevents typos, enables IDE autocomplete, and makes allowlists self-consistent.
+export const TOOLS = {
+    REGISTER:          "project_register",
+    SCAN:              "project_scan",
+    READ_FILES:        "project_read_files",
+    APPLY_CHANGES:     "project_apply_changes",
+    STR_REPLACE:       "project_str_replace",
+    SEARCH:            "project_search",
+    APPLY_PATCH:       "project_apply_patch",
+    BUILD:             "project_build",
+    BUILD_AND_FIX:     "project_build_and_fix",
+    INDEX:             "project_index",
+    FIND_SYMBOL:       "project_find_symbol",
+    ANALYZE:           "project_analyze",
+    TEST:              "project_test",
+    DIFF:              "project_diff",
+    GIT_LOG:           "project_git_log",
+    RENAME_SYMBOL:     "project_rename_symbol",
+    RENAME_SYMBOL_ALL: "project_rename_symbol_all",
+    DEP_GRAPH:         "project_dependency_graph",
+    SEMANTIC_SEARCH:   "project_semantic_search",
+    MEMORY_STORE:      "project_memory_store",
+    MEMORY_QUERY:      "project_memory_query",
+    LIST:              "project_list",
+};
 
 // Memory eviction
 export const MEMORY_MAX_ENTRIES = 200;

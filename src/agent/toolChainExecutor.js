@@ -125,6 +125,8 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
     let anyFailed = false;
 
     for (const { tool, args } of toolSteps) {
+        assertToolAllowed(tool);  // Hard block — must precede every callTool dispatch
+
         // ExecutionState skip-gate for reads
         if (tool === "project_read_files" && Array.isArray(args?.paths)) {
             const unread = args.paths.filter(p => !execState.hasRead(p));

@@ -28,8 +28,8 @@ import {
 process.env.NODE_NO_WARNINGS = "1";
 
 const MODEL       = LLM_MODEL;
-// MAX_STEPS is now MAX_AGENT_STEPS from constants — single source of truth
-const MAX_RETRIES = 2;
+// MAX_RETRIES is now imported from constants — single source of truth
+// MAX_STEPS  is now MAX_AGENT_STEPS from constants — single source of truth
 
 let mcp;
 let collector;
@@ -268,6 +268,32 @@ Initial Plan:
     // reviewerIssuesInjected: inject issues back into queue only once
     let reviewerIssuesInjected   = false;
 
+    // ── Hard step cap guard — source-of-truth (never a patch script) ────────────────
+    // Must be the FIRST check inside the while loop — no bypass, no exception.
+    // Uses MAX_AGENT_STEPS from constants.js as the single source of truth.
+    const stepCapGuard = () => {
+        if (totalStepsDone + 1 > MAX_AGENT_STEPS) {
+            console.error(`[agent] ⛔ Hard step cap reached (${MAX_AGENT_STEPS} steps) — stopping loop`);
+            emitStep("cap", { reason: `Step cap reached: ${MAX_AGENT_STEPS}` });
+            return true;
+        }
+        return false;
+    };
+
+    // ── Progress heuristic kill — abort on sustained idle (no file changes, no new errors) ──
+    // Prevents step starvation: agent burning budget on trivial/redundant steps
+    // without making meaningful progress toward the goal.
+    const progressGuard = () => {
+        if (execState.idleSteps >= MAX_IDLE_STEPS) {
+            console.error(`[agent] ⚠ Progress kill: ${execState.idleSteps} consecutive idle steps (no file changes, no new errors) — aborting`);
+            emitStep("idle_abort", { reason: `No meaningful progress after ${execState.idleSteps} steps` });
+            return true;
+        }
+        return false;
+    };
+
+    // ── stepCapGuard call verified present below — called as first statement in while loop
+
     // ── Budget exhaustion notifier ────────────────────────────────────────────────────
     // Checks costState.budgetExhausted (set by planner.js) and emits a
     // user-visible SSE warning so IDE extensions can surface it in the UI.
@@ -303,7 +329,12 @@ Initial Plan:
 
     collector.startRun(prompt);
 
-    while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
+    while (remainingSteps.length > 0) {
+        // ── HARD STEP CAP — first check, no bypass, no exception ──────────────────────
+        if (stepCapGuard()) break;
+        // ── PROGRESS KILL — abort on sustained idle steps (no file changes, no new errors) ──
+        if (progressGuard()) break;
+.length > 0 && totalStepsDone < MAX_STEPS) {
 
         // Emit SSE warning if planner signalled budget exhaustion this iteration
         checkAndEmitBudgetWarning();

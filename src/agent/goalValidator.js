@@ -106,7 +106,8 @@ export function validateGoal(intent, execState) {
 export function logValidation(intent, result) {
     const icon   = result.passed ? "\u2705" : "\u274C";
     const status = result.passed ? "PASSED" : "FAILED";
-    console.error(`\n[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
+    console.error(`
+[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
     console.error(`[validator]    Reason: ${result.reason}`);
     if (result.suggest) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
@@ -125,9 +126,13 @@ export async function validateWithBuild(project, intent, mcpClient) {
     if (intent === "general") {
         return { passed: true, reason: "Read-only intent — build check skipped" };
     }
+    // project_analyze is the only tool this function may call.
+    // Asserting here keeps callTool sites consistent with the allowlist pattern.
+    const ALLOWED = "project_analyze";
     try {
-        const result     = await mcpClient.callTool("project_analyze", { project });
-        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
+        const result     = await mcpClient.callTool(ALLOWED, { project });
+        const resultText = result?.content?.map(c => c.text || "").join("
+") || "";
         const isClean    = resultText.trim() === ""
             || /static analysis passed/i.test(resultText)
             || /build skipped/i.test(resultText);

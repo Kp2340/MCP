@@ -85,4 +85,41 @@ describe("ExecutionState", () => {
         state.recordToolCall("project_read_files", args, "file content", 1);
         expect(state.getCachedResult("project_read_files", args)).toBe("file content");
     });
+
+    it("assigns a unique traceId to each run", () => {
+        const s1 = makeExecutionState();
+        const s2 = makeExecutionState();
+        expect(typeof s1.traceId).toBe("string");
+        expect(s1.traceId.length).toBeGreaterThan(0);
+        expect(s1.traceId).not.toBe(s2.traceId);
+    });
+
+    it("increments idleSteps when no file changes or new errors occur", () => {
+        const state = makeExecutionState();
+        // read-only step: no file modification, no error
+        state.recordToolCall("project_scan", {}, "OK", 1);
+        expect(state.idleSteps).toBe(1);
+        state.recordToolCall("project_scan", {}, "OK", 2);
+        expect(state.idleSteps).toBe(2);
+    });
+
+    it("resets idleSteps to 0 when a file is modified", () => {
+        const state = makeExecutionState();
+        state.recordToolCall("project_scan", {}, "OK", 1);  // idle
+        expect(state.idleSteps).toBe(1);
+        state.recordToolCall(
+            "project_str_replace",
+            { edits: [{ path: "src/x.js", search: "a", replace: "b" }] },
+            "ok", 2
+        );
+        expect(state.idleSteps).toBe(0);  // progress made
+    });
+
+    it("resets idleSteps to 0 when a new error is recorded", () => {
+        const state = makeExecutionState();
+        state.recordToolCall("project_scan", {}, "OK", 1);  // idle
+        expect(state.idleSteps).toBe(1);
+        state.recordToolCall("project_build", {}, "BUILD FAILED", 2);  // new error
+        expect(state.idleSteps).toBe(0);
+    });
 });

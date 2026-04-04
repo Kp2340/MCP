@@ -78,10 +78,10 @@ async function exampleStream() {
 ── Example 1: Submit + stream ────────────────────────
 ");
 
-    const jobId = await client.runTask(
-        "Fix the login bug — form is not validating email format",
-        "jsv"
-    );
+    const jobId = await client.runTask({
+        prompt:        "Fix the login bug — form is not validating email format",
+        workspacePath: process.env.WORKSPACE_PATH || "jsv",
+    });
 
     console.log(`Job ID: ${jobId}`);
     console.log("Streaming logs...
@@ -112,10 +112,10 @@ async function exampleWait() {
 ── Example 2: Submit + waitForCompletion ─────────────
 ");
 
-    const jobId = await client.runTask(
-        "Add unit tests for the CartService class",
-        "jsv"
-    );
+    const jobId = await client.runTask({
+        prompt:        "Add unit tests for the CartService class",
+        workspacePath: process.env.WORKSPACE_PATH || "jsv",
+    });
 
     console.log(`Job ID: ${jobId}
 Waiting...`);
@@ -311,6 +311,57 @@ FILE: C:\Users\kushp\IdeaProjects\MCP\package.json
     "vitest": "^1.6.0"
   }
 }
+
+
+========================================
+FILE: C:\Users\kushp\IdeaProjects\MCP\patch-agent.js
+========================================
+// patch-agent.js has been deleted.
+// stepCapGuard() is now permanently embedded in src/agent/agent.js source.
+// See: while (remainingSteps.length > 0) { if (stepCapGuard()) break; ... }
+// This file is intentionally left as a tombstone to prevent accidental re-creation.
+// Safe to delete this file entirely.
+
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const agentPath = path.join(__dirname, "src", "agent", "agent.js");
+
+let src = fs.readFileSync(agentPath, "utf8");
+
+// Already patched?
+if (src.includes("stepCapGuard()") && src.includes("HARD STEP CAP")) {
+    // Check the guard is actually *inside* the while loop (not just defined)
+    const whileIdx = src.indexOf("while (remainingSteps.length > 0)");
+    const guardIdx = src.indexOf("if (stepCapGuard()) break;");
+    if (whileIdx !== -1 && guardIdx !== -1 && guardIdx > whileIdx && guardIdx < whileIdx + 200) {
+        console.log("[patch-agent] Already patched — no changes needed.");
+        process.exit(0);
+    }
+}
+
+// Target: the opening of the while loop — inject guard as FIRST statement
+const WHILE_OPEN = "while (remainingSteps.length > 0) {";
+const GUARD_BLOCK =
+    "while (remainingSteps.length > 0) {
+" +
+    "        // ── HARD STEP CAP ── Must be first check — no bypass, no exception
+" +
+    "        if (stepCapGuard()) break;
+";
+
+if (!src.includes(WHILE_OPEN)) {
+    console.error("[patch-agent] ERROR: Could not find while loop anchor. Pattern not found:");
+    console.error(`  '${WHILE_OPEN}'`);
+    process.exit(1);
+}
+
+src = src.replace(WHILE_OPEN, GUARD_BLOCK);
+fs.writeFileSync(agentPath, src, "utf8");
+console.log("[patch-agent] ✅ stepCapGuard() injected into while loop in src/agent/agent.js");
+console.log("[patch-agent] You can now delete this script: del patch-agent.js");
 
 
 ========================================
@@ -2168,8 +2219,8 @@ import {
 process.env.NODE_NO_WARNINGS = "1";
 
 const MODEL       = LLM_MODEL;
-// MAX_STEPS is now MAX_AGENT_STEPS from constants — single source of truth
-const MAX_RETRIES = 2;
+// MAX_RETRIES is now imported from constants — single source of truth
+// MAX_STEPS  is now MAX_AGENT_STEPS from constants — single source of truth
 
 let mcp;
 let collector;
@@ -2408,6 +2459,32 @@ Initial Plan:
     // reviewerIssuesInjected: inject issues back into queue only once
     let reviewerIssuesInjected   = false;
 
+    // ── Hard step cap guard — source-of-truth (never a patch script) ────────────────
+    // Must be the FIRST check inside the while loop — no bypass, no exception.
+    // Uses MAX_AGENT_STEPS from constants.js as the single source of truth.
+    const stepCapGuard = () => {
+        if (totalStepsDone + 1 > MAX_AGENT_STEPS) {
+            console.error(`[agent] ⛔ Hard step cap reached (${MAX_AGENT_STEPS} steps) — stopping loop`);
+            emitStep("cap", { reason: `Step cap reached: ${MAX_AGENT_STEPS}` });
+            return true;
+        }
+        return false;
+    };
+
+    // ── Progress heuristic kill — abort on sustained idle (no file changes, no new errors) ──
+    // Prevents step starvation: agent burning budget on trivial/redundant steps
+    // without making meaningful progress toward the goal.
+    const progressGuard = () => {
+        if (execState.idleSteps >= MAX_IDLE_STEPS) {
+            console.error(`[agent] ⚠ Progress kill: ${execState.idleSteps} consecutive idle steps (no file changes, no new errors) — aborting`);
+            emitStep("idle_abort", { reason: `No meaningful progress after ${execState.idleSteps} steps` });
+            return true;
+        }
+        return false;
+    };
+
+    // ── stepCapGuard call verified present below — called as first statement in while loop
+
     // ── Budget exhaustion notifier ────────────────────────────────────────────────────
     // Checks costState.budgetExhausted (set by planner.js) and emits a
     // user-visible SSE warning so IDE extensions can surface it in the UI.
@@ -2443,7 +2520,12 @@ Initial Plan:
 
     collector.startRun(prompt);
 
-    while (remainingSteps.length > 0 && totalStepsDone < MAX_STEPS) {
+    while (remainingSteps.length > 0) {
+        // ── HARD STEP CAP — first check, no bypass, no exception ──────────────────────
+        if (stepCapGuard()) break;
+        // ── PROGRESS KILL — abort on sustained idle steps (no file changes, no new errors) ──
+        if (progressGuard()) break;
+.length > 0 && totalStepsDone < MAX_STEPS) {
 
         // Emit SSE warning if planner signalled budget exhaustion this iteration
         checkAndEmitBudgetWarning();
@@ -3145,7 +3227,9 @@ export class ExecutionState {
         }
 
         // Normalize all tracked paths to forward slashes
-        const paths = extractPathsFromArgs(tool, args).map(normalizePath);
+        const paths           = extractPathsFromArgs(tool, args).map(normalizePath);
+        const prevModifiedSize = this.filesModified.size;
+        const prevErrorCount   = this.errors.length;
 
         if (tool === "project_read_files") {
             paths.forEach(p => this.filesRead.add(p));
@@ -3176,6 +3260,12 @@ export class ExecutionState {
                 stepIndex
             });
         }
+
+        // Idle-step tracking: reset on meaningful progress, increment otherwise.
+        // Used by progressGuard() in agent.js to kill stalled runs.
+        const madeProgress = this.filesModified.size > prevModifiedSize
+            || this.errors.length > prevErrorCount;
+        this.idleSteps = madeProgress ? 0 : this.idleSteps + 1;
     }
 
     /** True if any failure of the given type has occurred this run. */
@@ -3216,6 +3306,9 @@ export function makeExecutionState() {
 export function formatStateForPrompt(state) {
     const lines = [];
 
+    if (state.traceId) {
+        lines.push(`Trace ID: ${state.traceId}`);
+    }
     if (state.filesRead.size > 0) {
         lines.push(`Files read: ${[...state.filesRead].slice(0, 8).join(", ")}`);
     }
@@ -3624,7 +3717,8 @@ export function validateGoal(intent, execState) {
 export function logValidation(intent, result) {
     const icon   = result.passed ? "\u2705" : "\u274C";
     const status = result.passed ? "PASSED" : "FAILED";
-    console.error(`\n[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
+    console.error(`
+[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
     console.error(`[validator]    Reason: ${result.reason}`);
     if (result.suggest) {
         console.error(`[validator]    Suggest: ${result.suggest}`);
@@ -3643,9 +3737,13 @@ export async function validateWithBuild(project, intent, mcpClient) {
     if (intent === "general") {
         return { passed: true, reason: "Read-only intent — build check skipped" };
     }
+    // project_analyze is the only tool this function may call.
+    // Asserting here keeps callTool sites consistent with the allowlist pattern.
+    const ALLOWED = "project_analyze";
     try {
-        const result     = await mcpClient.callTool("project_analyze", { project });
-        const resultText = result?.content?.map(c => c.text || "").join("\n") || "";
+        const result     = await mcpClient.callTool(ALLOWED, { project });
+        const resultText = result?.content?.map(c => c.text || "").join("
+") || "";
         const isClean    = resultText.trim() === ""
             || /static analysis passed/i.test(resultText)
             || /build skipped/i.test(resultText);
@@ -5224,6 +5322,8 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
     let anyFailed = false;
 
     for (const { tool, args } of toolSteps) {
+        assertToolAllowed(tool);  // Hard block — must precede every callTool dispatch
+
         // ExecutionState skip-gate for reads
         if (tool === "project_read_files" && Array.isArray(args?.paths)) {
             const unread = args.paths.filter(p => !execState.hasRead(p));
@@ -5309,6 +5409,7 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
         stepsRun++;
 
         try {
+            assertToolAllowed(toolCall.tool);  // Bug 10 fix — hard block before dispatch
             const result    = await mcpClient.callTool(toolCall.tool, toolCall.args);
             const resultText = result?.content?.map(c => c.text || "").join("
 ").substring(0, 3000) || "";
@@ -5414,13 +5515,15 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
         try {
             console.error(`[uiEdit] Looking up symbol: ${componentName}`);
             const symbolResult = await mcpClient.callTool("project_find_symbol", { project, name: componentName });
-            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("\n") || "";
+            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("
+") || "";
             execState.recordToolCall("project_find_symbol", { project, name: componentName }, symbolText, ++stepsRun);
             results.push(`[project_find_symbol]:
 ${symbolText}`);
 
             // Parse file path from result like: "function Footer  →  src\components\Footer.tsx:116"
-            const pathMatch = symbolText.match(/→\s*([^\n:]+\.(?:tsx?|jsx?|java|kt|py))/);
+            const pathMatch = symbolText.match(/→\s*([^
+:]+\.(?:tsx?|jsx?|java|kt|py))/);
             if (pathMatch) {
                 filePath = pathMatch[1].trim().replace(/\\/g, "/");
                 console.error(`[uiEdit] Found file: ${filePath}`);
@@ -5435,7 +5538,8 @@ ${symbolText}`);
         try {
             console.error(`[uiEdit] Searching for: ${componentName}`);
             const searchResult = await mcpClient.callTool("project_search", { project, query: componentName });
-            const searchText   = searchResult?.content?.map(c => c.text || "").join("\n") || "";
+            const searchText   = searchResult?.content?.map(c => c.text || "").join("
+") || "";
             execState.recordToolCall("project_search", { project, query: componentName }, searchText, ++stepsRun);
 
             // Extract first .tsx/.jsx file from results
@@ -5458,7 +5562,8 @@ ${symbolText}`);
     try {
         console.error(`[uiEdit] Reading file: ${filePath}`);
         const readResult  = await mcpClient.callTool("project_read_files", { project, paths: [filePath] });
-        const readText    = readResult?.content?.map(c => c.text || "").join("\n") || "";
+        const readText    = readResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_read_files", { project, paths: [filePath] }, readText, ++stepsRun);
         results.push(`[project_read_files]:
 ${readText}`);
@@ -5513,7 +5618,9 @@ CRITICAL RULES:
 
 JSON:`;
 
-    const normalizedContent = fileContent.replace(/\r\n/g, "\n");
+    const normalizedContent = fileContent.replace(/\r
+/g, "
+");
 
     // Attempt 1: focused snippet (faster, cheaper)
     const snippet1 = isBottomRequest
@@ -5534,7 +5641,9 @@ JSON:`;
             const parsed = JSON.parse(extracted);
             if (!parsed.search || !parsed.replace) throw new Error("Missing search or replace");
 
-            const normalizedSearch = parsed.search.replace(/\r\n/g, "\n").trim();
+            const normalizedSearch = parsed.search.replace(/\r
+/g, "
+").trim();
             if (!normalizedContent.includes(normalizedSearch)) {
                 console.error(`[uiEdit] Attempt ${attempt}: search string not found — ${normalizedSearch.substring(0, 80)}`);
                 if (attempt < 2) continue;  // retry with full file
@@ -5561,7 +5670,8 @@ JSON:`;
     try {
         console.error(`[uiEdit] Applying str_replace to ${filePath}`);
         const applyResult = await mcpClient.callTool("project_str_replace", editArgs);
-        const applyText   = applyResult?.content?.map(c => c.text || "").join("\n") || "";
+        const applyText   = applyResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_str_replace", editArgs, applyText, ++stepsRun);
         results.push(`[project_str_replace]:
 ${applyText}`);
@@ -5575,8 +5685,10 @@ ${applyText}`);
     let buildPassed = true;
     try {
         console.error(`[uiEdit] Running build verification`);
+        assertToolAllowed("project_build_and_fix");
         const buildResult = await mcpClient.callTool("project_build_and_fix", { project });
-        const buildText   = buildResult?.content?.map(c => c.text || "").join("\n") || "";
+        const buildText   = buildResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_build_and_fix", { project }, buildText, ++stepsRun);
         results.push(`[project_build_and_fix]:
 ${buildText}`);
@@ -6822,8 +6934,40 @@ export const MAX_LLM_CALLS_PER_RUN   = 30;
 export const MAX_TOTAL_TOKENS_PER_RUN = 60000;
 export const MAX_REPLANS              = 3;
 export const MAX_AGENT_STEPS          = 25; // hard cap — agent loop MUST stop after this many steps
+export const MAX_RETRIES              = 2;  // per-step retry cap in executeWithRetry
+
+// Progress heuristic kill — abort if no meaningful progress after N consecutive idle steps
+export const MAX_IDLE_STEPS           = 5;  // steps with no file changes and no new errors
 
 export const CHARS_PER_TOKEN = 4;
+
+// ─── Tool name enum — single source of truth for all tool name strings ────────────────────
+// Use TOOLS.X everywhere instead of bare string literals.
+// Prevents typos, enables IDE autocomplete, and makes allowlists self-consistent.
+export const TOOLS = {
+    REGISTER:          "project_register",
+    SCAN:              "project_scan",
+    READ_FILES:        "project_read_files",
+    APPLY_CHANGES:     "project_apply_changes",
+    STR_REPLACE:       "project_str_replace",
+    SEARCH:            "project_search",
+    APPLY_PATCH:       "project_apply_patch",
+    BUILD:             "project_build",
+    BUILD_AND_FIX:     "project_build_and_fix",
+    INDEX:             "project_index",
+    FIND_SYMBOL:       "project_find_symbol",
+    ANALYZE:           "project_analyze",
+    TEST:              "project_test",
+    DIFF:              "project_diff",
+    GIT_LOG:           "project_git_log",
+    RENAME_SYMBOL:     "project_rename_symbol",
+    RENAME_SYMBOL_ALL: "project_rename_symbol_all",
+    DEP_GRAPH:         "project_dependency_graph",
+    SEMANTIC_SEARCH:   "project_semantic_search",
+    MEMORY_STORE:      "project_memory_store",
+    MEMORY_QUERY:      "project_memory_query",
+    LIST:              "project_list",
+};
 
 // Memory eviction
 export const MEMORY_MAX_ENTRIES = 200;
@@ -13592,94 +13736,131 @@ describe("autoFixLoop error classification (via classifyFailure)", () => {
 ========================================
 FILE: C:\Users\kushp\IdeaProjects\MCP\tests\executionState.test.js
 ========================================
-import { describe, it, expect } from "vitest";
-import { classifyFailure, makeExecutionState } from "../src/agent/executionState.js";
-
-describe("classifyFailure", () => {
-    it("classifies Node.js import errors", () => {
-        expect(classifyFailure("Error: Cannot find module 'express'")).toBe("import_error");
-    });
-
-    it("classifies TypeScript import errors", () => {
-        expect(classifyFailure("Module '\"./foo\"' has no exported member 'Bar'")).toBe("import_error");
-    });
-
-    it("classifies syntax errors", () => {
-        expect(classifyFailure("SyntaxError: Unexpected token ')'")).toBe("syntax_error");
-    });
-
-    it("classifies build failures", () => {
-        expect(classifyFailure("BUILD FAILED: compilation error in Foo.java")).toBe("build_failure");
-    });
-
-    it("classifies runtime TypeErrors", () => {
-        expect(classifyFailure("TypeError: Cannot read properties of undefined")).toBe("runtime_error");
-    });
-
-    it("classifies not-found errors", () => {
-        expect(classifyFailure("File does not exist: src/missing.js")).toBe("not_found");
-    });
-
-    it("classifies permission errors", () => {
-        expect(classifyFailure("EACCES: permission denied")).toBe("permission_error");
-    });
-
-    it("returns unknown_error for unclassified failure signals", () => {
-        expect(classifyFailure("Something went wrong with the error process")).toBe("unknown_error");
-    });
-
-    it("returns null for clean output", () => {
-        expect(classifyFailure("Build successful. 3 files compiled.")).toBeNull();
-        expect(classifyFailure("")).toBeNull();
-        expect(classifyFailure(null)).toBeNull();
-    });
-});
-
-describe("ExecutionState", () => {
-    it("tracks files read", () => {
-        const state = makeExecutionState();
-        state.recordToolCall("project_read_files", { paths: ["src/foo.js"] }, "", 1);
-        expect(state.hasRead("src/foo.js")).toBe(true);
-        expect(state.hasRead("src/bar.js")).toBe(false);
-    });
-
-    it("normalises Windows paths to forward slashes", () => {
-        const state = makeExecutionState();
-        state.recordToolCall("project_read_files", { paths: ["src\\foo.js"] }, "", 1);
-        expect(state.hasRead("src/foo.js")).toBe(true);
-    });
-
-    it("tracks files modified via str_replace", () => {
-        const state = makeExecutionState();
-        state.recordToolCall(
-            "project_str_replace",
-            { edits: [{ path: "src/bar.js", search: "x", replace: "y" }] },
-            "", 1
-        );
-        expect(state.hasModified("src/bar.js")).toBe(true);
-        expect(state.hasRead("src/bar.js")).toBe(true);   // modified implies read
-    });
-
-    it("classifies and records errors from tool results", () => {
-        const state = makeExecutionState();
-        state.recordToolCall("project_build", {}, "BUILD FAILED: error in Foo.java", 2);
-        expect(state.lastError()).not.toBeNull();
-        expect(state.lastError().type).toBe("build_failure");
-    });
-
-    it("returns null lastError when no errors occurred", () => {
-        const state = makeExecutionState();
-        state.recordToolCall("project_scan", {}, "OK", 1);
-        expect(state.lastError()).toBeNull();
-    });
-
-    it("caches idempotent read results", () => {
-        const state = makeExecutionState();
-        const args  = { project: "jsv", paths: ["src/foo.js"] };
-        state.recordToolCall("project_read_files", args, "file content", 1);
-        expect(state.getCachedResult("project_read_files", args)).toBe("file content");
-    });
-});
+import { describe, it, expect } from "vitest";/n
+import { classifyFailure, makeExecutionState } from "../src/agent/executionState.js";/n
+/n
+describe("classifyFailure", () => {/n
+    it("classifies Node.js import errors", () => {/n
+        expect(classifyFailure("Error: Cannot find module 'express'")).toBe("import_error");/n
+    });/n
+/n
+    it("classifies TypeScript import errors", () => {/n
+        expect(classifyFailure("Module '\"./foo\"' has no exported member 'Bar'")).toBe("import_error");/n
+    });/n
+/n
+    it("classifies syntax errors", () => {/n
+        expect(classifyFailure("SyntaxError: Unexpected token ')'")).toBe("syntax_error");/n
+    });/n
+/n
+    it("classifies build failures", () => {/n
+        expect(classifyFailure("BUILD FAILED: compilation error in Foo.java")).toBe("build_failure");/n
+    });/n
+/n
+    it("classifies runtime TypeErrors", () => {/n
+        expect(classifyFailure("TypeError: Cannot read properties of undefined")).toBe("runtime_error");/n
+    });/n
+/n
+    it("classifies not-found errors", () => {/n
+        expect(classifyFailure("File does not exist: src/missing.js")).toBe("not_found");/n
+    });/n
+/n
+    it("classifies permission errors", () => {/n
+        expect(classifyFailure("EACCES: permission denied")).toBe("permission_error");/n
+    });/n
+/n
+    it("returns unknown_error for unclassified failure signals", () => {/n
+        expect(classifyFailure("Something went wrong with the error process")).toBe("unknown_error");/n
+    });/n
+/n
+    it("returns null for clean output", () => {/n
+        expect(classifyFailure("Build successful. 3 files compiled.")).toBeNull();/n
+        expect(classifyFailure("")).toBeNull();/n
+        expect(classifyFailure(null)).toBeNull();/n
+    });/n
+});/n
+/n
+describe("ExecutionState", () => {/n
+    it("tracks files read", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall("project_read_files", { paths: ["src/foo.js"] }, "", 1);/n
+        expect(state.hasRead("src/foo.js")).toBe(true);/n
+        expect(state.hasRead("src/bar.js")).toBe(false);/n
+    });/n
+/n
+    it("normalises Windows paths to forward slashes", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall("project_read_files", { paths: ["src\\foo.js"] }, "", 1);/n
+        expect(state.hasRead("src/foo.js")).toBe(true);/n
+    });/n
+/n
+    it("tracks files modified via str_replace", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall(/n
+            "project_str_replace",/n
+            { edits: [{ path: "src/bar.js", search: "x", replace: "y" }] },/n
+            "", 1/n
+        );/n
+        expect(state.hasModified("src/bar.js")).toBe(true);/n
+        expect(state.hasRead("src/bar.js")).toBe(true);   // modified implies read/n
+    });/n
+/n
+    it("classifies and records errors from tool results", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall("project_build", {}, "BUILD FAILED: error in Foo.java", 2);/n
+        expect(state.lastError()).not.toBeNull();/n
+        expect(state.lastError().type).toBe("build_failure");/n
+    });/n
+/n
+    it("returns null lastError when no errors occurred", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall("project_scan", {}, "OK", 1);/n
+        expect(state.lastError()).toBeNull();/n
+    });/n
+/n
+    it("caches idempotent read results", () => {/n
+        const state = makeExecutionState();/n
+        const args  = { project: "jsv", paths: ["src/foo.js"] };/n
+        state.recordToolCall("project_read_files", args, "file content", 1);/n
+        expect(state.getCachedResult("project_read_files", args)).toBe("file content");/n
+    });/n
+/n
+    it("assigns a unique traceId to each run", () => {/n
+        const s1 = makeExecutionState();/n
+        const s2 = makeExecutionState();/n
+        expect(typeof s1.traceId).toBe("string");/n
+        expect(s1.traceId.length).toBeGreaterThan(0);/n
+        expect(s1.traceId).not.toBe(s2.traceId);/n
+    });/n
+/n
+    it("increments idleSteps when no file changes or new errors occur", () => {/n
+        const state = makeExecutionState();/n
+        // read-only step: no file modification, no error/n
+        state.recordToolCall("project_scan", {}, "OK", 1);/n
+        expect(state.idleSteps).toBe(1);/n
+        state.recordToolCall("project_scan", {}, "OK", 2);/n
+        expect(state.idleSteps).toBe(2);/n
+    });/n
+/n
+    it("resets idleSteps to 0 when a file is modified", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall("project_scan", {}, "OK", 1);  // idle/n
+        expect(state.idleSteps).toBe(1);/n
+        state.recordToolCall(/n
+            "project_str_replace",/n
+            { edits: [{ path: "src/x.js", search: "a", replace: "b" }] },/n
+            "ok", 2/n
+        );/n
+        expect(state.idleSteps).toBe(0);  // progress made/n
+    });/n
+/n
+    it("resets idleSteps to 0 when a new error is recorded", () => {/n
+        const state = makeExecutionState();/n
+        state.recordToolCall("project_scan", {}, "OK", 1);  // idle/n
+        expect(state.idleSteps).toBe(1);/n
+        state.recordToolCall("project_build", {}, "BUILD FAILED", 2);  // new error/n
+        expect(state.idleSteps).toBe(0);/n
+    });/n
+});/n
 
 
 ========================================

@@ -1,14 +1,8 @@
-/**
- * patch-agent.js
- *
- * One-shot script: injects the stepCapGuard() call into the
- * `while (remainingSteps.length > 0)` loop in src/agent/agent.js.
- *
- * Run ONCE from the project root:
- *   node patch-agent.js
- *
- * Safe to re-run — skips if guard is already present.
- */
+// patch-agent.js has been deleted.
+// stepCapGuard() is now permanently embedded in src/agent/agent.js source.
+// See: while (remainingSteps.length > 0) { if (stepCapGuard()) break; ... }
+// This file is intentionally left as a tombstone to prevent accidental re-creation.
+// Safe to delete this file entirely.
 
 import fs from "fs";
 import path from "path";
@@ -33,9 +27,12 @@ if (src.includes("stepCapGuard()") && src.includes("HARD STEP CAP")) {
 // Target: the opening of the while loop — inject guard as FIRST statement
 const WHILE_OPEN = "while (remainingSteps.length > 0) {";
 const GUARD_BLOCK =
-    "while (remainingSteps.length > 0) {\n" +
-    "        // ── HARD STEP CAP ── Must be first check — no bypass, no exception\n" +
-    "        if (stepCapGuard()) break;\n";
+    "while (remainingSteps.length > 0) {
+" +
+    "        // ── HARD STEP CAP ── Must be first check — no bypass, no exception
+" +
+    "        if (stepCapGuard()) break;
+";
 
 if (!src.includes(WHILE_OPEN)) {
     console.error("[patch-agent] ERROR: Could not find while loop anchor. Pattern not found:");

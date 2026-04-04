@@ -23,18 +23,25 @@ const SEARCH_DIRS = [
  * Normalize a string for comparison without destroying code content.
  *
  * - CRLF / bare CR  → LF           (line-ending portability)
- * - JSON-escaped \n → real newline  (LLM often emits \n literally)
- * - JSON-escaped \t → real tab      (same reason)
+ * - JSON-escaped 
+ → real newline  (LLM often emits 
+ literally)
+ * - JSON-escaped 	 → real tab      (same reason)
  *
  * NOT trimmed — leading/trailing whitespace is meaningful in code.
  * NOT collapsed — collapsing spaces would destroy indentation.
  */
 function normalize(s) {
     return s
-        .replace(/\r\n/g, "\n")   // CRLF → LF
-        .replace(/\r/g,   "\n")   // bare CR → LF
-        .replace(/\\n/g,  "\n")   // JSON-escaped newline → real newline
-        .replace(/\\t/g,  "\t");  // JSON-escaped tab → real tab
+        .replace(/\r
+/g, "
+")   // CRLF → LF
+        .replace(/\r/g,   "
+")   // bare CR → LF
+        .replace(/\
+/g,  "
+")   // JSON-escaped newline → real newline
+        .replace(/\	/g,  "	");  // JSON-escaped tab → real tab
 }
 
 /**
@@ -66,9 +73,11 @@ function escapeRegex(s) {
  * produce too many false positives.
  */
 function fuzzyLineMatch(fileContent, searchStr) {
-    const fileLines   = fileContent.split("\n");
+    const fileLines   = fileContent.split("
+");
     const searchLines = searchStr
-        .split("\n")
+        .split("
+")
         .map(l => l.trimEnd())
         .filter(l => l.trim().length > 0);
 
@@ -83,7 +92,8 @@ function fuzzyLineMatch(fileContent, searchStr) {
             }
         }
         if (matched) {
-            return fileLines.slice(i, i + searchLines.length).join("\n");
+            return fileLines.slice(i, i + searchLines.length).join("
+");
         }
     }
     return null;
@@ -174,7 +184,8 @@ function resolveFilePath(root, relativePath) {
     }
 
     throw new Error(
-        `File not found: "${relativePath}".\n` +
+        `File not found: "${relativePath}".
+` +
         `Tip: use the relative path from the project root, e.g. "src/utils/auth.js"`,
     );
 }
@@ -204,20 +215,26 @@ function validateEdit(edit, index) {
  * found in the file so the agent can re-anchor its search string.
  */
 function buildNotFoundError(relativePath, search, normalizedFile, normalizedSearch) {
-    const searchLines = normalizedSearch.split("\n");
+    const searchLines = normalizedSearch.split("
+");
     const firstLine   = searchLines[0].trim();
     const hintIdx     = normalizedFile.indexOf(firstLine);
 
     const hint = hintIdx !== -1
-        ? `\nFirst line found at char ${hintIdx}: ` +
-        `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/\n/g, "↵")}"`
+        ? `
+First line found at char ${hintIdx}: ` +
+        `"${normalizedFile.slice(hintIdx, hintIdx + 120).replace(/
+/g, "↵")}"`
         : "No partial match found — the file may have changed since it was read.";
 
     return new Error(
-        `Search string not found in "${relativePath}".\n` +
-        `Searched (first 150 chars): "${search.slice(0, 150).replace(/\n/g, "↵")}"` +
+        `Search string not found in "${relativePath}".
+` +
+        `Searched (first 150 chars): "${search.slice(0, 150).replace(/
+/g, "↵")}"` +
         hint +
-        `\nFix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
+        `
+Fix: call project_read_files on "${relativePath}" to get current content, then retry str_replace.`,
     );
 }
 
@@ -241,7 +258,8 @@ function computeImpact(project, editedPaths) {
 
         if (allAffected.size === 0) return [];
 
-        const lines = ["\nImpact analysis — files that import the edited file(s):"];
+        const lines = ["
+Impact analysis — files that import the edited file(s):"];
         [...allAffected]
             .slice(0, MAX_IMPACT_DISPLAYED)
             .forEach(f => lines.push(`  - ${f}`));
@@ -292,7 +310,8 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
     const matchCount = (normalizedFile.match(new RegExp(escapeRegex(effectiveSearch), "g")) || []).length;
     if (matchCount > 1) {
         throw new Error(
-            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".\n` +
+            `Ambiguous edit: search string appears ${matchCount} times in "${relativePath}".
+` +
             `Make the search string longer/more specific so it matches exactly once.`,
         );
     }
@@ -300,11 +319,21 @@ function applyEditInMemory(relativePath, rawOriginal, search, replace) {
     // ── Apply replacement, always write LF-only ───────────────────────────
     return normalizedFile
         .replace(effectiveSearch, normalizedReplace)
-        .replace(/\r\n/g, "\n")
-        .replace(/\r/g, "\n");
+        .replace(/\r
+/g, "
+")
+        .replace(/\r/g, "
+");
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
+// ── Snapshot-file guard ───────────────────────────────────────────────────────
+// combined_code.txt is a read-only snapshot artifact generated by export-project.ps1.
+// Editing it instead of real source files is a silent bug that leaves the codebase
+// out of sync. Reject any attempt to edit it so the agent is forced to target the
+// correct file under src/ or tests/.
+const SNAPSHOT_FILES = ["combined_code.txt"];
 
 export function projectStrReplace({ project, edits, commitMessage }) {
     // ── Input validation ──────────────────────────────────────────────────
@@ -313,6 +342,18 @@ export function projectStrReplace({ project, edits, commitMessage }) {
     }
     if (!Array.isArray(edits) || edits.length === 0) {
         throw new Error("edits must be a non-empty array");
+    }
+
+    // Block edits to snapshot / artifact files — they are not source of truth.
+    for (const edit of edits) {
+        const basename = (edit.path || "").replace(/\\/g, "/").split("/").pop();
+        if (SNAPSHOT_FILES.includes(basename)) {
+            throw new Error(
+                `Refusing to edit snapshot file "${edit.path}". ` +
+                `This file is generated by export-project.ps1 and is not source of truth. ` +
+                `Edit the real source file under src/ or tests/ instead.`,
+            );
+        }
     }
     if (edits.length > MAX_EDITS_PER_CALL) {
         throw new Error(
@@ -359,7 +400,9 @@ export function projectStrReplace({ project, edits, commitMessage }) {
         return {
             content: [{
                 type: "text",
-                text: `str-replace applied (no net change):\n${results.join("\n")}`,
+                text: `str-replace applied (no net change):
+${results.join("
+")}`,
             }],
         };
     }
@@ -373,7 +416,10 @@ export function projectStrReplace({ project, edits, commitMessage }) {
     return {
         content: [{
             type: "text",
-            text: `str-replace applied:\n${results.join("\n")}${impactLines.join("\n")}`,
+            text: `str-replace applied:
+${results.join("
+")}${impactLines.join("
+")}`,
         }],
     };
 }

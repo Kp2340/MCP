@@ -67,13 +67,15 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
         try {
             console.error(`[uiEdit] Looking up symbol: ${componentName}`);
             const symbolResult = await mcpClient.callTool("project_find_symbol", { project, name: componentName });
-            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("\n") || "";
+            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("
+") || "";
             execState.recordToolCall("project_find_symbol", { project, name: componentName }, symbolText, ++stepsRun);
             results.push(`[project_find_symbol]:
 ${symbolText}`);
 
             // Parse file path from result like: "function Footer  →  src\components\Footer.tsx:116"
-            const pathMatch = symbolText.match(/→\s*([^\n:]+\.(?:tsx?|jsx?|java|kt|py))/);
+            const pathMatch = symbolText.match(/→\s*([^
+:]+\.(?:tsx?|jsx?|java|kt|py))/);
             if (pathMatch) {
                 filePath = pathMatch[1].trim().replace(/\\/g, "/");
                 console.error(`[uiEdit] Found file: ${filePath}`);
@@ -88,7 +90,8 @@ ${symbolText}`);
         try {
             console.error(`[uiEdit] Searching for: ${componentName}`);
             const searchResult = await mcpClient.callTool("project_search", { project, query: componentName });
-            const searchText   = searchResult?.content?.map(c => c.text || "").join("\n") || "";
+            const searchText   = searchResult?.content?.map(c => c.text || "").join("
+") || "";
             execState.recordToolCall("project_search", { project, query: componentName }, searchText, ++stepsRun);
 
             // Extract first .tsx/.jsx file from results
@@ -111,7 +114,8 @@ ${symbolText}`);
     try {
         console.error(`[uiEdit] Reading file: ${filePath}`);
         const readResult  = await mcpClient.callTool("project_read_files", { project, paths: [filePath] });
-        const readText    = readResult?.content?.map(c => c.text || "").join("\n") || "";
+        const readText    = readResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_read_files", { project, paths: [filePath] }, readText, ++stepsRun);
         results.push(`[project_read_files]:
 ${readText}`);
@@ -166,7 +170,9 @@ CRITICAL RULES:
 
 JSON:`;
 
-    const normalizedContent = fileContent.replace(/\r\n/g, "\n");
+    const normalizedContent = fileContent.replace(/\r
+/g, "
+");
 
     // Attempt 1: focused snippet (faster, cheaper)
     const snippet1 = isBottomRequest
@@ -187,7 +193,9 @@ JSON:`;
             const parsed = JSON.parse(extracted);
             if (!parsed.search || !parsed.replace) throw new Error("Missing search or replace");
 
-            const normalizedSearch = parsed.search.replace(/\r\n/g, "\n").trim();
+            const normalizedSearch = parsed.search.replace(/\r
+/g, "
+").trim();
             if (!normalizedContent.includes(normalizedSearch)) {
                 console.error(`[uiEdit] Attempt ${attempt}: search string not found — ${normalizedSearch.substring(0, 80)}`);
                 if (attempt < 2) continue;  // retry with full file
@@ -214,7 +222,8 @@ JSON:`;
     try {
         console.error(`[uiEdit] Applying str_replace to ${filePath}`);
         const applyResult = await mcpClient.callTool("project_str_replace", editArgs);
-        const applyText   = applyResult?.content?.map(c => c.text || "").join("\n") || "";
+        const applyText   = applyResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_str_replace", editArgs, applyText, ++stepsRun);
         results.push(`[project_str_replace]:
 ${applyText}`);
@@ -228,8 +237,10 @@ ${applyText}`);
     let buildPassed = true;
     try {
         console.error(`[uiEdit] Running build verification`);
+        assertToolAllowed("project_build_and_fix");
         const buildResult = await mcpClient.callTool("project_build_and_fix", { project });
-        const buildText   = buildResult?.content?.map(c => c.text || "").join("\n") || "";
+        const buildText   = buildResult?.content?.map(c => c.text || "").join("
+") || "";
         execState.recordToolCall("project_build_and_fix", { project }, buildText, ++stepsRun);
         results.push(`[project_build_and_fix]:
 ${buildText}`);

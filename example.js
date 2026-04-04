@@ -41,10 +41,10 @@ async function exampleStream() {
 ── Example 1: Submit + stream ────────────────────────
 ");
 
-    const jobId = await client.runTask(
-        "Fix the login bug — form is not validating email format",
-        "jsv"
-    );
+    const jobId = await client.runTask({
+        prompt:        "Fix the login bug — form is not validating email format",
+        workspacePath: process.env.WORKSPACE_PATH || "jsv",
+    });
 
     console.log(`Job ID: ${jobId}`);
     console.log("Streaming logs...

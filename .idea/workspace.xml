@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-4.8">
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="fix: start.bat broken on Windows — replace Unix-style .env loader with safe Windows cmd parsing">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/combined_code.txt" beforeDir="false" afterPath="$PROJECT_DIR$/combined_code.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/http/jobRoutes.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/http/jobRoutes.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/combined_code.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent/executionState.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent/executionState.js" afterDir="false" />
     </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
@@ -50,12 +50,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="Remove project name field from IntelliJ plugin settings and UI — project is always derived server-side from the registered project name using project.name" />
-        <option name="rewordedMessage" value="MCP-4.12" />
+        <option name="originalMessage" value="MCP-4.13" />
+        <option name="rewordedMessage" value="MCP-4.13" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="712aeda35fd97bf943982b1369ad0ca1a52f03a9" />
+    <option name="onto" value="2044bd94a2cdc9f0e3cfee3668b8aa68ca27eb91" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -90,6 +90,7 @@
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "dart.analysis.tool.window.visible": "false",
@@ -338,7 +339,23 @@
       <option name="project" value="LOCAL" />
       <updated>1775134369653</updated>
     </task>
-    <option name="localTasksCounter" value="18" />
+    <task id="LOCAL-00018" summary="MCP-4.12">
+      <option name="closed" value="true" />
+      <created>1775321652069</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1775321652069</updated>
+    </task>
+    <task id="LOCAL-00019" summary="fix: start.bat broken on Windows — replace Unix-style .env loader with safe Windows cmd parsing">
+      <option name="closed" value="true" />
+      <created>1775322345673</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1775322345673</updated>
+    </task>
+    <option name="localTasksCounter" value="20" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -371,8 +388,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="MCP-3.3" />
-    <MESSAGE value="MCP-3.3" />
     <MESSAGE value="MCP-3.4" />
     <MESSAGE value="MCP-3.6" />
     <MESSAGE value="MCP-3.7" />
@@ -396,7 +411,9 @@
     <MESSAGE value="MCP-4.9" />
     <MESSAGE value="MCP-4.10" />
     <MESSAGE value="MCP-4.12" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.12" />
+    <MESSAGE value="fix: start.bat broken on Windows — replace Unix-style .env loader with safe Windows cmd parsing" />
+    <MESSAGE value="MCP-4.13" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.13" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
