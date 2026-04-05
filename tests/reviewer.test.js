@@ -7,9 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock ollamaClient before importing reviewer
+// Mock ollamaClient AND isOllamaAvailable so llmClient never falls through
+// to the real Gemini API in environments where Ollama is not running.
 vi.mock("../src/agent/ollamaClient.js", () => ({
-    askLLM: vi.fn()
+    askLLM: vi.fn(),
+    isOllamaAvailable: vi.fn().mockResolvedValue({ available: true, models: ["test-model"] })
 }));
 
 import { askLLM } from "../src/agent/ollamaClient.js";

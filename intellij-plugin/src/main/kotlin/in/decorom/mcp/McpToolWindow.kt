@@ -272,8 +272,7 @@ class McpToolWindow(private val project: Project) {
         val jobId = activeJobId ?: return
         val useHard = Messages.showYesNoDialog(
             project,
-            "Hard reset removes all uncommitted changes and cannot be undone.
-" +
+            "Hard reset removes all uncommitted changes and cannot be undone.\n" +
             "Use safe revert (creates an undo-commit) instead?",
             "Revert strategy",
             "Safe revert", "Hard reset", null
@@ -461,8 +460,7 @@ class McpToolWindow(private val project: Project) {
         sdoc.remove(0, sdoc.length)
 
         if (rawDiff.isBlank()) {
-            appendStyled(sdoc, "(no diff — nothing changed or no commits yet)
-", COL_MUTED, false)
+            appendStyled(sdoc, "(no diff — nothing changed or no commits yet)\n", COL_MUTED, false)
             return
         }
 
@@ -473,8 +471,7 @@ class McpToolWindow(private val project: Project) {
                 line.startsWith("@@")                           -> Pair(COL_DIFF_HNK, true)
                 else                                            -> Pair(COL_INFO,      false)
             }
-            appendStyled(sdoc, line + "
-", color, bold)
+            appendStyled(sdoc, line + "\n", color, bold)
         }
 
         // Scroll to top after render
@@ -502,15 +499,11 @@ class McpToolWindow(private val project: Project) {
         val filePath  = editor.virtualFile?.path
 
         return buildString {
-            if (filePath != null) append("[file: $filePath]
-")
+            if (filePath != null) append("[file: $filePath]\n")
             if (!selection.isNullOrBlank()) {
-                append("[selected code]
-")
+                append("[selected code]\n")
                 append(selection.take(4_000))   // cap at 4 KB to avoid prompt bloat
-                append("
-[/selected code]
-")
+                append("\n[/selected code]\n")
             }
             append(prompt)
         }
@@ -527,8 +520,7 @@ class McpToolWindow(private val project: Project) {
             else    -> COL_INFO
         }
         val sdoc = logPane.styledDocument
-        appendStyled(sdoc, text.trimEnd() + "
-", color, false)
+        appendStyled(sdoc, text.trimEnd() + "\n", color, false)
         // Auto-scroll to bottom
         logPane.caretPosition = sdoc.length
     }

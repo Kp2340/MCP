@@ -1,0 +1,13 @@
+[
+  {
+    "id": "job_1775393435321_4l7vyj",
+    "prompt": "analyse this already registered project: mcp",
+    "project": "jsv",
+    "status": "failed",
+    "createdAt": 1775393435321,
+    "startedAt": 1775393435324,
+    "endedAt": 1775393435363,
+    "result": null,
+    "error": "Invalid or unexpected token"
+  }
+]

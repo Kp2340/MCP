@@ -143,14 +143,19 @@ export function attachWorkspaceRoutes(app) {
         // Buffer the incoming zip (raw body)
         const chunks = [];
         let totalBytes = 0;
+        let oversized  = false;
         for await (const chunk of req) {
             totalBytes += chunk.length;
             if (totalBytes > MAX_BYTES) {
-                res.status(413).json({ error: `Project zip exceeds ${MAX_MB}MB limit` });
-                req.destroy();
-                return;
+                oversized = true;
+                break;
             }
             chunks.push(chunk);
+        }
+        if (oversized) {
+            // Drain remaining data so the socket is cleanly closed before responding
+            req.resume();
+            return res.status(413).json({ error: `Project zip exceeds ${MAX_MB}MB limit` });
         }
 
         const zipBuffer = Buffer.concat(chunks);

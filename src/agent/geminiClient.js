@@ -24,7 +24,15 @@ export async function isGeminiAvailable() {
         if (!config.GEMINI_API_KEY) {
             return { available: false, models: [], error: "GEMINI_API_KEY not set" };
         }
-        // As long as the key is present, we assume availability.
+        // Perform a lightweight probe to verify the key works.
+        // A failed ping (wrong/expired key) is caught and reported as unavailable
+        // instead of silently returning available=true and failing later.
+        const client = getClient();
+        const model  = client.getGenerativeModel({ model: config.LLM_MODEL || "gemini-1.5-flash" });
+        await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: "ping" }] }],
+            generationConfig: { maxOutputTokens: 1 }
+        });
         return { available: true, models: [config.LLM_MODEL || "gemini-1.5-flash"] };
     } catch (err) {
         return { available: false, models: [], error: err.message };

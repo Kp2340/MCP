@@ -4,7 +4,20 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="fix: memory.js — corrupted literal newline in join() call" />
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="fix: memory.js — corrupted literal newline in join() call">
+      <change afterPath="$PROJECT_DIR$/data/jobs.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/vscode-extension/aidev-mcp-1.7.0.vsix" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.bin" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.bin" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.bin" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.bin" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/resourceHashesCache.bin" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/resourceHashesCache.bin" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/file-system.probe" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/file-system.probe" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/.intellijPlatform/self-update.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.intellijPlatform/self-update.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpToolWindow.kt" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpToolWindow.kt" afterDir="false" />
+    </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -46,12 +59,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="fix: rewrite projectStrReplace — remove stale SNAPSHOT_FILES ref, add full blocked-file guard + path-traversal check" />
-        <option name="rewordedMessage" value="MCP-4.16" />
+        <option name="originalMessage" value="MCP-4.17" />
+        <option name="rewordedMessage" value="MCP-4.17" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="7e844eab5c340aa956b794beedf275888cdfa816" />
+    <option name="onto" value="0f133dd32ad4cdd7216a4dbce37655b4f5da6251" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -106,7 +119,7 @@
     &quot;project.structure.last.edited&quot;: &quot;Project&quot;,
     &quot;project.structure.proportion&quot;: &quot;0.0&quot;,
     &quot;project.structure.side.proportion&quot;: &quot;0.44827586&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;in.decorom.mcp.settings&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
     &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
     &quot;vcs.patch.path&quot;: &quot;C:/Users/kushp/Downloads&quot;,
@@ -155,13 +168,6 @@
       <method v="2" />
     </configuration>
     <configuration default="true" type="LiferayServerConfiguration" factoryName="Liferay Server">
-      <Liferay-Sever alternativeJrePath="" bundleLocation="" bundleType="" developerMode="true" gogoShellPort="11311" vmParameters="-Xmx2560m -XX:MaxMetaspaceSize=768m -XX:MetaspaceSize=768m">
-        <envs>
-          <env name="PATH" value="$PROJECT_DIR$/../../../../Program Files/Java/jdk-24/bin:C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\libnvvp;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\dotnet\;C:\ProgramData\chocolatey\bin;C:\Program Files (x86)\apache-maven-3.9.9\bin;C:\Program Files\Git\cmd;J:\heroku\bin;C:\OpenSSL-Win64\bin;C:\Program Files\OpenSSL-Win64\bin;G:\Secret Invasion S01 (2023) 1080p\shubh\Decorom Agent\ffmpeg\bin;C:\Program Files (x86)\cloudflared\;C:\Program Files\Java\jdk-21\bin;C:\Users\kushp\.jpm\windows\bin;C:\Program Files\nodejs\;C:\poppler-25.12.0\Library\bin;C:\Gradle\gradle-9.4.1\bin;;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\PowerShell\7\;C:\Users\kushp\AppData\Local\Programs\Python\Python311\Scripts\;C:\Users\kushp\AppData\Local\Programs\Python\Python311\;C:\Users\kushp\AppData\Local\Microsoft\WindowsApps;J:\IntelliJ IDEA 2024.3.2.2\bin;C:\Users\kushp\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v3.1;C:\Program Files\MySQL\MySQL Server 8.0\bin;C:\Users\kushp\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\kushp\.lmstudio\bin;J:\pgAdmin 4\runtime\resources\app\node_modules\.bin;C:\Program Files\PostgreSQL\17\bin;C:\Program Files (x86)\apache-maven-3.9.9\bin;J:\heroku\bin;C:\Users\kushp\.dotnet\tools;C:\Program Files\Java\jdk-21\bin;C:\Users\kushp\AppData\Roaming\npm;C:\Users\kushp\AppData\Local\Programs\cursor\resources\app\bin;C:\Program Files\JetBrains\IntelliJ IDEA 2025.3\bin;G:\Antigravity\bin;C:\Users\kushp\AppData\Local\Microsoft\WinGet\Links;;C:\Users\kushp\AppData\Local\Programs\Ollama" />
-          <env name="JAVA_HOME" value="$PROJECT_DIR$/../../../../Program Files/Java/jdk-24" />
-        </envs>
-        <module name="mcp" />
-      </Liferay-Sever>
       <method v="2" />
     </configuration>
   </component>
@@ -208,6 +214,7 @@
       <workItem from="1775198310273" duration="31000" />
       <workItem from="1775208174596" duration="2829000" />
       <workItem from="1775215970634" duration="5708000" />
+      <workItem from="1775391874340" duration="2410000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -410,7 +417,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="MCP-3.5" />
     <MESSAGE value="MCP-3.9" />
     <MESSAGE value="MCP-3.10" />
     <MESSAGE value="MCP-3.12" />
@@ -435,7 +441,8 @@
     <MESSAGE value="fix: rewrite projectStrReplace — remove stale SNAPSHOT_FILES ref, add full blocked-file guard + path-traversal check" />
     <MESSAGE value="fix: memory.js — corrupted literal newline in join() call" />
     <MESSAGE value="MCP-4.16" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.16" />
+    <MESSAGE value="MCP-4.17" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.17" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

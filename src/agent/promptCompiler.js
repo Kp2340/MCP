@@ -45,7 +45,8 @@ function tokens(text) {
 function truncate(text, maxTokens) {
     const maxChars = maxTokens * CHARS_PER_TOKEN;
     if (!text || text.length <= maxChars) return text || "";
-    return text.substring(0, maxChars) + "\n... [truncated]";
+    return text.substring(0, maxChars) + "
+... [truncated]";
 }
 
 /**
@@ -102,7 +103,8 @@ function readCurrentFile(projectName, relativePath) {
         if (!fs.existsSync(fullPath)) return null;
         const content = fs.readFileSync(fullPath, "utf-8");
         return content.length > MAX_FILE_SIZE
-            ? content.substring(0, MAX_FILE_SIZE) + "\n... [file truncated at 12KB]"
+            ? content.substring(0, MAX_FILE_SIZE) + "
+... [file truncated at 12KB]"
             : content;
     } catch {
         return null;
@@ -120,11 +122,12 @@ function detectTargetFiles(step, execState) {
     const pathMatches = step.match(/[\w./\\-]+\.(?:js|jsx|ts|tsx|java|py|kt|go|rb|rs|xml|json|md)/g) || [];
     targets.push(...pathMatches);
 
-    // Recently modified files are almost always relevant to the next step
+    // Recently modified files are almost always relevant to the next step.
+    // Use the full relative path (not just basename) so readCurrentFile() can
+    // locate the file correctly under the project root.
     if (execState) {
         for (const f of execState.filesModified) {
-            const rel = f.includes("/") || f.includes("\\") ? path.basename(f) : f;
-            if (!targets.includes(rel)) targets.push(rel);
+            if (!targets.includes(f)) targets.push(f);
         }
     }
 
@@ -160,7 +163,8 @@ export function compilePrompt({
     const sections = [];
 
     // ── 1. Task header (always included) ────────────────────────────────────
-    const taskHeader = `Task: ${taskDescription}\nCurrent step: ${step}`;
+    const taskHeader = `Task: ${taskDescription}
+Current step: ${step}`;
     sections.push({ label: "TASK", content: taskHeader, priority: 100 });
     usedTokens += tokens(taskHeader);
 
@@ -176,7 +180,8 @@ export function compilePrompt({
             stateLines.push(`Last error: [${lastErr.type}] ${String(lastErr.text).substring(0, 200)}`);
         }
         if (stateLines.length > 0) {
-            const stateBlock = stateLines.join("\n");
+            const stateBlock = stateLines.join("
+");
             sections.push({ label: "STATE", content: stateBlock, priority: 90 });
             usedTokens += tokens(stateBlock);
         }
@@ -194,14 +199,18 @@ export function compilePrompt({
         const snippet = truncate(content, MAX_FILE_TOKENS);
         const cost = tokens(snippet);
         if (usedTokens + cost > usable) break;
-        fileContents.push(`// ${filePath}\n${snippet}`);
+        fileContents.push(`// ${filePath}
+${snippet}`);
         usedTokens += cost;
     }
 
     if (fileContents.length > 0) {
         sections.push({
             label: "CURRENT FILE CONTENTS",
-            content: fileContents.join("\n\n---\n"),
+            content: fileContents.join("
+
+---
+"),
             priority: 85
         });
     }
@@ -211,7 +220,8 @@ export function compilePrompt({
         const errorText = execState.errors
             .slice(-2)
             .map(e => `[${e.type}] ${e.text}`)
-            .join("\n");
+            .join("
+");
         const snippet = truncate(errorText, MAX_ERROR_TOKENS);
         const cost = tokens(snippet);
         if (usedTokens + cost <= usable) {
@@ -258,8 +268,11 @@ export function compilePrompt({
     sections.sort((a, b) => b.priority - a.priority);
 
     const body = sections
-        .map(s => `[${s.label}]\n${s.content}`)
-        .join("\n\n");
+        .map(s => `[${s.label}]
+${s.content}`)
+        .join("
+
+");
 
     const stats = {
         totalTokens:  usedTokens,

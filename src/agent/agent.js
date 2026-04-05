@@ -21,14 +21,16 @@ import {
     MAX_TOTAL_TOKENS_PER_RUN,
     MAX_REPLANS,
     MAX_AGENT_STEPS,
+    MAX_RETRIES,
     TOOL_CHAIN_TEMPLATES,
     LLM_MODEL
 } from "../core/constants.js";
+import { validateGoal, logValidation } from "./goalValidator.js";
 
 process.env.NODE_NO_WARNINGS = "1";
 
 const MODEL       = LLM_MODEL;
-// MAX_RETRIES is now imported from constants — single source of truth
+// MAX_RETRIES imported from constants — single source of truth
 // MAX_STEPS  is now MAX_AGENT_STEPS from constants — single source of truth
 
 let mcp;

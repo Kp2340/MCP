@@ -15,6 +15,7 @@
 import { askLLM } from "./llmClient.js";
 import { extractJSON } from "../utils/jsonUtils.js";
 import { LLM_MODEL, NUM_PREDICT } from "../core/constants.js";
+import { assertToolAllowed } from "./toolChainExecutor.js";
 
 const MODEL = LLM_MODEL;
 

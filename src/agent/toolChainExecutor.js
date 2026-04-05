@@ -47,7 +47,7 @@ const ALLOWED_TOOLS = new Set([
  * Throws a descriptive error if the tool is not permitted.
  * @param {string} toolName
  */
-function assertToolAllowed(toolName) {
+export function assertToolAllowed(toolName) {
     if (!ALLOWED_TOOLS.has(toolName)) {
         throw new Error(
             `[toolChain] Tool "${toolName}" is not in ALLOWED_TOOLS. ` +
