@@ -27,7 +27,7 @@
  *   - Zip path traversal attack prevented (entries normalised + validated)
  */
 
-import fs           from "fs";
+import fs, { createReadStream } from "fs";
 import path         from "path";
 import { fileURLToPath } from "url";
 import AdmZip            from "adm-zip";

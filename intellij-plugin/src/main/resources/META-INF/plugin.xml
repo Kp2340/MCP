@@ -24,6 +24,12 @@
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>1.6.0</h3>
+    <ul>
+      <li><b>Fix</b>: POST /run now sends <code>project</code> field instead of <code>path</code> (server API alignment)</li>
+      <li><b>Fix</b>: SSE event parsing handles CRLF line endings correctly on Windows</li>
+      <li>Version sync between build.gradle.kts and plugin.xml</li>
+    </ul>
     <h3>1.5.0</h3>
     <ul>
       <li><b>Inline editor actions</b> — right-click any code: Fix with MCP, Explain, Refactor, Write Tests</li>

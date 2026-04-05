@@ -1,39 +1,34 @@
 {
   "name": "aidev-mcp",
   "displayName": "AI Dev MCP",
-  "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access. Works on Windows, macOS and Linux.",
-  "version": "1.6.0",
+  "description": "Connect VS Code to your self-hosted AI coding agent. Runs Qwen2.5 locally via Ollama — no cloud, no tokens, full codebase access.",
+  "version": "1.7.0",
   "publisher": "kush-patel",
   "license": "MIT",
   "icon": "icon.png",
-  "galleryBanner": {
-    "color": "#1a1a2e",
-    "theme": "dark"
-  },
+  "galleryBanner": { "color": "#1a1a2e", "theme": "dark" },
   "repository": { "type": "git", "url": "https://github.com/Kp2340/MCP" },
   "homepage": "https://github.com/Kp2340/MCP#readme",
   "bugs": { "url": "https://github.com/Kp2340/MCP/issues" },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Other"],
-  "keywords": [
-    "mcp", "ai", "coding assistant", "ollama", "qwen",
-    "local ai", "private ai", "automation", "agent", "self-hosted"
-  ],
+  "keywords": ["mcp", "ai", "coding assistant", "ollama", "qwen", "local ai", "private ai", "automation", "agent", "self-hosted"],
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "contributes": {
     "commands": [
-      { "command": "aidevmcp.openChat",     "title": "MCP: Open Chat",        "category": "AI Dev MCP", "icon": "$(comment-discussion)" },
-      { "command": "aidevmcp.runPrompt",    "title": "MCP: Run AI Prompt",    "category": "AI Dev MCP", "icon": "$(robot)" },
-      { "command": "aidevmcp.checkStatus",  "title": "MCP: Check Job Status", "category": "AI Dev MCP" },
-      { "command": "aidevmcp.listJobs",     "title": "MCP: List All Jobs",    "category": "AI Dev MCP" },
-      { "command": "aidevmcp.queueStatus",  "title": "MCP: Queue Status",     "category": "AI Dev MCP" },
-      { "command": "aidevmcp.openSettings", "title": "MCP: Open Settings",    "category": "AI Dev MCP" },
-      { "command": "aidevmcp.fixThis",      "title": "MCP: Fix This",         "category": "AI Dev MCP", "icon": "$(tools)" },
-      { "command": "aidevmcp.explainThis",  "title": "MCP: Explain This",     "category": "AI Dev MCP", "icon": "$(info)" },
-      { "command": "aidevmcp.addTests",       "title": "MCP: Add Tests",             "category": "AI Dev MCP", "icon": "$(beaker)" },
-      { "command": "aidevmcp.syncWorkspace",   "title": "MCP: Sync Workspace to Server", "category": "AI Dev MCP", "icon": "$(cloud-upload)" },
-      { "command": "aidevmcp.pullWorkspace",   "title": "MCP: Pull Changes from Server", "category": "AI Dev MCP", "icon": "$(cloud-download)" }
+      { "command": "aidevmcp.openChat",      "title": "MCP: Open Chat",               "category": "AI Dev MCP", "icon": "$(comment-discussion)" },
+      { "command": "aidevmcp.runPrompt",     "title": "MCP: Run AI Prompt",           "category": "AI Dev MCP", "icon": "$(robot)" },
+      { "command": "aidevmcp.checkStatus",   "title": "MCP: Check Job Status",        "category": "AI Dev MCP" },
+      { "command": "aidevmcp.listJobs",      "title": "MCP: List All Jobs",           "category": "AI Dev MCP" },
+      { "command": "aidevmcp.queueStatus",   "title": "MCP: Queue Status",            "category": "AI Dev MCP" },
+      { "command": "aidevmcp.openSettings",  "title": "MCP: Open Settings",           "category": "AI Dev MCP" },
+      { "command": "aidevmcp.fixThis",       "title": "MCP: Fix This",                "category": "AI Dev MCP", "icon": "$(tools)" },
+      { "command": "aidevmcp.explainThis",   "title": "MCP: Explain This",            "category": "AI Dev MCP", "icon": "$(info)" },
+      { "command": "aidevmcp.refactorThis",  "title": "MCP: Refactor This",           "category": "AI Dev MCP", "icon": "$(symbol-misc)" },
+      { "command": "aidevmcp.addTests",      "title": "MCP: Add Tests",               "category": "AI Dev MCP", "icon": "$(beaker)" },
+      { "command": "aidevmcp.syncWorkspace", "title": "MCP: Sync Workspace to Server","category": "AI Dev MCP", "icon": "$(cloud-upload)" },
+      { "command": "aidevmcp.pullWorkspace", "title": "MCP: Pull Changes from Server","category": "AI Dev MCP", "icon": "$(cloud-download)" }
     ],
     "configuration": {
       "title": "AI Dev MCP",
@@ -41,29 +36,30 @@
         "aidevmcp.baseUrl": {
           "type": "string",
           "default": "https://ai.decorom.in",
-          "markdownDescription": "Base URL of your AI Dev MCP server. Defaults to `https://ai.decorom.in`. Override with a local address like `http://192.168.1.50:3001` or your ngrok/Tailscale URL.",
+          "markdownDescription": "Base URL of your AI Dev MCP server.",
           "order": 1
         },
         "aidevmcp.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "API key for `https://ai.decorom.in` (or your self-hosted server). Set `API_KEY` in your server `.env`. All requests send this as the `x-api-key` header.",
+          "markdownDescription": "API key (`x-api-key` header). Set `API_KEYS` in your server `.env`.",
           "order": 2
         },
         "aidevmcp.defaultProject": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional project name override. Leave **empty** to auto-detect from the workspace folder name. The workspace path is sent automatically so the server can register and index your project.",
+          "markdownDescription": "Optional project name override. Leave empty to auto-detect from workspace folder name.",
           "order": 3
         }
       }
     },
     "menus": {
       "editor/context": [
-        { "command": "aidevmcp.runPrompt",   "group": "z_aidevmcp@1", "when": "editorTextFocus" },
-        { "command": "aidevmcp.fixThis",     "group": "z_aidevmcp@2", "when": "editorHasSelection" },
-        { "command": "aidevmcp.explainThis", "group": "z_aidevmcp@3", "when": "editorHasSelection" },
-        { "command": "aidevmcp.addTests",    "group": "z_aidevmcp@4", "when": "editorTextFocus" }
+        { "command": "aidevmcp.runPrompt",    "group": "z_aidevmcp@1", "when": "editorTextFocus" },
+        { "command": "aidevmcp.fixThis",      "group": "z_aidevmcp@2", "when": "editorHasSelection" },
+        { "command": "aidevmcp.explainThis",  "group": "z_aidevmcp@3", "when": "editorHasSelection" },
+        { "command": "aidevmcp.refactorThis", "group": "z_aidevmcp@4", "when": "editorHasSelection" },
+        { "command": "aidevmcp.addTests",     "group": "z_aidevmcp@5", "when": "editorTextFocus" }
       ],
       "commandPalette": [
         { "command": "aidevmcp.openChat" },
@@ -71,16 +67,13 @@
         { "command": "aidevmcp.checkStatus" },
         { "command": "aidevmcp.listJobs" },
         { "command": "aidevmcp.queueStatus" },
-        { "command": "aidevmcp.openSettings" }
+        { "command": "aidevmcp.openSettings" },
+        { "command": "aidevmcp.syncWorkspace" },
+        { "command": "aidevmcp.pullWorkspace" }
       ]
     },
     "keybindings": [
-      {
-        "command": "aidevmcp.runPrompt",
-        "key": "ctrl+shift+m",
-        "mac": "cmd+shift+m",
-        "when": "editorTextFocus"
-      }
+      { "command": "aidevmcp.runPrompt", "key": "ctrl+shift+m", "mac": "cmd+shift+m", "when": "editorTextFocus" }
     ]
   },
   "scripts": {

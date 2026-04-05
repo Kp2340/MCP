@@ -1,390 +1,220 @@
-# AI Dev MCP
+# AI Dev MCP — v5.4.0
 
-AI Dev MCP is a **local autonomous coding agent** that enables AI models to safely read, modify, build, and test real software projects using the **Model Context Protocol (MCP)**.
+A **local autonomous coding agent** that runs on your laptop and exposes 22 MCP tools to any AI IDE or model. Your code never leaves your machine.
+
+---
 
 ## What it does
 
-- Explores large codebases with semantic vector search
-- Plans and executes multi-step coding tasks autonomously
-- Reads and modifies files with targeted str_replace (not full rewrites)
-- Runs project builds and auto-fixes compilation errors
-- Runs your test suite and verifies fixes pass tests
-- Analyzes import dependencies and project structure
+- Reads, edits, and commits code with targeted `str_replace` — no full rewrites
+- Plans and executes multi-step tasks autonomously (plan → execute → review → validate)
+- Searches your codebase semantically via ChromaDB vector embeddings
+- Runs your build and auto-fixes compilation errors (up to 5 attempts)
+- Runs your test suite and verifies fixes pass
 - Stores long-term architecture memory per project
 - Reviews its own changes mid-run and injects corrections
-- Provides a live Web UI at `/ui` for job management
-- Exposes 20 MCP tools to Claude Desktop, Cursor, Windsurf, Gemini CLI
-- VS Code extension with diff review, Accept/Reject, right-click commands
-- IntelliJ plugin with diff viewer and workspace path auto-detection
+- Renames symbols safely across the whole project (AST-aware)
+- Analyzes import dependency graph
+- Persists jobs to disk — survives server restarts
+- Streams live progress to IDEs via SSE
+- Web UI dashboard at `/ui`
 
-All components run **locally** — your code never leaves your machine.
-
-## Version
-
-v5.3.0 (MCP-4.1 / MCP-4.2 / MCP-4.3)
+**LLM**: Ollama (local, primary) with automatic Gemini API fallback.
 
 ---
 
-# Features
+## Requirements
 
-* MCP Tool Server
-* semantic code indexing
-* vector code search using ChromaDB
-* dependency graph analysis
-* Git branch automation
-* automated builds
-* build error auto-fix loop
-* AST-based project indexing
-* multi-project configuration
-* local LLM integration using Ollama
+| Tool | Purpose | Install |
+|---|---|---|
+| Node.js 20+ | Runtime | https://nodejs.org |
+| Ollama | Local LLM | https://ollama.ai |
+| ChromaDB | Vector search | `pip install chromadb` |
+| Ripgrep | Code search | `winget install BurntSushi.ripgrep.MSVC` |
 
 ---
 
-# Requirements
+## Quick start
 
-Install the following dependencies before running the system:
-
-| Tool            | Purpose                          |
-| --------------- | -------------------------------- |
-| Node.js **20+** | Runtime for MCP server and agent |
-| Ollama          | Local LLM inference              |
-| ChromaDB CLI    | Vector database                  |
-| Ripgrep         | Fast code searching              |
-
----
-
-## Install Ripgrep
-
-Windows:
-
-```
-winget install BurntSushi.ripgrep.MSVC
-```
-
----
-
-# Installation
-
-Clone the repository and install dependencies.
-
-```
-git clone https://github.com/kp2340/mcp
-cd mcp
+```bat
+git clone https://github.com/Kp2340/MCP.git
+cd MCP
 npm install
+copy .env.example .env
+```
+
+Edit `.env` — set your API key and project paths. Then:
+
+```bat
+start-ai-dev.bat
+```
+
+This starts ChromaDB on port 8000, the MCP server on port 3001, and the agent CLI.
+
+**First run — build the vector index for your project:**
+
+```bat
+node src/vector/runIndex.js <project-name>
 ```
 
 ---
 
-# Project Configuration
+## Project configuration
 
-Projects are defined in:
+Edit `src/config/projects.json`:
 
-```
-src/config/projects.json
-```
-
-Example configuration:
-
-```
+```json
 {
-  "jsv": {
-    "root": "C:/Users/kushp/IdeaProjects/jsv solution",
+  "myapp": {
+    "root": "C:/Users/you/IdeaProjects/myapp",
     "type": "nextjs",
     "buildCommand": "npm run build",
-    "branchPrefix": "JSV"
+    "branchPrefix": "AI"
   }
 }
 ```
 
-This allows the agent to operate across **multiple codebases**.
+Supported types: `nextjs`, `react-vite`, `nodejs`, `spring-boot`, `gradle`, `django`, `odoo`, `python`, `rails`, `go`, `rust`.
 
 ---
 
-# First Time Setup
+## MCP Tools (22 total)
 
-Before running the agent, build the **vector index** for your project.
-
-```
-node src/vector/runIndex.js <project-name>
-```
-
-Example:
-
-```
-node src/vector/runIndex.js jsv
-```
-
-This process:
-
-1. scans project files
-2. splits code into chunks
-3. generates embeddings
-4. stores vectors in ChromaDB
-
----
-
-# Running the System
-
-Start the environment:
-
-```
-start-ai-dev.bat
-```
-
-This launches three services.
-
-| Service      | Description              |
-| ------------ | ------------------------ |
-| ChromaDB     | Vector database          |
-| MCP Server   | Tool server              |
-| AI Agent CLI | Interactive coding agent |
-
-Ollama runs automatically in the background.
+| Tool | Purpose |
+|---|---|
+| `project_register` | Register a project by name + path |
+| `project_scan` | List project files/folders |
+| `project_read_files` | Read file contents |
+| `project_str_replace` | Targeted search-and-replace edit (preferred for edits) |
+| `project_apply_changes` | Write new files and commit |
+| `project_apply_patch` | Apply a git unified diff patch |
+| `project_search` | Ripgrep text search |
+| `project_semantic_search` | Semantic vector search |
+| `project_find_symbol` | Find class/function by name |
+| `project_dependency_graph` | Import dependency analysis |
+| `project_analyze` | Static analysis (broken imports, syntax errors) |
+| `project_build` | Run project build |
+| `project_build_and_fix` | Build + auto-fix errors (5 attempts) |
+| `project_test` | Run test suite |
+| `project_diff` | Show uncommitted git changes |
+| `project_git_log` | Show recent commit history |
+| `project_index` | Build/refresh semantic index |
+| `project_rename_symbol` | Rename symbol in one file |
+| `project_rename_symbol_all` | Rename symbol project-wide |
+| `project_memory_store` | Store architecture pattern to memory |
+| `project_memory_query` | Query long-term project memory |
+| `project_list` | List all registered projects |
 
 ---
 
-# Quick Start
+## HTTP endpoints
 
-1️⃣ Install dependencies
-
-```
-npm install
-```
-
-2️⃣ Build vector index
-
-```
-node src/vector/runIndex.js jsv
-```
-
-3️⃣ Start MCP environment
-
-```
-start-ai-dev.bat
-```
-
-4️⃣ Enter a prompt in the Agent CLI
-
-Example:
-
-```
-Create login page in jsv project
-```
+| Endpoint | Description |
+|---|---|
+| `POST /mcp` | MCP Streamable HTTP (Claude Desktop, Cursor, Gemini CLI) |
+| `GET /sse` | Legacy SSE MCP transport (older clients) |
+| `POST /run` | Submit an agent task |
+| `GET /status/:id` | Poll job status |
+| `GET /stream/:id` | Live SSE progress stream |
+| `GET /jobs` | List all jobs |
+| `GET /diff/:id` | Git diff of completed job |
+| `POST /revert/:id` | Revert agent changes |
+| `GET /health` | Health check |
+| `GET /ui` | Web dashboard |
 
 ---
 
-# Example Prompt
+## Security
 
-```
-Create a login page in jsv project with email/password authentication
-```
+- **Layer 1** — IP allowlist (`IP_ALLOWLIST` in `.env`)
+- **Layer 2** — Per-user API keys (`API_KEYS=alice:key1,bob:key2`)
+- **Layer 3** — Rate limiting per user on `/run`
+- Path traversal protection on all file operations
+- `ALLOWED_ROOTS` restricts which directories can be registered
+- `DISABLE_REMOTE_REGISTER=true` locks down project registration completely
 
-Agent workflow:
+> **Note**: `/sse` and `/message` are unauthenticated by design (claude.ai web cannot send headers). Restrict these at the network layer (Cloudflare Access, Tailscale, or `IP_ALLOWLIST`) if the server is public.
 
-```
-vector search
-↓
-planner
-↓
-executor
-↓
-MCP tools
-↓
-code modification
-↓
-project build
-↓
-auto fix errors
+---
+
+## Environment variables
+
+See `.env.example` for all options. Key ones:
+
+```env
+PORT=3001
+API_KEYS=alice:your-key-here
+OLLAMA_HOST=http://localhost:11434
+LLM_MODEL=qwen2.5-coder:7b
+GEMINI_API_KEY=           # optional fallback
+CHROMA_HOST=localhost
+CHROMA_PORT=8000
+ALLOWED_ROOTS=C:/Users/you/IdeaProjects
+DISABLE_REMOTE_REGISTER=false
 ```
 
 ---
 
-# MCP Tools
+## VS Code extension
 
-The MCP server exposes tools that the AI agent can use to interact with projects.
+Install from `vscode-extension/aidev-mcp-1.6.0.vsix`:
 
-| Tool                     | Purpose                           |
-| ------------------------ | --------------------------------- |
-| project_scan             | Scan project structure            |
-| project_search           | Search code using ripgrep         |
-| project_read_files       | Read project files                |
-| project_apply_changes    | Write files and commit            |
-| project_apply_patch      | Apply git diff patch              |
-| project_build            | Run project build                 |
-| project_build_and_fix    | Build project and auto-fix errors |
-| project_index            | Build semantic code index         |
-| project_find_symbol      | Find classes/functions            |
-| project_dependency_graph | Analyze project dependencies      |
+1. Open VS Code → Extensions → `...` → Install from VSIX
+2. Settings → search `AI Dev MCP` → set Base URL + API Key
+3. Open your project folder
+4. `Ctrl+Shift+P` → `AI Dev MCP: Run Task`
+
+Features: submit tasks, live SSE streaming, diff viewer with Accept/Reject, workspace sync, right-click actions.
 
 ---
 
-# Architecture
+## IntelliJ plugin
 
-```
-User
- │
-Agent CLI
- │
-Planner LLM
- │
-Executor LLM
- │
-Vector Retrieval
- │
-MCP Client
- │
-MCP Tool Server
- │
-Tools
- │
-Filesystem / Git
- │
-Build + Auto Fix
- │
-Dependency Graph Analysis
-```
+Install from `intellij-plugin/.intellijPlatform/sandbox/`:
+
+1. Settings → Plugins → gear icon → Install Plugin from Disk
+2. Settings → Tools → AI Dev MCP → set Server URL + API Key
+3. Right sidebar: AI Dev MCP panel
+4. Shortcut: `Ctrl+Shift+M`
+
+Features: sidebar panel, inline right-click actions (Fix / Explain / Refactor / Write Tests), workspace sync, diff viewer.
 
 ---
 
-# Project Structure
+## Teammate setup
+
+See `TEAMMATE_SETUP.md` for step-by-step instructions to run your own server instance.
+See `CONNECT.md` for connection instructions for all supported IDEs and clients.
+
+---
+
+## Architecture
 
 ```
-src/
-├─ agent/
-│  ├─ planner.js
-│  ├─ executor.js
-│  ├─ mcpClient.js
-│  └─ retriever.js
-│
-├─ analysis/
-│  └─ dependencyGraph.js
-│
-├─ autoFixLoop/
-│  └─ autoFixLoop.js
-│
-├─ build/
-│  └─ parseBuildErrors.js
-│
-├─ config/
-│  └─ projects.json
-│
-├─ core/
-│  ├─ constants.js
-│  ├─ projectRegistry.js
-│  └─ validator.js
-│
-├─ git/
-│  ├─ branch.js
-│  └─ commit.js
-│
-├─ indexer/
-│  ├─ languageLoader.js
-│  └─ semanticIndexer.js
-│
-├─ tools/
-│  ├─ scanProject.js
-│  ├─ projectSearch.js
-│  ├─ projectBuild.js
-│  ├─ projectPatch.js
-│  ├─ projectIndex.js
-│  └─ applyChanges.js
-│
-├─ vector/
-│  ├─ embedder.js
-│  ├─ queryCodebase.js
-│  ├─ runIndex.js
-│  └─ runIndexCore.js
-│
-└─ index.js
+IDE / AI Client
+     |
+     | MCP over HTTPS
+     v
+MCP Server (port 3001)
+  |- /mcp   Streamable HTTP (modern)
+  |- /sse   Legacy SSE (claude.ai web)
+  |- /run   Agent job queue
+  |- /ui    Web dashboard
+     |
+     v
+Agent loop
+  Planner -> Executor -> Self-critique -> Reviewer -> Validator
+     |
+     v
+22 MCP Tools
+  |- Filesystem / Git
+  |- Build + Auto-fix
+  |- ChromaDB (semantic search + memory)
+  |- Ollama / Gemini (LLM)
 ```
 
 ---
 
-# Troubleshooting
+## License
 
-### Chroma collection error
-
-Run indexing again:
-
-```
-node src/vector/runIndex.js <project-name>
-```
-
----
-
-### Ollama port error
-
-Ollama runs as a background service.
-
-Do **not run**:
-
-```
-ollama serve
-```
-
----
-
-### Missing vector results
-
-Rebuild the index:
-
-```
-node src/vector/runIndex.js <project-name>
-```
-
----
-
-# Security
-
-The MCP server includes safeguards to prevent unsafe file access:
-
-* path validation
-* project root isolation
-* controlled git operations
-* patch validation
-
----
-
-# Future Improvements
-
-* AST patch editing
-* dependency graph reasoning improvements
-* token-efficient memory compression
-* multi-agent architecture (planner / coder / reviewer)
-* repository-wide reasoning
-* long-term project memory
-
----
-
-# Teammate / Friend Setup
-
-Every developer runs their **own copy** of the MCP server on their **own laptop**.
-The server reads YOUR local files — your code never leaves your machine.
-
-```
-Claude / VS Code / IntelliJ
-        │  MCP calls over HTTPS
-        ▼
-https://your-tunnel.trycloudflare.com
-        │  Cloudflare free tunnel
-        ▼
-  YOUR Laptop : localhost:3001
-  ├─ MCP Server
-  ├─ ChromaDB
-  └─ Your projects
-```
-
-For friends / teammates, share the repo and point them to **[TEAMMATE_SETUP.md](TEAMMATE_SETUP.md)**.
-They run `start-friend.bat` which handles everything including a free Cloudflare tunnel.
-
----
-
-# License
-
-MIT License
-
----
-
-# Author
-
-Kp2340
+MIT — Author: Kp2340
