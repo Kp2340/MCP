@@ -16,7 +16,7 @@
  *   }
  *
  * Reviewer feedback loop:
- *   If reviewer.verdict === "has_issues" → caller injects issues as extra steps
+ *   If reviewer.verdict === "has_issues" -> caller injects issues as extra steps
  */
 
 import { validateGoal, logValidation, validateWithBuild } from "./goalValidator.js";
@@ -45,7 +45,7 @@ export async function runValidationPipeline(
     const build = await validateWithBuild(project, intent, mcpClient);
 
     // 3. Reviewer (LLM, gated by budget + file modification count)
-    // Threshold lowered from 2 → 1: single-file changes are the most common case
+    // Threshold lowered from 2 -> 1: single-file changes are the most common case
     // and the ones most likely to introduce subtle logic errors.
     let reviewer = null;
     if (execState.filesModified.size >= 1) {
@@ -54,14 +54,13 @@ export async function runValidationPipeline(
 
     // Compute unified verdict
     const passed = heuristic.passed && build.passed;
-    const issues = reviewer?.issues || [];
+    const issues = reviewer ? reviewer.issues || [] : [];
 
     // Log unified summary
-    const icon = passed ? "✅" : "❌";
-    console.error(`
-[pipeline] ${icon} Final validation: heuristic=${heuristic.passed}, build=${build.passed}${reviewer ? `, reviewer=${reviewer.verdict}` : ""}`);
+    const icon = passed ? "\u2705" : "\u274C";
+    console.error("\n[pipeline] " + icon + " Final validation: heuristic=" + heuristic.passed + ", build=" + build.passed + (reviewer ? ", reviewer=" + reviewer.verdict : ""));
     if (issues.length > 0) {
-        console.error(`[pipeline] ⚠ Reviewer issues (${issues.length}): ${issues.slice(0, 3).join(" | ")}`);
+        console.error("[pipeline] \u26a0 Reviewer issues (" + issues.length + "): " + issues.slice(0, 3).join(" | "));
     }
 
     return { heuristic, build, reviewer, passed, issues };
@@ -71,11 +70,11 @@ export async function runValidationPipeline(
  * Convert reviewer issues into injectable recovery steps.
  * Used by the reviewer feedback loop in agent.js.
  *
- * @param {string[]} issues   — from reviewer.issues
- * @returns {string[]}        — step descriptions to inject into remainingSteps
+ * @param {string[]} issues   - from reviewer.issues
+ * @returns {string[]}        - step descriptions to inject into remainingSteps
  */
 export function issuesAsSteps(issues) {
     return issues.slice(0, 3).map(issue =>
-        `Fix reviewer issue: ${issue.substring(0, 120)}`
+        "Fix reviewer issue: " + issue.substring(0, 120)
     );
 }

@@ -4,7 +4,7 @@
  * Tests for goalValidator intent-based pass/fail logic.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { validateGoal } from "../src/agent/goalValidator.js";
 import { makeExecutionState } from "../src/agent/executionState.js";
 

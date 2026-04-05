@@ -1,11 +1,8 @@
 /**
- * Goal Validator
+ * Goal Validator — MCP-4.18
  *
  * Verifies whether the agent achieved its goal after the main loop finishes.
  * Uses ExecutionState and classified intent to emit a structured verdict.
- *
- * This is NOT a blocking gate — it only observes and reports.
- * Future iterations can use the verdict to trigger auto-retry.
  */
 
 // ── Validators by intent ──────────────────────────────────────────────────────
@@ -18,11 +15,11 @@ const VALIDATORS = [
             const lastErrStep = last.stepIndex;
             const totalSteps  = execState.stepCount;
             if (totalSteps > lastErrStep + 1) {
-                return { passed: true, reason: `Error at step ${lastErrStep} appears resolved by later steps` };
+                return { passed: true, reason: "Error at step " + lastErrStep + " appears resolved by later steps" };
             }
             return {
                 passed:  false,
-                reason:  `Last error (step ${lastErrStep}): [${last.type}] ${last.text.substring(0, 100)}`,
+                reason:  "Last error (step " + lastErrStep + "): [" + last.type + "] " + last.text.substring(0, 100),
                 suggest: "Re-run with deterministic recovery or inspect the failing file"
             };
         }
@@ -33,7 +30,7 @@ const VALIDATORS = [
             if (execState.filesModified.size === 0) {
                 return { passed: false, reason: "No files were modified — API goal may be incomplete", suggest: "Check that a service/controller file was actually changed" };
             }
-            return { passed: true, reason: `${execState.filesModified.size} file(s) modified: ${[...execState.filesModified].slice(0, 3).join(", ")}` };
+            return { passed: true, reason: execState.filesModified.size + " file(s) modified: " + [...execState.filesModified].slice(0, 3).join(", ") };
         }
     },
     {
@@ -47,7 +44,7 @@ const VALIDATORS = [
             if (uiFiles.length === 0) {
                 return { passed: false, reason: "No UI files (.jsx/.tsx/component) modified", suggest: "Verify the component path and check for routing changes" };
             }
-            return { passed: true, reason: `UI files modified: ${uiFiles.slice(0, 3).join(", ")}` };
+            return { passed: true, reason: "UI files modified: " + uiFiles.slice(0, 3).join(", ") };
         }
     },
     {
@@ -59,7 +56,7 @@ const VALIDATORS = [
             if (authFiles.length === 0) {
                 return { passed: false, reason: "No auth-related files modified", suggest: "Confirm the auth module path was correctly resolved" };
             }
-            return { passed: true, reason: `Auth files modified: ${authFiles.slice(0, 3).join(", ")}` };
+            return { passed: true, reason: "Auth files modified: " + authFiles.slice(0, 3).join(", ") };
         }
     },
     {
@@ -71,7 +68,7 @@ const VALIDATORS = [
             if (configFiles.length === 0) {
                 return { passed: false, reason: "No config files modified", suggest: "Verify config file path and check project structure" };
             }
-            return { passed: true, reason: `Config files modified: ${configFiles.slice(0, 3).join(", ")}` };
+            return { passed: true, reason: "Config files modified: " + configFiles.slice(0, 3).join(", ") };
         }
     }
 ];
@@ -82,11 +79,9 @@ const GENERAL_VALIDATOR = {
         if (toolCount === 0) {
             return { passed: false, reason: "No tools were executed", suggest: "Check prompt format and project registration" };
         }
-        return { passed: true, reason: `${toolCount} tool call(s) completed across ${execState.stepCount} steps` };
+        return { passed: true, reason: toolCount + " tool call(s) completed across " + execState.stepCount + " steps" };
     }
 };
-
-// ── Main exports ──────────────────────────────────────────────────────────────
 
 /**
  * Validate whether the agent goal was achieved.
@@ -106,11 +101,10 @@ export function validateGoal(intent, execState) {
 export function logValidation(intent, result) {
     const icon   = result.passed ? "\u2705" : "\u274C";
     const status = result.passed ? "PASSED" : "FAILED";
-    console.error(`
-[validator] ${icon} Goal validation ${status} (intent: ${intent})`);
-    console.error(`[validator]    Reason: ${result.reason}`);
+    console.error("\n[validator] " + icon + " Goal validation " + status + " (intent: " + intent + ")");
+    console.error("[validator]    Reason: " + result.reason);
     if (result.suggest) {
-        console.error(`[validator]    Suggest: ${result.suggest}`);
+        console.error("[validator]    Suggest: " + result.suggest);
     }
 }
 
@@ -126,13 +120,10 @@ export async function validateWithBuild(project, intent, mcpClient) {
     if (intent === "general") {
         return { passed: true, reason: "Read-only intent — build check skipped" };
     }
-    // project_analyze is the only tool this function may call.
-    // Asserting here keeps callTool sites consistent with the allowlist pattern.
     const ALLOWED = "project_analyze";
     try {
         const result     = await mcpClient.callTool(ALLOWED, { project });
-        const resultText = result?.content?.map(c => c.text || "").join("
-") || "";
+        const resultText = (result && result.content ? result.content.map(c => c.text || "").join("\n") : "") || "";
         const isClean    = resultText.trim() === ""
             || /static analysis passed/i.test(resultText)
             || /build skipped/i.test(resultText);
@@ -142,9 +133,9 @@ export async function validateWithBuild(project, intent, mcpClient) {
             passed,
             reason: passed
                 ? "Static analysis passed"
-                : `Static analysis issues: ${resultText.substring(0, 200)}`
+                : "Static analysis issues: " + resultText.substring(0, 200)
         };
     } catch (err) {
-        return { passed: true, reason: `Build check skipped (error: ${err.message})` };
+        return { passed: true, reason: "Build check skipped (error: " + err.message + ")" };
     }
 }

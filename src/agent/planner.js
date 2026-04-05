@@ -181,8 +181,7 @@ export async function createPlan(prompt, project = null, costState = null, retri
     if (costState && costState.llmCalls >= MAX_LLM_CALLS_PER_RUN) {
         console.error("[planner] LLM call budget exhausted — using minimal fallback plan");
         costState.budgetExhausted = true;  // agent.js reads this to emit user-visible warning
-        return "1. Run static analysis
-2. Run build and fix";
+        return "1. Run static analysis\n2. Run build and fix";
     }
 
     // LLM plan
@@ -210,12 +209,10 @@ Output ONLY numbered steps, one per line, no explanation:`;
 
     try {
         const raw = await askLLM(MODEL, planPrompt, { temperature: 0.1, num_predict: NUM_PREDICT.planner });
-        return raw.trim() || "1. Run static analysis
-2. Run build and fix";
+        return raw.trim() || "1. Run static analysis\n2. Run build and fix";
     } catch (err) {
         console.error("[planner] createPlan LLM error:", err.message);
-        return "1. Run static analysis
-2. Run build and fix";
+        return "1. Run static analysis\n2. Run build and fix";
     }
 }
 
@@ -256,12 +253,10 @@ Output ONLY numbered steps to recover and complete. Maximum 5 steps. No explanat
 
     try {
         const raw   = await askLLM(MODEL, replanPrompt, { temperature: 0.1, num_predict: 300 });
-        const lines = raw.split("
-")
+        const lines = raw.split("\n")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4);
-        return lines.length > 0 ? lines.join("
-") : null;
+        return lines.length > 0 ? lines.join("\n") : null;
     } catch (err) {
         console.error("[planner] updatePlan error:", err.message);
         return null;

@@ -17,6 +17,19 @@ export default defineConfig({
         // Never fail just because no test files matched the glob
         passWithNoTests: true,
 
+        // External packages with native bindings or complex CJS interop that
+        // Vite's ESM transform cannot process — leave them to Node directly.
+        server: {
+            deps: {
+                external: [
+                    /node_modules\/@xenova/,
+                    /node_modules\/chromadb/,
+                    /node_modules\/@google\/genai/,
+                    /node_modules\/node-fetch/
+                ]
+            }
+        },
+
         // Coverage (used by npm run test:coverage)
         coverage: {
             provider:   "v8",

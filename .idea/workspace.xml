@@ -4,20 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="fix: memory.js — corrupted literal newline in join() call">
-      <change afterPath="$PROJECT_DIR$/data/jobs.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/vscode-extension/aidev-mcp-1.7.0.vsix" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.bin" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/executionHistory/executionHistory.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.bin" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/fileHashes.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/resourceHashesCache.bin" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/9.4.1/fileHashes/resourceHashesCache.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.gradle/file-system.probe" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.gradle/file-system.probe" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/.intellijPlatform/self-update.lock" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/.intellijPlatform/self-update.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpToolWindow.kt" beforeDir="false" afterPath="$PROJECT_DIR$/intellij-plugin/src/main/kotlin/in/decorom/mcp/McpToolWindow.kt" afterDir="false" />
-    </list>
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="fix: memory.js — corrupted literal newline in join() call" />
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -59,12 +46,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="MCP-4.17" />
-        <option name="rewordedMessage" value="MCP-4.17" />
+        <option name="originalMessage" value="MCP-4.18" />
+        <option name="rewordedMessage" value="MCP-4.19" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="0f133dd32ad4cdd7216a4dbce37655b4f5da6251" />
+    <option name="onto" value="79054d889c2494e3cf056f8757958728cf4a16ff" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -214,7 +201,7 @@
       <workItem from="1775198310273" duration="31000" />
       <workItem from="1775208174596" duration="2829000" />
       <workItem from="1775215970634" duration="5708000" />
-      <workItem from="1775391874340" duration="2410000" />
+      <workItem from="1775391874340" duration="4083000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -417,7 +404,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="MCP-3.9" />
     <MESSAGE value="MCP-3.10" />
     <MESSAGE value="MCP-3.12" />
     <MESSAGE value="MCP-3.11" />
@@ -442,7 +428,8 @@
     <MESSAGE value="fix: memory.js — corrupted literal newline in join() call" />
     <MESSAGE value="MCP-4.16" />
     <MESSAGE value="MCP-4.17" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.17" />
+    <MESSAGE value="MCP-4.19" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.19" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

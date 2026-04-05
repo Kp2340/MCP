@@ -210,11 +210,13 @@ export class ExecutionState {
         // Also resets for any substantive tool result (read/search/analyze) so
         // legitimate exploration phases (read 5 files before editing) are not
         // killed by the idle-step guard prematurely.
-        const READ_TOOLS = new Set(["project_read_files", "project_scan", "project_search",
-            "project_find_symbol", "project_analyze", "project_semantic_search"]);
+        const SUBSTANTIVE_READ_TOOLS = new Set([
+            "project_read_files", "project_scan", "project_search",
+            "project_find_symbol", "project_analyze", "project_semantic_search"
+        ]);
         const madeProgress = this.filesModified.size > prevModifiedSize
             || this.errors.length > prevErrorCount
-            || (READ_TOOLS.has(tool) && resultText && resultText.length > 50);
+            || (SUBSTANTIVE_READ_TOOLS.has(tool) && resultText && resultText.length > 50);
         this.idleSteps = madeProgress ? 0 : this.idleSteps + 1;
     }
 
@@ -278,6 +280,5 @@ export function formatStateForPrompt(state) {
         lines.push(`Recent tools: ${recent}`);
     }
 
-    return lines.length > 0 ? lines.join("
-") : "No actions taken yet.";
+    return lines.length > 0 ? lines.join("\n") : "No actions taken yet.";
 }
