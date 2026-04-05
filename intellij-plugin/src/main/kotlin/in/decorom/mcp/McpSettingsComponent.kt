@@ -6,58 +6,49 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 
-/**
- * Settings page shown under Settings → Tools → AI Dev MCP.
- * Persists baseUrl and apiKey via McpSettings.
- */
 class McpSettingsComponent : Configurable {
 
-    private val baseUrlField     = JTextField(40)
-    private val apiKeyField      = JPasswordField(40)
-    private val defaultProjField = JTextField(40)
-    private var mainPanel: JPanel? = null
+    private val baseUrlField = JTextField(40)
+    private val apiKeyField  = JPasswordField(40)
+    private var panel: JPanel? = null
 
     override fun getDisplayName() = "AI Dev MCP"
 
     override fun createComponent(): JComponent {
-        val panel = JPanel(GridBagLayout())
-        val gbc   = GridBagConstraints().apply {
-            anchor = GridBagConstraints.WEST
-            insets = Insets(4, 4, 4, 4)
+        val p   = JPanel(GridBagLayout())
+        val gbc = GridBagConstraints().apply {
+            insets   = Insets(4, 4, 4, 4)
+            fill     = GridBagConstraints.HORIZONTAL
+            weightx  = 1.0
         }
 
-        fun row(label: String, field: JComponent, row: Int) {
-            gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-            panel.add(JLabel(label), gbc)
-            gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-            panel.add(field, gbc)
-        }
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0
+        p.add(JLabel("Server URL:"), gbc)
+        gbc.gridx = 1; gbc.weightx = 1.0
+        p.add(baseUrlField, gbc)
 
-        row("Server URL:", baseUrlField, 0)
-        row("API Key:",    apiKeyField,  1)
+        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0
+        p.add(JLabel("API Key:"), gbc)
+        gbc.gridx = 1; gbc.weightx = 1.0
+        p.add(apiKeyField, gbc)
 
-        // help hint
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE
-        panel.add(JLabel("<html><small>Leave API Key blank if your server has no auth configured.</small></html>"), gbc)
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2
+        p.add(JLabel("<html><small>Leave API Key empty if your server has no auth.</small></html>"), gbc)
 
-        // filler row to push everything to the top
-        gbc.gridy = 3; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.VERTICAL
-        panel.add(JPanel(), gbc)
-
-        mainPanel = panel
-        reset()       // populate from saved state
-        return panel
+        panel = p
+        reset()
+        return p
     }
 
     override fun isModified(): Boolean {
         val s = McpSettings.instance
-        return baseUrlField.text.trim()            != s.baseUrl ||
-               String(apiKeyField.password).trim() != s.apiKey
+        return baseUrlField.text != s.baseUrl ||
+               String(apiKeyField.password) != s.apiKey
     }
 
     override fun apply() {
         val s = McpSettings.instance
-        s.baseUrl = baseUrlField.text.trim()
+        s.baseUrl = baseUrlField.text.trim().trimEnd('/')
         s.apiKey  = String(apiKeyField.password).trim()
     }
 
@@ -66,6 +57,4 @@ class McpSettingsComponent : Configurable {
         baseUrlField.text = s.baseUrl
         apiKeyField.text  = s.apiKey
     }
-
-    override fun disposeUIResources() { mainPanel = null }
 }

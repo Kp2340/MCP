@@ -7,161 +7,118 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * HTTP client for the AI Dev MCP server.
- *
- * Two transport modes:
- *
- *  1. REST API  — POST /run, GET /stream/:id, GET /diff/:id, POST /revert/:id
- *                 Used by the sidebar panel for job lifecycle.
- *
- *  2. MCP Streamable HTTP — POST /mcp
- *                 Stateless JSON-RPC over a single endpoint.
- *                 Sends the MCP `tools/call` envelope and returns the result.
- *                 This is the production-correct transport for IDE → MCP server.
- *
- * Auth: every request sends `x-api-key` header.
- * Project: NEVER sent by the client. Server derives it from the registered
- *          project name looked up via `project.name` on the IntelliJ side.
- */
 class McpClient(private val baseUrl: String, private val apiKey: String) {
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // MCP Streamable HTTP transport  (POST /mcp)
-    // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Call any MCP tool by name via the Streamable HTTP transport.
-     * Returns the full JSON-RPC response object.
-     *
-     * Example:
-     *   callMcpTool("project_scan", mapOf("project" to "myapp"))
-     */
-    fun callMcpTool(toolName: String, args: Map<String, Any> = emptyMap()): JSONObject {
-        val argsJson = JSONObject(args)
-        val envelope = JSONObject()
-            .put("jsonrpc", "2.0")
-            .put("id", System.currentTimeMillis())
-            .put("method", "tools/call")
-            .put("params", JSONObject()
-                .put("name", toolName)
-                .put("arguments", argsJson)
-            )
-
-        val conn = open("POST", "/mcp", timeout = 60_000)
-        conn.setRequestProperty("Accept", "application/json, text/event-stream")
-        conn.outputStream.use { it.write(envelope.toString().toByteArray()) }
-
-        val body = conn.readBody()
-        conn.disconnect()
-        return JSONObject(body)
+    private fun openConn(urlPath: String, method: String = "GET", hasBody: Boolean = false): HttpURLConnection {
+        val conn = URL("${baseUrl.trimEnd('/')}$urlPath").openConnection() as HttpURLConnection
+        conn.requestMethod  = method
+        conn.connectTimeout = 10_000
+        conn.readTimeout    = 15_000
+        conn.setRequestProperty("x-api-key", apiKey)
+        conn.setRequestProperty("Content-Type", "application/json")
+        if (hasBody) conn.doOutput = true
+        return conn
     }
 
-    /**
-     * Fetch the list of tools available on the server via MCP `tools/list`.
-     */
-    fun listMcpTools(): JSONObject {
-        val envelope = JSONObject()
-            .put("jsonrpc", "2.0")
-            .put("id", System.currentTimeMillis())
-            .put("method", "tools/list")
-            .put("params", JSONObject())
-
-        val conn = open("POST", "/mcp", timeout = 15_000)
-        conn.setRequestProperty("Accept", "application/json")
-        conn.outputStream.use { it.write(envelope.toString().toByteArray()) }
-
-        val body = conn.readBody()
-        conn.disconnect()
-        return JSONObject(body)
+    private fun readText(conn: HttpURLConnection): String {
+        return try {
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            conn.errorStream?.bufferedReader()?.use { it.readText() } ?: e.message ?: "unknown error"
+        } finally {
+            conn.disconnect()
+        }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // REST job API  (/run, /stream, /diff, /revert)
-    // ══════════════════════════════════════════════════════════════════════════
+    private fun writeBody(conn: HttpURLConnection, body: String) {
+        conn.outputStream.use { it: OutputStream -> it.write(body.toByteArray(Charsets.UTF_8)) }
+    }
 
-    /**
-     * Submit a prompt to the agent job queue.
-     *
-     * @param prompt      natural-language instruction
-     * @param projectName registered project name from IntelliJ's project.name
-     * @return job ID string
-     */
-    fun runTask(prompt: String, projectName: String): String {
-        val conn = open("POST", "/run", timeout = 15_000)
-        val body = JSONObject()
-            .put("prompt", prompt)
-            .put("project", projectName)  // registered name only — no paths
-            .toString()
-        conn.outputStream.use { it.write(body.toByteArray()) }
-        val response = conn.readBody()
-        conn.disconnect()
+    // ── POST /run ─────────────────────────────────────────────────────────────
+    // FIX v1.7.0: send `project` (registry name) NOT `path`.
+    // Server /run expects { project, prompt } — path was never a valid field.
+    fun runTask(prompt: String, project: String): String {
+        val conn = openConn("/run", "POST", hasBody = true)
+        writeBody(conn, JSONObject().put("prompt", prompt).put("project", project).toString())
+        val response = readText(conn)
         return JSONObject(response).getString("id")
     }
 
     // ── GET /status/:id ───────────────────────────────────────────────────────
     fun getStatus(jobId: String): JSONObject {
-        val conn = open("GET", "/status/$jobId")
-        val response = conn.readBody(); conn.disconnect()
-        return JSONObject(response)
+        return JSONObject(readText(openConn("/status/$jobId")))
     }
 
     // ── GET /diff/:id ─────────────────────────────────────────────────────────
     fun getDiff(jobId: String): JSONObject {
-        val conn = open("GET", "/diff/$jobId")
-        val response = conn.readBody(); conn.disconnect()
-        return JSONObject(response)
+        return JSONObject(readText(openConn("/diff/$jobId")))
     }
 
     // ── POST /revert/:id ──────────────────────────────────────────────────────
     fun revert(jobId: String, hard: Boolean = false): JSONObject {
         val qs   = if (hard) "?hard=true" else ""
-        val conn = open("POST", "/revert/$jobId$qs")
-        conn.outputStream.use { it.write("{}".toByteArray()) }
-        val response = conn.readBody(); conn.disconnect()
-        return JSONObject(response)
+        val conn = openConn("/revert/$jobId$qs", "POST", hasBody = true)
+        writeBody(conn, "{}")
+        return JSONObject(readText(conn))
     }
 
     // ── GET /jobs ─────────────────────────────────────────────────────────────
-    fun listJobs(): String {
-        val conn = open("GET", "/jobs")
-        val response = conn.readBody(); conn.disconnect()
-        return response
-    }
+    fun listJobs(): String = readText(openConn("/jobs"))
 
     // ── GET /health ───────────────────────────────────────────────────────────
-    /** Returns true if the server is reachable and healthy. */
     fun health(): Boolean = try {
-        val conn = open("GET", "/health", connectTimeout = 4_000, timeout = 4_000)
-        val ok = conn.responseCode in 200..299
-        conn.disconnect(); ok
+        val conn = openConn("/health").also { it.connectTimeout = 4_000; it.readTimeout = 4_000 }
+        val ok   = conn.responseCode in 200..299
+        conn.disconnect()
+        ok
     } catch (_: Exception) { false }
 
-    // ── GET /stream/:id  (SSE) ────────────────────────────────────────────────
-    /**
-     * Open a Server-Sent Events stream for a running job.
-     * Blocks the calling thread until the stream closes — call on a background thread.
-     *
-     * @param onEvent  callback(eventName, jsonData?) called for each SSE event
-     */
-    fun stream(jobId: String, onEvent: (event: String, data: JSONObject?) -> Unit) {
-        val conn = open("GET", "/stream/$jobId", timeout = 0)
-        conn.setRequestProperty("Accept", "text/event-stream")
+    // ── Workspace push/pull ───────────────────────────────────────────────────
+    fun pushWorkspace(projectName: String, zipBytes: ByteArray): JSONObject {
+        val conn = URL("${baseUrl.trimEnd('/')}/workspace/push?project=${encode(projectName)}").openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.doOutput      = true
+        conn.connectTimeout = 30_000
+        conn.readTimeout    = 120_000
+        conn.setRequestProperty("x-api-key", apiKey)
+        conn.setRequestProperty("Content-Type", "application/octet-stream")
+        conn.outputStream.use { it.write(zipBytes) }
+        return JSONObject(readText(conn))
+    }
 
-        val reader = BufferedReader(InputStreamReader(conn.inputStream))
+    fun pullWorkspace(projectName: String): ByteArray {
+        val conn = URL("${baseUrl.trimEnd('/')}/workspace/pull/${encode(projectName)}").openConnection() as HttpURLConnection
+        conn.connectTimeout = 30_000
+        conn.readTimeout    = 120_000
+        conn.setRequestProperty("x-api-key", apiKey)
+        return conn.inputStream.use { it.readBytes() }.also { conn.disconnect() }
+    }
+
+    // ── GET /stream/:id  (SSE) ────────────────────────────────────────────────
+    // Must be called from a background thread — blocks until stream closes.
+    fun stream(jobId: String, onEvent: (event: String, data: JSONObject?) -> Unit) {
+        val conn = URL("${baseUrl.trimEnd('/')}/stream/$jobId").openConnection() as HttpURLConnection
+        conn.setRequestProperty("x-api-key", apiKey)
+        conn.setRequestProperty("Accept", "text/event-stream")
+        conn.connectTimeout = 10_000
+        conn.readTimeout    = 0   // no timeout — stream is long-lived
+
+        val reader    = BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8))
         var eventName = "message"
         var dataLine  = ""
 
+        // FIX v1.7.0: strip \r from lines so CRLF SSE streams work correctly on all OS
         reader.useLines { lines ->
-            for (line in lines) {
+            for (rawLine in lines) {
+                val line = rawLine.trimEnd('\r')
                 when {
                     line.startsWith("event:") -> eventName = line.removePrefix("event:").trim()
                     line.startsWith("data:")  -> dataLine  = line.removePrefix("data:").trim()
-                    line.startsWith(":")      -> Unit   // SSE heartbeat comment — ignore
                     line.isEmpty() && dataLine.isNotEmpty() -> {
                         val parsed = runCatching { JSONObject(dataLine) }.getOrNull()
                         onEvent(eventName, parsed)
-                        eventName = "message"; dataLine = ""
+                        eventName = "message"
+                        dataLine  = ""
                     }
                 }
             }
@@ -169,69 +126,5 @@ class McpClient(private val baseUrl: String, private val apiKey: String) {
         conn.disconnect()
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // Workspace Sync  (zip → upload → run → download)
-    // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Upload a zip of the local workspace to POST /workspace/upload.
-     * Returns the remote upload ID.
-     */
-    fun uploadWorkspace(zipBytes: ByteArray, projectName: String): String {
-        val boundary = "----McpBoundary${System.currentTimeMillis()}"
-        val conn     = open("POST", "/workspace/upload", timeout = 120_000)
-        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-
-        conn.outputStream.use { out ->
-            writePart(out, boundary, "project", projectName.toByteArray(), "text/plain")
-            writePart(out, boundary, "file", zipBytes, "application/zip", "workspace.zip")
-            out.write("\r\n--$boundary--\r\n".toByteArray())
-        }
-
-        val response = conn.readBody(); conn.disconnect()
-        return JSONObject(response).getString("uploadId")
-    }
-
-    /**
-     * Download the result zip from GET /workspace/download/:id.
-     */
-    fun downloadWorkspace(uploadId: String): ByteArray {
-        val conn = open("GET", "/workspace/download/$uploadId", timeout = 120_000)
-        val bytes = conn.inputStream.readBytes()
-        conn.disconnect()
-        return bytes
-    }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
-    private fun open(
-        method: String, path: String,
-        connectTimeout: Int = 10_000, timeout: Int = 30_000
-    ): HttpURLConnection {
-        val conn = URL("$baseUrl$path").openConnection() as HttpURLConnection
-        conn.requestMethod   = method
-        conn.connectTimeout  = connectTimeout
-        conn.readTimeout     = timeout
-        conn.setRequestProperty("x-api-key",      apiKey)
-        conn.setRequestProperty("Content-Type",   "application/json")
-        if (method in setOf("POST", "PUT", "PATCH")) conn.doOutput = true
-        return conn
-    }
-
-    private fun HttpURLConnection.readBody(): String =
-        try { inputStream.bufferedReader().readText() }
-        catch (_: Exception) { errorStream?.bufferedReader()?.readText() ?: "{}" }
-
-    private fun writePart(
-        out: OutputStream, boundary: String, name: String,
-        data: ByteArray, contentType: String, filename: String? = null
-    ) {
-        val disposition = if (filename != null)
-            "Content-Disposition: form-data; name=\"$name\"; filename=\"$filename\""
-        else
-            "Content-Disposition: form-data; name=\"$name\""
-        out.write("\r\n--$boundary\r\n".toByteArray())
-        out.write("$disposition\r\n".toByteArray())
-        out.write("Content-Type: $contentType\r\n\r\n".toByteArray())
-        out.write(data)
-    }
+    private fun encode(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
 }

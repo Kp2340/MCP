@@ -2,7 +2,7 @@
   <id>in.decorom.mcp</id>
   <name>AI Dev MCP</name>
   <vendor url="https://github.com/Kp2340/MCP">kush-patel</vendor>
-  <version>1.5.0</version>
+  <version>1.7.0</version>
 
   <description><![CDATA[
     <p>Connect IntelliJ IDEA to your self-hosted AI coding agent.</p>
