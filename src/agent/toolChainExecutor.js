@@ -142,8 +142,7 @@ export async function executeToolsDirect(toolSteps, mcpClient, execState) {
 
         try {
             const result    = await mcpClient.callTool(tool, args);
-            const resultText = result?.content?.map(c => c.text || "").join("
-").substring(0, 3000) || "";
+            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
 
             execState.recordToolCall(tool, args, resultText, stepsRun);
             results.push(`[${tool}]:
@@ -214,8 +213,7 @@ export async function executeToolChain(templateName, project, mcpClient, execSta
         try {
             assertToolAllowed(toolCall.tool);  // Bug 10 fix — hard block before dispatch
             const result    = await mcpClient.callTool(toolCall.tool, toolCall.args);
-            const resultText = result?.content?.map(c => c.text || "").join("
-").substring(0, 3000) || "";
+            const resultText = result?.content?.map(c => c.text || "").join("\n").substring(0, 3000) || "";
 
             execState.recordToolCall(toolCall.tool, toolCall.args, resultText, stepsRun);
             results.push(`[${toolCall.tool}]:

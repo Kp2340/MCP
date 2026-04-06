@@ -504,6 +504,29 @@ if (config.TRANSPORT === "stdio") {
     app.use("/run", rateLimitMiddleware);
 
     // MCP tool routes (Streamable HTTP + Legacy SSE)
+    // Claude MCP discovery endpoints
+
+    app.get("/.well-known/oauth-protected-resource", (req, res) => {
+        res.json({
+            resource: "https://mcp.decorom.in"
+        });
+    });
+
+    app.get("/.well-known/oauth-authorization-server", (req, res) => {
+        res.json({
+            issuer: "https://mcp.decorom.in",
+            authorization_endpoint: "",
+            token_endpoint: "",
+            registration_endpoint: "https://mcp.decorom.in/register"
+        });
+    });
+
+    app.post("/register", (req, res) => {
+        res.json({
+            client_id: "anonymous",
+            token: "none"
+        });
+    });
     attachMcpRoutes(app, mcpServer);
 
     // Agent job routes

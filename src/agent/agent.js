@@ -11,8 +11,8 @@ import { executeToolChain, executeToolsDirect } from "./toolChainExecutor.js";
 import { executeUiEdit } from "./uiEditExecutor.js";
 import { reviewChanges } from "./reviewer.js";
 import { runValidationPipeline, issuesAsSteps } from "./validationPipeline.js";
-import { compilePrompt }         from "./promptCompiler.js";
-import { selfCritique }          from "./selfCritique.js";
+import { compilePrompt } from "./promptCompiler.js";
+import { selfCritique } from "./selfCritique.js";
 import { buildSymbolGraph, findDependents, invalidateGraph } from "../analysis/symbolGraph.js";
 import {
     COMPRESS_EVERY_N_STEPS,
@@ -21,6 +21,7 @@ import {
     MAX_TOTAL_TOKENS_PER_RUN,
     MAX_REPLANS,
     MAX_AGENT_STEPS,
+    MAX_IDLE_STEPS,
     MAX_RETRIES,
     TOOL_CHAIN_TEMPLATES,
     LLM_MODEL
@@ -29,7 +30,10 @@ import { validateGoal, logValidation } from "./goalValidator.js";
 
 process.env.NODE_NO_WARNINGS = "1";
 
-const MODEL       = LLM_MODEL;
+// MAX_STEPS is an alias for MAX_AGENT_STEPS (backward compat with older references in this file)
+const MAX_STEPS = MAX_AGENT_STEPS;
+
+const MODEL = LLM_MODEL;
 // MAX_RETRIES imported from constants — single source of truth
 // MAX_STEPS  is now MAX_AGENT_STEPS from constants — single source of truth
 
@@ -105,8 +109,8 @@ function enforceAnalyzeBeforeBuild(steps) {
     const ANALYZE_KEYWORDS = /(analyze|analyse|static.?analy|project_analyze)/i;
     const hasAnalyze = steps.some(s => ANALYZE_KEYWORDS.test(s));
     if (hasAnalyze) return steps;
-    const BUILD_KEYWORDS  = /(build|apply.?change|str.?replace|commit|modify|write)/i;
-    const firstBuildIdx   = steps.findIndex(s => BUILD_KEYWORDS.test(s));
+    const BUILD_KEYWORDS = /(build|apply.?change|str.?replace|commit|modify|write)/i;
+    const firstBuildIdx = steps.findIndex(s => BUILD_KEYWORDS.test(s));
     if (firstBuildIdx === -1) return steps;
     const injected = [...steps];
     injected.splice(firstBuildIdx, 0, "Run static analysis to identify issues before building");
@@ -124,16 +128,16 @@ async function executeWithRetry(step, context, project, memoryCtx, costState, ex
         const { prompt: compiledContext, stats } = compilePrompt({
             step,
             project,
-            taskDescription:  taskDescription || step,
-            ragChunks:        Array.isArray(ragChunks) ? ragChunks : [context],
-            memoryContext:    memoryCtx || "",
-            executionLog:     context || "",
+            taskDescription: taskDescription || step,
+            ragChunks: Array.isArray(ragChunks) ? ragChunks : [context],
+            memoryContext: memoryCtx || "",
+            executionLog: context || "",
             execState,
-            tokenBudget:      3500,
+            tokenBudget: 3500,
         });
 
         if (attempt === 0) {
-            console.error(`[prompt-compiler] tokens=${stats.totalTokens} sections=${stats.sections.join(",")} files=[${stats.filesFetched.join(",")||"none"}]`);
+            console.error(`[prompt-compiler] tokens=${stats.totalTokens} sections=${stats.sections.join(",")} files=[${stats.filesFetched.join(",") || "none"}]`);
         }
 
         const action = await executeStep(step, compiledContext, project, memoryCtx, costState, execState);
@@ -176,19 +180,17 @@ async function executeWithRetry(step, context, project, memoryCtx, costState, ex
 
 // ─── Main adaptive agent loop ───────────────────────────────────────────────────────
 export async function runAgent(prompt, emit = null) {
-    if (!mcp)       mcp       = new MCPClient();
+    if (!mcp) mcp = new MCPClient();
     if (!collector) collector = new TrainingCollector();
 
     const projectMatch = prompt.match(/project:\s*([a-zA-Z0-9-_]+)/i);
     if (!projectMatch) throw new Error("Prompt must include: project: <project-name>");
     const project = projectMatch[1];
 
-    const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch {} };
+    const emitStep = (n, detail) => { try { if (emit) emit(n, detail); } catch { } };
 
     console.error("Project:", project);
-    console.error("
-Creating plan...
-");
+    console.error("\nCreating plan...\n");
 
     const costState = makeCostState();
     const execState = makeExecutionState();
@@ -196,7 +198,7 @@ Creating plan...
     const promptIntent = classifyIntentFromPrompt(prompt);
     console.error(`[agent] Prompt intent: ${promptIntent}`);
 
-    const planContext    = await retrieveContext(prompt, project, execState);
+    const planContext = await retrieveContext(prompt, project, execState);
     trackChars(costState, planContext);
 
     const enrichedPrompt = `User request:
@@ -207,8 +209,8 @@ ${planContext}`;
 
     // ── Fast path: direct tool-chain template match (0 LLM calls) ──────────────────────
     const matchedTemplate = TOOL_CHAIN_TEMPLATES.find(t => {
-        const lower    = prompt.toLowerCase();
-        const hits     = t.keywords.filter(kw => lower.includes(kw)).length;
+        const lower = prompt.toLowerCase();
+        const hits = t.keywords.filter(kw => lower.includes(kw)).length;
         const intentOk = t.name === "ui_edit" || !t.intent || t.intent === promptIntent || t.intent === "general";
         return hits >= 2 && intentOk;
     });
@@ -225,8 +227,7 @@ ${planContext}`;
         }
         const { results, success, stepsRun } = chainResult;
         if (success || stepsRun > 0) {
-            const executionContext = results.join("
-");
+            const executionContext = results.join("\n");
             collector.startRun(prompt);
             collector.endRun(stepsRun >= 2, execState);
             if (stepsRun >= 2) await extractAndStoreMemory(project, prompt, executionContext, costState);
@@ -249,26 +250,23 @@ ${planContext}`;
     const initialPlan = await createPlan(enrichedPrompt, project, costState, promptIntent, execState);
     trackChars(costState, initialPlan);
 
-    console.error("
-Initial Plan:
-" + initialPlan);
+    console.error("\nInitial Plan:\n" + initialPlan);
 
     let remainingSteps = enforceAnalyzeBeforeBuild(
         initialPlan
-            .split("
-")
+            .split("\n")
             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
             .filter(s => s.length > 4)
     );
 
-    let executionContext         = planContext;
-    let successfulSteps          = 0;
-    let totalStepsDone           = 0;
-    let replanCount              = 0;
+    let executionContext = planContext;
+    let successfulSteps = 0;
+    let totalStepsDone = 0;
+    let replanCount = 0;
     // earlyReviewDone: reviewer fires once on first file modification
-    let earlyReviewDone          = false;
+    let earlyReviewDone = false;
     // reviewerIssuesInjected: inject issues back into queue only once
-    let reviewerIssuesInjected   = false;
+    let reviewerIssuesInjected = false;
 
     // ── Hard step cap guard — source-of-truth (never a patch script) ────────────────
     // Must be the FIRST check inside the while loop — no bypass, no exception.
@@ -304,23 +302,6 @@ Initial Plan:
     const checkAndEmitBudgetWarning = () => {
         if (!budgetWarnEmitted && costState.budgetExhausted) {
             budgetWarnEmitted = true;
-            // ── Hard step cap ─────────────────────────────────────────────────
-    // Enforced AT THE TOP of every loop iteration.
-    // MAX_AGENT_STEPS is the absolute ceiling — no override, no bypass.
-    const stepCapGuard = () => {
-        if (totalStepsDone >= MAX_AGENT_STEPS) {
-            const msg = `⚠️ Agent step cap reached (${MAX_AGENT_STEPS} steps). Stopping to prevent runaway execution.`;
-            console.error(`[agent] ${msg}`);
-            emitStep("step_cap", { log: msg, totalStepsDone, cap: MAX_AGENT_STEPS });
-            return true; // caller should break
-        }
-        return false;
-    };
-
-    let budgetWarnEmitted = false;
-    const checkAndEmitBudgetWarning = () => {
-        if (!budgetWarnEmitted && costState.budgetExhausted) {
-            budgetWarnEmitted = true;
             const msg = `⚠️ LLM call budget reached (${MAX_LLM_CALLS_PER_RUN} calls). ` +
                 `Agent finishing with static analysis + build only. ` +
                 `Completed ${successfulSteps} steps. Resubmit for a fresh run if needed.`;
@@ -336,7 +317,6 @@ Initial Plan:
         if (stepCapGuard()) break;
         // ── PROGRESS KILL — abort on sustained idle steps (no file changes, no new errors) ──
         if (progressGuard()) break;
-.length > 0 && totalStepsDone < MAX_STEPS) {
 
         // Emit SSE warning if planner signalled budget exhaustion this iteration
         checkAndEmitBudgetWarning();
@@ -363,25 +343,25 @@ Initial Plan:
         console.error(`[cost] LLM: ${costState.llmCalls}/${MAX_LLM_CALLS_PER_RUN}  Tokens: ~${estimatedTokens(costState).toLocaleString()}/${MAX_TOTAL_TOKENS_PER_RUN.toLocaleString()}`);
         emitStep(totalStepsDone, step);
 
-        const stepIntent  = classifyIntentFromPrompt(step);
-        const memoryType  = stepIntent === "ui"  ? "architecture" :
-                            stepIntent === "api" ? "architecture" :
-                            stepIntent === "fix" ? "fix"          : null;
+        const stepIntent = classifyIntentFromPrompt(step);
+        const memoryType = stepIntent === "ui" ? "architecture" :
+            stepIntent === "api" ? "architecture" :
+                stepIntent === "fix" ? "fix" : null;
 
-        const stepMemory  = await queryMemory(project, step, {
+        const stepMemory = await queryMemory(project, step, {
             minConfidence: 0.7,
-            filterType:    memoryType,
+            filterType: memoryType,
             execState,
-            intent:        stepIntent
+            intent: stepIntent
         });
 
         const stepContext = await retrieveContext(step, project, execState);
-        const stateBlock  = formatStateForPrompt(execState);
+        const stateBlock = formatStateForPrompt(execState);
         const fullContext = executionContext +
-            (stateBlock  ? `
+            (stateBlock ? `
 
 [Execution state]:
-${stateBlock}`  : "") +
+${stateBlock}` : "") +
             (stepContext ? `
 
 [Relevant code]:
@@ -415,9 +395,7 @@ ${stepContext}` : "");
         if (parsed.tool === "__deterministic_recovery__" && Array.isArray(parsed.toolSteps)) {
             console.error(`[agent] ⚡ Deterministic recovery: ${parsed.toolSteps.length} direct tool calls`);
             const { results } = await executeToolsDirect(parsed.toolSteps, mcp, execState);
-            executionContext += "
-" + results.join("
-");
+            executionContext += "\n" + results.join("\n");
             successfulSteps++;
             continue;
         }
@@ -440,8 +418,7 @@ ${cached.substring(0, 500)}`;
         let resultText = "";
         try {
             const result = await mcp.callTool(toolName, toolArgs);
-            resultText   = result?.content?.map(c => c.text || "").join("
-") || "";
+            resultText = result?.content?.map(c => c.text || "").join("\n") || "";
         } catch (err) {
             console.error(`[agent] Tool error (${toolName}): ${err.message}`);
             resultText = `Tool error: ${err.message}`;
@@ -449,8 +426,7 @@ ${cached.substring(0, 500)}`;
 
         // Truncate very long results to keep context manageable
         const truncated = resultText.length > 4000
-            ? resultText.substring(0, 4000) + "
-...[truncated]"
+            ? resultText.substring(0, 4000) + "\n...[truncated]"
             : resultText;
 
         execState.recordToolCall(toolName, toolArgs, resultText, totalStepsDone);
@@ -501,9 +477,7 @@ ${truncated}`;
             if (recoveryTools) {
                 console.error(`[agent] ⚡ Deterministic recovery for ${errorType}`);
                 const { results: rResults } = await executeToolsDirect(recoveryTools, mcp, execState);
-                executionContext += "
-" + rResults.join("
-");
+                executionContext += "\n" + rResults.join("\n");
             } else if (replanCount < MAX_REPLANS && costState.llmCalls < MAX_LLM_CALLS_PER_RUN) {
                 // LLM replan fallback
                 replanCount++;
@@ -515,8 +489,7 @@ ${truncated}`;
                 if (replan) {
                     remainingSteps = enforceAnalyzeBeforeBuild(
                         replan
-                            .split("
-")
+                            .split("\n")
                             .map(s => s.replace(/^(\d+[\.\):]|\bstep\s*\d+[:\.]?)\s*/i, "").trim())
                             .filter(s => s.length > 4)
                     );
@@ -548,7 +521,7 @@ ${truncated}`;
             emitStep(totalStepsDone, fixStep);
             const stepMemory = await queryMemory(project, fixStep, { minConfidence: 0.7, execState });
             const stateBlock = formatStateForPrompt(execState);
-            const fixCtx     = executionContext + (stateBlock ? `
+            const fixCtx = executionContext + (stateBlock ? `
 
 [Execution state]:
 ${stateBlock}` : "");
@@ -557,11 +530,9 @@ ${stateBlock}` : "");
             );
             if (!fok || fp?.skipped || fp?.done) continue;
             try {
-                const fResult    = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
-                const fText      = fResult?.content?.map(c => c.text || "").join("
-") || "";
-                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "
-..." : fText;
+                const fResult = await mcp.callTool(fp.tool, { ...(fp.args || {}), project });
+                const fText = fResult?.content?.map(c => c.text || "").join("\n") || "";
+                const fTruncated = fText.length > 2000 ? fText.substring(0, 2000) + "\n..." : fText;
                 execState.recordToolCall(fp.tool, fp.args, fText, totalStepsDone);
                 executionContext += `
 
@@ -579,7 +550,7 @@ ${fTruncated}`;
 
     // ── Memory extraction (async, non-blocking) ─────────────────────────────────────
     if (successfulSteps >= 2) {
-        extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => {});
+        extractAndStoreMemory(project, prompt, executionContext, costState).catch(() => { });
     }
 
     console.error(`

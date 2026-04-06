@@ -1,5 +1,38 @@
 [
   {
+    "id": "job_1775457177921_y3v70r",
+    "prompt": "analyse already registered project: mcp",
+    "project": "mcp",
+    "status": "failed",
+    "createdAt": 1775457177921,
+    "startedAt": 1775457177940,
+    "endedAt": 1775457178033,
+    "result": null,
+    "error": "Invalid regular expression: missing /"
+  },
+  {
+    "id": "job_1775456422804_hk0m3k",
+    "prompt": "analyse already registered project: mcp",
+    "project": "mcp",
+    "status": "failed",
+    "createdAt": 1775456422804,
+    "startedAt": 1775456422839,
+    "endedAt": 1775456423157,
+    "result": null,
+    "error": "Invalid or unexpected token"
+  },
+  {
+    "id": "job_1775455592439_w1k4a6",
+    "prompt": "analyse already registered project mcp",
+    "project": "mcp",
+    "status": "failed",
+    "createdAt": 1775455592439,
+    "startedAt": 1775455592455,
+    "endedAt": 1775455592527,
+    "result": null,
+    "error": "Invalid or unexpected token"
+  },
+  {
     "id": "job_1775393435321_4l7vyj",
     "prompt": "analyse this already registered project: mcp",
     "project": "jsv",

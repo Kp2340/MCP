@@ -19,18 +19,18 @@
 
 import { CHARS_PER_TOKEN, MAX_FILE_SIZE } from "../core/constants.js";
 import { validatePath } from "../core/validator.js";
-import { getProject }   from "../core/projectRegistry.js";
-import fs   from "fs";
+import { getProject } from "../core/projectRegistry.js";
+import fs from "fs";
 import path from "path";
 
 // Token budget reserved for the system prompt + task instructions
-const RESERVED_TOKENS    = 800;
+const RESERVED_TOKENS = 800;
 // Max tokens for a single file snippet in context
-const MAX_FILE_TOKENS    = 1200;
+const MAX_FILE_TOKENS = 1200;
 // Max tokens for memory entries
-const MAX_MEMORY_TOKENS  = 300;
+const MAX_MEMORY_TOKENS = 300;
 // Max tokens for error context
-const MAX_ERROR_TOKENS   = 400;
+const MAX_ERROR_TOKENS = 400;
 
 /**
  * Estimate token count from character count.
@@ -45,8 +45,7 @@ function tokens(text) {
 function truncate(text, maxTokens) {
     const maxChars = maxTokens * CHARS_PER_TOKEN;
     if (!text || text.length <= maxChars) return text || "";
-    return text.substring(0, maxChars) + "
-... [truncated]";
+    return text.substring(0, maxChars) + "\n... [truncated]";
 }
 
 /**
@@ -55,7 +54,7 @@ function truncate(text, maxTokens) {
  */
 function relevanceScore(content, step, execState) {
     if (!content) return 0;
-    const stepLower    = step.toLowerCase();
+    const stepLower = step.toLowerCase();
     const contentLower = content.toLowerCase();
 
     // Extract identifiers from step (camelCase, PascalCase, snake_case words ≥ 4 chars)
@@ -98,13 +97,12 @@ const STOP_WORDS = new Set([
  */
 function readCurrentFile(projectName, relativePath) {
     try {
-        const project  = getProject(projectName);
+        const project = getProject(projectName);
         const fullPath = validatePath(project.root, relativePath);
         if (!fs.existsSync(fullPath)) return null;
         const content = fs.readFileSync(fullPath, "utf-8");
         return content.length > MAX_FILE_SIZE
-            ? content.substring(0, MAX_FILE_SIZE) + "
-... [file truncated at 12KB]"
+            ? content.substring(0, MAX_FILE_SIZE) + "\n... [file truncated at 12KB]"
             : content;
     } catch {
         return null;
@@ -180,8 +178,7 @@ Current step: ${step}`;
             stateLines.push(`Last error: [${lastErr.type}] ${String(lastErr.text).substring(0, 200)}`);
         }
         if (stateLines.length > 0) {
-            const stateBlock = stateLines.join("
-");
+            const stateBlock = stateLines.join("\n");
             sections.push({ label: "STATE", content: stateBlock, priority: 90 });
             usedTokens += tokens(stateBlock);
         }
@@ -207,10 +204,7 @@ ${snippet}`);
     if (fileContents.length > 0) {
         sections.push({
             label: "CURRENT FILE CONTENTS",
-            content: fileContents.join("
-
----
-"),
+            content: fileContents.join("\n\n---\n\n"),
             priority: 85
         });
     }
@@ -220,8 +214,7 @@ ${snippet}`);
         const errorText = execState.errors
             .slice(-2)
             .map(e => `[${e.type}] ${e.text}`)
-            .join("
-");
+            .join("\n");
         const snippet = truncate(errorText, MAX_ERROR_TOKENS);
         const cost = tokens(snippet);
         if (usedTokens + cost <= usable) {
@@ -268,18 +261,15 @@ ${snippet}`);
     sections.sort((a, b) => b.priority - a.priority);
 
     const body = sections
-        .map(s => `[${s.label}]
-${s.content}`)
-        .join("
-
-");
+        .map(s => `[${s.label}]\n${s.content}`)
+        .join("\n\n");
 
     const stats = {
-        totalTokens:  usedTokens,
-        budget:       tokenBudget,
-        sections:     sections.map(s => s.label),
+        totalTokens: usedTokens,
+        budget: tokenBudget,
+        sections: sections.map(s => s.label),
         filesFetched: targetFiles,
-        ragUsed:      scoredChunks.length,
+        ragUsed: scoredChunks.length,
     };
 
     return { prompt: body, stats };

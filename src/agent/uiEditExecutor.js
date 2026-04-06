@@ -68,8 +68,7 @@ export async function executeUiEdit(prompt, project, mcpClient, execState, costS
         try {
             console.error(`[uiEdit] Looking up symbol: ${componentName}`);
             const symbolResult = await mcpClient.callTool("project_find_symbol", { project, name: componentName });
-            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("
-") || "";
+            const symbolText   = symbolResult?.content?.map(c => c.text || "").join("\n") || "";
             execState.recordToolCall("project_find_symbol", { project, name: componentName }, symbolText, ++stepsRun);
             results.push(`[project_find_symbol]:
 ${symbolText}`);
@@ -91,8 +90,7 @@ ${symbolText}`);
         try {
             console.error(`[uiEdit] Searching for: ${componentName}`);
             const searchResult = await mcpClient.callTool("project_search", { project, query: componentName });
-            const searchText   = searchResult?.content?.map(c => c.text || "").join("
-") || "";
+            const searchText   = searchResult?.content?.map(c => c.text || "").join("\n") || "";
             execState.recordToolCall("project_search", { project, query: componentName }, searchText, ++stepsRun);
 
             // Extract first .tsx/.jsx file from results
@@ -115,8 +113,7 @@ ${symbolText}`);
     try {
         console.error(`[uiEdit] Reading file: ${filePath}`);
         const readResult  = await mcpClient.callTool("project_read_files", { project, paths: [filePath] });
-        const readText    = readResult?.content?.map(c => c.text || "").join("
-") || "";
+        const readText    = readResult?.content?.map(c => c.text || "").join("\n") || "";
         execState.recordToolCall("project_read_files", { project, paths: [filePath] }, readText, ++stepsRun);
         results.push(`[project_read_files]:
 ${readText}`);
@@ -172,8 +169,7 @@ CRITICAL RULES:
 JSON:`;
 
     const normalizedContent = fileContent.replace(/\r
-/g, "
-");
+/g, "\n");
 
     // Attempt 1: focused snippet (faster, cheaper)
     const snippet1 = isBottomRequest
@@ -195,8 +191,7 @@ JSON:`;
             if (!parsed.search || !parsed.replace) throw new Error("Missing search or replace");
 
             const normalizedSearch = parsed.search.replace(/\r
-/g, "
-").trim();
+/g, "\n").trim();
             if (!normalizedContent.includes(normalizedSearch)) {
                 console.error(`[uiEdit] Attempt ${attempt}: search string not found — ${normalizedSearch.substring(0, 80)}`);
                 if (attempt < 2) continue;  // retry with full file
@@ -223,8 +218,7 @@ JSON:`;
     try {
         console.error(`[uiEdit] Applying str_replace to ${filePath}`);
         const applyResult = await mcpClient.callTool("project_str_replace", editArgs);
-        const applyText   = applyResult?.content?.map(c => c.text || "").join("
-") || "";
+        const applyText   = applyResult?.content?.map(c => c.text || "").join("\n") || "";
         execState.recordToolCall("project_str_replace", editArgs, applyText, ++stepsRun);
         results.push(`[project_str_replace]:
 ${applyText}`);
@@ -240,8 +234,7 @@ ${applyText}`);
         console.error(`[uiEdit] Running build verification`);
         assertToolAllowed("project_build_and_fix");
         const buildResult = await mcpClient.callTool("project_build_and_fix", { project });
-        const buildText   = buildResult?.content?.map(c => c.text || "").join("
-") || "";
+        const buildText   = buildResult?.content?.map(c => c.text || "").join("\n") || "";
         execState.recordToolCall("project_build_and_fix", { project }, buildText, ++stepsRun);
         results.push(`[project_build_and_fix]:
 ${buildText}`);

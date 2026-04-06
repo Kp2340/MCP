@@ -29,7 +29,21 @@ const log = createLogger("auth");
 //
 // /mcp (Streamable HTTP) IS protected — IDE extensions and CLI tools
 // (Gemini CLI, Claude Code, Cursor) can send x-api-key headers.
-const PUBLIC_PATHS = new Set(["/health", "/health/", "/sse", "/message"]);
+// const PUBLIC_PATHS = new Set(["/health", "/health/", "/sse", "/message"]);
+function isPublicPath(path) {
+    return (
+        path === "/health" ||
+        path === "/health/" ||
+
+        // SSE transport
+        path.startsWith("/sse") ||
+        path.startsWith("/message") ||
+
+        // Claude MCP discovery (CRITICAL)
+        path.startsWith("/.well-known") ||
+        path.startsWith("/register")
+    );
+}
 
 // ── Rate limit state ──────────────────────────────────────────────────────────
 const rateLimitMap = new Map();
@@ -77,7 +91,7 @@ let warnedOnce = false;
 export function ipAllowlistMiddleware(req, res, next) {
     const allowed = config.IP_ALLOWLIST;
     if (allowed.length === 0) return next();
-    if (PUBLIC_PATHS.has(req.path)) return next(); // never block SSE/health by IP
+    if (isPublicPath(req.path)) return next(); // never block SSE/health by IP
     const clientIp = (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
     if (!allowed.includes(clientIp)) {
         log.warn(`IP blocked: ${clientIp} not in allowlist`);
@@ -90,7 +104,7 @@ export function ipAllowlistMiddleware(req, res, next) {
 export function authMiddleware(req, res, next) {
     // /sse and /message are public — claude.ai web cannot send headers
     // /health is always public for monitoring
-    if (PUBLIC_PATHS.has(req.path)) return next();
+    if (isPublicPath(req.path)) return next();
 
     const hasKeys = Object.keys(config.API_KEY_MAP).length > 0;
     if (!hasKeys) {
