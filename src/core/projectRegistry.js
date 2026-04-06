@@ -41,6 +41,20 @@ const projectsPath  = path.join(__dirname, "../config/projects.json");
 // ── In-memory dynamic registry ────────────────────────────────────────────────
 const dynamicProjects = new Map();   // name → project config
 
+// ── Request-scoped user context ───────────────────────────────────────────────
+// Set by mcpRouter.js at the start of each MCP request via setRequestUser().
+// Read by getProject() to enforce per-user project ownership automatically,
+// without needing to thread `user` through every tool call.
+let _currentRequestUser = null;
+
+export function setRequestUser(user) {
+    _currentRequestUser = user || null;
+}
+
+export function clearRequestUser() {
+    _currentRequestUser = null;
+}
+
 // ── Static cache with fs.watch hot-reload ────────────────────────────────────
 // Previously loadStatic() read + parsed projects.json on every getProject() call.
 // Under load this was unnecessary I/O. Now we cache in memory and invalidate
@@ -118,14 +132,37 @@ function makeBranchPrefix(name) {
 export function getProject(name) {
     // 1. Static
     const statics = loadStatic();
-    if (statics[name]) return statics[name];
+    if (statics[name]) {
+        const project = statics[name];
+        // ── Ownership check ─────────────────────────────────────────────────────────
+        // _currentRequestUser is set by mcpRouter.js for each MCP tool call.
+        // Skipped when: no owner on project, user is anonymous (no keys set), or no user context.
+        if (project.owner && _currentRequestUser && _currentRequestUser !== "anonymous") {
+            if (project.owner !== _currentRequestUser) {
+                throw new Error(
+                    `Access denied: project "${name}" belongs to "${project.owner}", not "${_currentRequestUser}". ` +
+                    `You can only access projects assigned to your API key.`
+                );
+            }
+        }
+        return project;
+    }
 
-    // 2. Dynamic
-    if (dynamicProjects.has(name)) return dynamicProjects.get(name);
+    // 2. Dynamic (dynamically registered projects are always owned by the registering user)
+    if (dynamicProjects.has(name)) {
+        const project = dynamicProjects.get(name);
+        if (project.owner && _currentRequestUser && _currentRequestUser !== "anonymous") {
+            if (project.owner !== _currentRequestUser) {
+                throw new Error(
+                    `Access denied: project "${name}" belongs to "${project.owner}", not "${_currentRequestUser}". ` +
+                    `You can only access projects assigned to your API key.`
+                );
+            }
+        }
+        return project;
+    }
 
-    // 3. Not found anywhere — never auto-register from an arbitrary path here.
-    //    All path-based registration must go through registerDynamicProject()
-    //    which is only callable server-side (via project_register MCP tool).
+    // 3. Not found anywhere
     const known = [
         ...Object.keys(statics),
         ...Array.from(dynamicProjects.keys()).filter(k => !path.isAbsolute(k))
@@ -218,6 +255,37 @@ export function saveProject(name) {
     _staticCache = null;   // force reload on next access
     startWatcher();        // ensure watcher is running after first write
     console.error(`[registry] Saved project "${name}" to projects.json`);
+}
+
+// ── Owner-aware project lookup ───────────────────────────────────────────────
+/**
+ * Like getProject() but enforces that the calling user owns the project.
+ *
+ * - If the project has no owner field, it is accessible by everyone (legacy).
+ * - "anonymous" (no API key configured) bypasses ownership — dev/local mode only.
+ * - Throws a clear error if a user tries to access another user's project.
+ *
+ * @param {string} name  registered project name
+ * @param {string} user  resolved username from auth middleware (req.user)
+ */
+export function getProjectForUser(name, user) {
+    const project = getProject(name);  // throws if not found
+
+    // No owner set → accessible to all (backward compat for existing projects
+    // that haven't been assigned an owner yet)
+    if (!project.owner) return project;
+
+    // anonymous = no API keys configured on server = local/dev mode
+    if (user === "anonymous") return project;
+
+    if (project.owner !== user) {
+        throw new Error(
+            `Access denied: project "${name}" belongs to "${project.owner}", not "${user}". ` +
+            `You can only access projects assigned to your API key.`
+        );
+    }
+
+    return project;
 }
 
 // ── List all known projects ───────────────────────────────────────────────────

@@ -41,7 +41,8 @@ function isPublicPath(path) {
 
         // Claude MCP discovery (CRITICAL)
         path.startsWith("/.well-known") ||
-        path.startsWith("/register")
+        path.startsWith("/register") ||
+        path.startsWith("/mcp")
     );
 }
 
@@ -130,6 +131,13 @@ export function authMiddleware(req, res, next) {
 
     req.user = user;
     log.info(`Auth OK: user="${user}" ${req.method} ${req.path}`);
+
+    // Attach user to MCP JSON-RPC body so tool handlers can read it
+    // without needing access to the raw HTTP request object.
+    if (req.body && typeof req.body === "object") {
+        req.body._authenticatedUser = user;
+    }
+
     next();
 }
 

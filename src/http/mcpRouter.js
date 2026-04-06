@@ -19,6 +19,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createLogger }                  from "../core/logger.js";
 import { config }                        from "../core/config.js";
 import { logToolCall }                   from "../core/toolLogger.js";
+import { setRequestUser, clearRequestUser } from "../core/projectRegistry.js";
 
 const log = createLogger("mcp-router");
 
@@ -75,11 +76,19 @@ export function attachMcpRoutes(app, mcpServer) {
         }
         // ───────────────────────────────────────────────────────────────────────
 
+        // Set request-scoped user so getProject() enforces ownership
+        // for every tool call in this request, across all tool handlers.
+        // req.user is set by authMiddleware; "anonymous" if no keys configured.
+        setRequestUser(req.user || "anonymous");
+
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
             enableJsonResponse:  true,
         });
-        res.on("close", () => transport.close());
+        res.on("close", () => {
+            clearRequestUser();
+            transport.close();
+        });
         try {
             await mcpServer.connect(transport);
             await transport.handleRequest(req, res, req.body);

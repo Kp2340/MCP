@@ -1,5 +1,6 @@
 {
   "zeveal-backend": {
+    "owner": "kush",
     "root": "/home/kushpatel/projects/zeveal-backend",
     "type": "liferay-backend",
     "buildCommand": "gradlew build",
@@ -9,6 +10,7 @@
     ]
   },
   "zeveal-frontend": {
+    "owner": "kush",
     "root": "/home/kushpatel/projects/zeveal-ui",
     "type": "react-vite",
     "buildCommand": "npm run build",
@@ -16,6 +18,7 @@
     "indexExtensions": []
   },
   "decorom-frontend": {
+    "owner": "kush",
     "root": "G:/Secret Invasion S01 (2023) 1080p/shubh/Decorom3.5",
     "type": "react-vite",
     "buildCommand": "npm run build",
@@ -23,6 +26,7 @@
     "indexExtensions": []
   },
   "decorom-backend": {
+    "owner": "kush",
     "root": "C:/Users/kushp/IdeaProjects/Decorom Backend",
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
@@ -32,6 +36,7 @@
     ]
   },
   "whatsapp-backend": {
+    "owner": "kush",
     "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp",
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
@@ -41,6 +46,7 @@
     ]
   },
   "whatsapp-frontend": {
+    "owner": "kush",
     "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp UI",
     "type": "react-vite",
     "buildCommand": "npm run build",
@@ -48,6 +54,7 @@
     "indexExtensions": []
   },
   "jsv": {
+    "owner": "kush",
     "root": "C:/Users/kushp/IdeaProjects/jsv solution",
     "type": "nextjs",
     "buildCommand": "npm run build",
@@ -55,7 +62,8 @@
     "indexExtensions": []
   },
   "mcp": {
-    "root": "C:/Users/kushp/IdeaProjects/MCP",
+    "owner": "kush",
+    "root": "/home/kushpatel/projects/mcp",
     "type": "nodejs",
     "buildCommand": "",
     "branchPrefix": "M",

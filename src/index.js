@@ -61,7 +61,7 @@ import { registerAstReplaceTools } from "./tools/astReplace.js";
 import { dispatchAstReplace }      from "./tools/astReplaceDispatch.js";
 
 // ── Core ──────────────────────────────────────────────────────────────────────
-import { getProject, listProjects } from "./core/projectRegistry.js";
+import { getProject, listProjects, getProjectForUser } from "./core/projectRegistry.js";
 import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
 import { queryCodebase }            from "./vector/queryCodebase.js";
 import { embed }                    from "./vector/embedder.js";

@@ -51,6 +51,26 @@ export function startHttpServer(mcpServer) {
 
     // Routes
     attachHealthRoutes(app);          // GET /health  (public, no auth)
+
+    // ── OAuth 2.0 discovery endpoints — required by claude.ai MCP connector ──────
+    // Claude.ai probes these before connecting. They must return valid JSON and be
+    // reachable without auth (isPublicPath covers /.well-known and /register).
+    app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+        res.json({ resource: 'https://mcp.decorom.in' });
+    });
+    app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+        res.json({
+            issuer:                 'https://mcp.decorom.in',
+            authorization_endpoint: '',
+            token_endpoint:         '',
+            registration_endpoint:  'https://mcp.decorom.in/register'
+        });
+    });
+    app.post('/register', (_req, res) => {
+        res.json({ client_id: 'anonymous', token: 'none' });
+    });
+    // ─────────────────────────────────────────────────────────────────────────────
+
     attachMcpRoutes(app, mcpServer);  // POST /mcp  GET /sse  POST /message
 
     // Rate-limit only /run - it triggers expensive agent + LLM runs
