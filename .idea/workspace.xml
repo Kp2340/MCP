@@ -4,7 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-4.25" />
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-4.23">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -202,6 +204,8 @@
       <workItem from="1775391874340" duration="4393000" />
       <workItem from="1775469806279" duration="430000" />
       <workItem from="1775470321613" duration="629000" />
+      <workItem from="1775471043575" duration="899000" />
+      <workItem from="1775477920433" duration="4663000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -403,7 +407,23 @@
       <option name="project" value="LOCAL" />
       <updated>1775470883976</updated>
     </task>
-    <option name="localTasksCounter" value="26" />
+    <task id="LOCAL-00026" summary="MCP-4.22">
+      <option name="closed" value="true" />
+      <created>1775471238442</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL-00026" />
+      <option name="project" value="LOCAL" />
+      <updated>1775471238443</updated>
+    </task>
+    <task id="LOCAL-00027" summary="MCP-4.23">
+      <option name="closed" value="true" />
+      <created>1775538733132</created>
+      <option name="number" value="00027" />
+      <option name="presentableId" value="LOCAL-00027" />
+      <option name="project" value="LOCAL" />
+      <updated>1775538733132</updated>
+    </task>
+    <option name="localTasksCounter" value="28" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -436,7 +456,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="MCP-3.15" />
     <MESSAGE value="MCP-3.16" />
     <MESSAGE value="MCP-4.4" />
     <MESSAGE value="MCP-4.6" />
@@ -459,9 +478,10 @@
     <MESSAGE value="MCP-4.21" />
     <MESSAGE value="MCP-4.24: Add OAuth discovery endpoints required by claude.ai" />
     <MESSAGE value="MCP-4.25: Replace enrichedBody injection with setRequestUser/clearRequestUser in mcpRouter" />
-    <MESSAGE value="MCP-4.23" />
+    <MESSAGE value="MCP-4.25" />
     <MESSAGE value="MCP-4.22" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.22" />
+    <MESSAGE value="MCP-4.23" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.23" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

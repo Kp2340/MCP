@@ -133,7 +133,17 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: "Write full files and commit. Use for NEW files only. For edits, always prefer project_str_replace.",
             inputSchema: { type: "object", properties: {
                 project:       { type: "string" },
-                files:         { type: "array" },
+                files: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            path:    { type: "string" },
+                            content: { type: "string" }
+                        },
+                        required: ["path", "content"]
+                    }
+            },
                 commitMessage: { type: "string" },
                 increment:     { type: "boolean" }
             }, required: ["project", "files", "commitMessage"] }
