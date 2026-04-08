@@ -1,48 +1,37 @@
-import { execFileSync } from "child_process";
+import fs from "fs";
+import path from "path";
 import { getProject } from "../core/projectRegistry.js";
-import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 
-/**
- * project_search — ripgrep-based code search.
- *
- * Improvements:
- *   - Always ignores IGNORE_FOLDERS (node_modules, .git, dist, etc.)
- *   - Accepts optional `fileType` filter (e.g. "js", "ts", "java")
- *   - Returns structured output: file, line, match text
- *   - Caps at 30 matches with 300-char column limit
- */
-export function searchProject({ project, query, fileType = null }) {
-    const root = getProject(project).root;
+function walk(dir, results = []) {
+  const items = fs.readdirSync(dir, { withFileTypes: true });
 
-    // Build rg ignore flags from IGNORE_FOLDERS
-    const ignoreArgs = IGNORE_FOLDERS.flatMap(f => ["--glob", `!${f}/**`]);
-
-    const typeArgs = fileType ? ["--type", fileType] : [];
-
-    const args = [
-        query,
-        "-n",
-        "--max-count",   "30",
-        "--max-columns", "300",
-        "--no-heading",
-        "--with-filename",
-        ...ignoreArgs,
-        ...typeArgs
-    ];
-
-    try {
-        const raw    = execFileSync("rg", args, { cwd: root }).toString();
-        const lines  = raw.trim().split("\n").filter(Boolean);
-
-        // Format: "file:line:match" — keep as-is, trim each line
-        const output = lines.map(l => l.trim()).join("\n");
-
-        return {
-            content: [{ type: "text", text: output.substring(0, 5000) }]
-        };
-    } catch {
-        return {
-            content: [{ type: "text", text: `No results found for: ${query}` }]
-        };
+  for (const item of items) {
+    const fullPath = path.join(dir, item.name);
+    if (item.isDirectory()) {
+      walk(fullPath, results);
+    } else {
+      results.push(fullPath);
     }
+  }
+
+  return results;
+}
+
+export function searchProject({ project, query }) {
+  const root = getProject(project).root;
+  const files = walk(root);
+  const results = [];
+
+  for (const file of files) {
+    try {
+      const content = fs.readFileSync(file, "utf-8");
+      if (content.includes(query)) {
+        results.push({ file, snippet: content.substring(0, 200) });
+      }
+    } catch {}
+  }
+
+  return {
+    content: [{ type: "text", text: JSON.stringify(results.slice(0, 50), null, 2) }]
+  };
 }

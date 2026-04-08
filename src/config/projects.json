@@ -37,7 +37,7 @@
   },
   "whatsapp-backend": {
     "owner": "kush",
-    "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp",
+    "root": "/home/kushpatel/Spring/Whatsapp-Backend-main",
     "type": "spring-boot",
     "buildCommand": "mvn clean install",
     "branchPrefix": "WB",
@@ -47,7 +47,7 @@
   },
   "whatsapp-frontend": {
     "owner": "kush",
-    "root": "C:/Users/kushp/IdeaProjects/Decorom Whatsapp UI",
+    "root": "/home/kushpatel/Spring/Whatsapp-UI-main",
     "type": "react-vite",
     "buildCommand": "npm run build",
     "branchPrefix": "WF",

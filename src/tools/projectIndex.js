@@ -1,31 +1,19 @@
 import { getProject } from "../core/projectRegistry.js";
-import { buildSemanticIndex, loadCachedIndex } from "../indexer/semanticIndexer.js";
+import { buildSemanticIndex } from "../indexer/semanticIndexer.js";
 
-const cachedIndexes = {};
+export async function projectIndex({ project, force = true }) {
+  const root = getProject(project).root;
 
-export async function projectIndex({ project }) {
-    const root = getProject(project).root;
+  console.error("[index] Rebuilding index:", project);
 
-    // Always rebuild on explicit call — ensures fresh symbols after code changes
-    console.error("[index] Building semantic index:", project);
-    let index;
-    try {
-        index = buildSemanticIndex(root);
-    } catch (err) {
-        console.error("[index] CRASH in buildSemanticIndex:", err.stack || err.message);
-        throw err;
-    }
-    cachedIndexes[project] = index;
+  const index = buildSemanticIndex(root);
 
-    const classCount    = (index.classes ?? []).length;
-    const functionCount = (index.functions ?? []).length;
-
-    return {
-        content: [{
-            type: "text",
-            text: `Index built: ${classCount} classes, ${functionCount} functions/components indexed.`
-        }]
-    };
+  return {
+    content: [{
+      type: "text",
+      text: `Index rebuilt: ${index.classes.length} classes, ${index.functions.length} functions`
+    }]
+  };
 }
 
 /**
