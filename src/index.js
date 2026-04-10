@@ -64,7 +64,7 @@ import { dispatchAstReplace }      from "./tools/astReplaceDispatch.js";
 import { getProject, listProjects, getProjectForUser } from "./core/projectRegistry.js";
 import { buildDependencyGraph }     from "./analysis/dependencyGraph.js";
 import { queryCodebase }            from "./vector/queryCodebase.js";
-import { embed }                    from "./vector/embedder.js";
+import { embedText as embed } from "./vector/embedder.js";
 import { storeMemory, queryMemory } from "./vector/memory.js";
 import { config }                   from "./core/config.js";
 import { createLogger }             from "./core/logger.js";
@@ -75,12 +75,15 @@ import {attachHealthRoutes} from "./http/healthRoutes.js";
 import {attachUiRoutes} from "./http/uiRoutes.js";
 import {attachJobRoutes} from "./http/jobRoutes.js";
 import {runStartupChecks} from "./http/startupChecks.js";
+import {startWatcher} from "./indexing/watcher.js";
 
 const log = createLogger("server");
 
 // ───────────────────────────────────────────────────────────────────────
 // MCP Server
 // ───────────────────────────────────────────────────────────────────────
+startWatcher("mcp");
+
 const mcpServer = new Server(
     { name: "ai-dev-mcp", version: "5.4.0" },
     { capabilities: { tools: {}, prompts: {} } }

@@ -4,8 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-4.24">
+    <list default="true" id="ddc986a4-b8cf-47f4-9efd-9c8784d13cb7" name="Changes" comment="MCP-4.28">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config/projects.json" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/projects.json" afterDir="false" />
     </list>
     <list id="cd1912d6-f1a0-4584-915a-e45feea38c51" name="No Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
@@ -19,7 +20,7 @@
     </persistenceIdMap>
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="326" />
+    <option name="cachedIndexableFilesCount" value="334" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -49,12 +50,12 @@
   <component name="GitRewordedCommitMessages">
     <option name="commitMessagesMapping">
       <RewordedCommitMessageMapping>
-        <option name="originalMessage" value="MCP-4.22" />
-        <option name="rewordedMessage" value="MCP-4.22" />
+        <option name="originalMessage" value="Add universal AI chat endpoint with multi-provider support (Gemini, Ollama, future OpenAI)" />
+        <option name="rewordedMessage" value="MCP-4.28" />
       </RewordedCommitMessageMapping>
     </option>
     <option name="currentCommit" value="1" />
-    <option name="onto" value="636ef9d25dabde9e3cb5438d67f83e70de1063cf" />
+    <option name="onto" value="f6b1f2df32a70059c563087a56c68a42b4f3709e" />
   </component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -99,7 +100,7 @@
     &quot;javascript.nodejs.core.library.typings.version&quot;: &quot;18.19.130&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/kushpatel/projects/mcp/intellij-plugin/build/libs/aidev-mcp-1.7.0.jar&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/kushpatel/Spring/Whatsapp-Backend-main&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -111,7 +112,7 @@
     &quot;project.structure.side.proportion&quot;: &quot;0.44827586&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;in.decorom.mcp.settings&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/snap/intellij-idea-ultimate/742/plugins/javascript-plugin/jsLanguageServicesImpl/external&quot;,
     &quot;vcs.patch.path&quot;: &quot;C:/Users/kushp/Downloads&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
@@ -205,7 +206,9 @@
       <workItem from="1775469806279" duration="430000" />
       <workItem from="1775470321613" duration="629000" />
       <workItem from="1775471043575" duration="899000" />
-      <workItem from="1775477920433" duration="10791000" />
+      <workItem from="1775477920433" duration="15330000" />
+      <workItem from="1775711510509" duration="4615000" />
+      <workItem from="1775797732131" duration="8482000" />
     </task>
     <task id="LOCAL-00001" summary="MCP-2">
       <option name="closed" value="true" />
@@ -439,7 +442,47 @@
       <option name="project" value="LOCAL" />
       <updated>1775634267300</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="MCP-4.24">
+      <option name="closed" value="true" />
+      <created>1775635085757</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1775635085757</updated>
+    </task>
+    <task id="LOCAL-00031" summary="MCP-4.26">
+      <option name="closed" value="true" />
+      <created>1775719922398</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1775719922398</updated>
+    </task>
+    <task id="LOCAL-00032" summary="MCP-4.26">
+      <option name="closed" value="true" />
+      <created>1775724401367</created>
+      <option name="number" value="00032" />
+      <option name="presentableId" value="LOCAL-00032" />
+      <option name="project" value="LOCAL" />
+      <updated>1775724401367</updated>
+    </task>
+    <task id="LOCAL-00033" summary="MCP-4.26">
+      <option name="closed" value="true" />
+      <created>1775726538359</created>
+      <option name="number" value="00033" />
+      <option name="presentableId" value="LOCAL-00033" />
+      <option name="project" value="LOCAL" />
+      <updated>1775726538359</updated>
+    </task>
+    <task id="LOCAL-00034" summary="MCP-4.28">
+      <option name="closed" value="true" />
+      <created>1775801867997</created>
+      <option name="number" value="00034" />
+      <option name="presentableId" value="LOCAL-00034" />
+      <option name="project" value="LOCAL" />
+      <updated>1775801867997</updated>
+    </task>
+    <option name="localTasksCounter" value="35" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -472,10 +515,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="MCP-4.4" />
-    <MESSAGE value="MCP-4.6" />
-    <MESSAGE value="MCP-4.5" />
-    <MESSAGE value="MCP-4.6" />
     <MESSAGE value="MCP-4.7" />
     <MESSAGE value="MCP-4.8" />
     <MESSAGE value="MCP-4.9" />
@@ -493,11 +532,15 @@
     <MESSAGE value="MCP-4.21" />
     <MESSAGE value="MCP-4.24: Add OAuth discovery endpoints required by claude.ai" />
     <MESSAGE value="MCP-4.25: Replace enrichedBody injection with setRequestUser/clearRequestUser in mcpRouter" />
-    <MESSAGE value="MCP-4.25" />
     <MESSAGE value="MCP-4.22" />
     <MESSAGE value="MCP-4.23" />
     <MESSAGE value="MCP-4.24" />
-    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.24" />
+    <MESSAGE value="MCP-4.25" />
+    <MESSAGE value="MCP-4.27" />
+    <MESSAGE value="MCP-2.27" />
+    <MESSAGE value="MCP-4.26" />
+    <MESSAGE value="MCP-4.28" />
+    <option name="LAST_COMMIT_MESSAGE" value="MCP-4.28" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

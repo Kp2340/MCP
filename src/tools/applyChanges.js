@@ -53,6 +53,7 @@ export function applyChanges({ project, files, commitMessage }) {
     }
 
     return {
-        content: [{ type: "text", text: `Changes committed: ${safeMessage}` }]
+        content: [{ type: "text", text: `Changes committed: ${safeMessage}` }],
+        changedFiles: files.map(f => f.path)
     };
 }

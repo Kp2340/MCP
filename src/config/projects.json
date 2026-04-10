@@ -1,6 +1,5 @@
 {
   "zeveal-backend": {
-    "owner": "kush",
     "root": "/home/kushpatel/projects/zeveal-backend",
     "type": "liferay-backend",
     "buildCommand": "gradlew build",

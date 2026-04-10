@@ -1,64 +1,53 @@
-import { pipeline } from "@xenova/transformers";
-import { EMBEDDING_MODEL } from "../core/constants.js";
+import { AI_PROVIDER, GEMINI_API_KEY, OLLAMA_URL, EMBED_MODEL } from "../config/aiConfig.js";
+import { getCachedEmbedding, setCachedEmbedding } from "./embedCache.js";
+import { getPersistentEmbedding, setPersistentEmbedding } from "./persistentEmbedCache.js";
 
-let embedder = null;
-
-// ─── Batch embed queue ───────────────────────────────────────────────────────────────────────────
-// Coalesces multiple embed() calls that arrive in the same tick into one
-// model invocation — cuts latency when memory + retriever both embed in parallel.
-let batchQueue   = [];
-let batchTimer   = null;
-let isFlushing   = false;  // guard: prevents re-entrant / overlapping flushes
-const BATCH_DELAY = 8;     // ms — collect calls within this window
-
-function flushBatch() {
-    batchTimer = null;
-    if (isFlushing) {
-        // A flush is already in-flight. Re-arm so items added during the flush
-        // are picked up once the current batch completes.
-        if (batchQueue.length > 0) batchTimer = setTimeout(flushBatch, BATCH_DELAY);
-        return;
-    }
-    const items = batchQueue.splice(0);
-    if (items.length === 0) return;
-
-    isFlushing = true;
-    // Fire one combined embed call for all queued texts
-    getEmbedder().then(model => {
-        const texts = items.map(i => i.text);
-        return model(texts, { pooling: "mean", normalize: true });
-    }).then(output => {
-        // output.data is flat Float32Array [n_items × dim] — split per item
-        const dim = output.data.length / items.length;
-        items.forEach((item, i) => {
-            item.resolve(Array.from(output.data.slice(i * dim, (i + 1) * dim)));
-        });
-    }).catch(err => {
-        items.forEach(item => item.reject(err));
-    }).finally(() => {
-        isFlushing = false;
-        // Flush any items that queued up while we were busy
-        if (batchQueue.length > 0 && !batchTimer) {
-            batchTimer = setTimeout(flushBatch, BATCH_DELAY);
-        }
-    });
+async function embedWithOllama(text) {
+  const res = await fetch(`${OLLAMA_URL}/api/embeddings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: EMBED_MODEL, prompt: text })
+  });
+  if (!res.ok) throw new Error("Ollama not reachable");
+  const data = await res.json();
+  return data.embedding || [];
 }
 
-export async function getEmbedder() {
-    if (!embedder) {
-        embedder = await pipeline("feature-extraction", EMBEDDING_MODEL);
-    }
-    return embedder;
+async function embedWithGemini(text) {
+  if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedText?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok) throw new Error("Gemini embed failed");
+  const data = await res.json();
+  return data.embedding?.values || [];
 }
 
-/**
- * Embed a single text. Calls are automatically batched within an 8ms window.
- * @param {string} text
- * @returns {Promise<number[]>}
- */
-export function embed(text) {
-    return new Promise((resolve, reject) => {
-        batchQueue.push({ text, resolve, reject });
-        if (!batchTimer) batchTimer = setTimeout(flushBatch, BATCH_DELAY);
-    });
+export async function embedText(text) {
+  const key = text.slice(0, 200);
+
+  const mem = getCachedEmbedding(key);
+  if (mem) return mem;
+
+  const disk = getPersistentEmbedding(key);
+  if (disk) {
+    setCachedEmbedding(key, disk);
+    return disk;
+  }
+
+  try {
+    let emb = [];
+    if (AI_PROVIDER === "ollama") emb = await embedWithOllama(text);
+    else if (AI_PROVIDER === "gemini") emb = await embedWithGemini(text);
+    else return []; // provider=none → disable embeddings
+
+    setCachedEmbedding(key, emb);
+    setPersistentEmbedding(key, emb);
+    return emb;
+  } catch (e) {
+    console.warn("[embed] disabled or failed:", e.message);
+    return [];
+  }
 }

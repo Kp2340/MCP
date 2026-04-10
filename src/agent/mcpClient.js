@@ -7,7 +7,7 @@
  * NOT the same as src/client/mcpClient.js, which is the outward-facing HTTP
  * SDK for external callers (IDE extensions, scripts, teammate tools).
  *
- * Public API: callTool(name, args) → { content: [{ type, text }] }
+ * Public API: callTool(name, args) → { content: [{ type, await projectIndex({ project });text }] }
  */
 
 import { scanProject }       from "../tools/scanProject.js";
@@ -17,7 +17,6 @@ import { searchProject }     from "../tools/projectSearch.js";
 import { applyPatch }        from "../tools/projectPatch.js";
 import { buildProject }      from "../tools/projectBuild.js";
 import { projectFindSymbol } from "../tools/projectFindSymbol.js";
-import { projectIndex }      from "../tools/projectIndex.js";
 import { projectStrReplace } from "../tools/projectStrReplace.js";
 import { analyzeProject }    from "../tools/staticAnalyzer.js";
 import { runAutoFix }        from "../autoFixLoop/autoFixLoop.js";
@@ -28,7 +27,7 @@ import { registerProject }   from "../tools/projectRegister.js";
 import { listProjects, getProject } from "../core/projectRegistry.js";
 import { buildDependencyGraph }     from "../analysis/dependencyGraph.js";
 import { queryCodebase }            from "../vector/queryCodebase.js";
-import { embed }                    from "../vector/embedder.js";
+import { embedText as embed } from "../vector/embedder.js";
 import { storeMemory, queryMemory } from "../vector/memory.js";
 import { createLogger } from "../core/logger.js";
 
@@ -55,14 +54,27 @@ export class MCPClient {
             switch (name) {
 
                 case "project_register":      return wrap(await registerProject(args));
-                case "project_scan":          return wrap(await scanProject(args));
+                case "project_scan": {
+                    const res = await scanProject(args);
+                    return wrap(res);
+                }
                 case "project_read_files":    return wrap(await readFiles(args));
                 case "project_apply_changes": return wrap(await applyChanges(args));
-                case "project_str_replace":   return wrap(await projectStrReplace(args));
+                case "project_str_replace": {
+                    const res = await projectStrReplace(args);
+                    try {
+                        if (res.changedFiles) {
+                            for (const f of res.changedFiles) {
+                                const content = (await import('fs')).readFileSync((await import('path')).resolve(getProject(args.project).root, f), 'utf-8')
+                                await smartIndex(args.project, f, content);
+                            }
+                        }
+                    } catch (e) {}
+                    return wrap(res);
+                }
                 case "project_search":        return wrap(await searchProject(args));
                 case "project_apply_patch":   return wrap(await applyPatch(args));
                 case "project_build":         return wrap(await buildProject(args));
-                case "project_index":         return wrap(await projectIndex(args));
                 case "project_find_symbol":   return wrap(await projectFindSymbol(args));
                 case "project_analyze":       return wrap(await analyzeProject(args));
                 case "project_test":          return wrap(await testProject(args));

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { getCollection } from "./indexCodebase.js";
-import { embed } from "./embedder.js";
+import { embedText as embed } from "./embedder.js";
 import { IGNORE_FOLDERS, INDEXABLE_EXTENSIONS } from "../core/constants.js";
 import { deduplicate } from "../utils/requestDeduplicator.js";
 

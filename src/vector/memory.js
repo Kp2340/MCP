@@ -16,7 +16,7 @@
  */
 
 import { ChromaClient } from "chromadb";
-import { embed } from "./embedder.js";
+import { embedText as embed } from "./embedder.js";
 import {
     MEMORY_COLLECTION_PREFIX,
     MEMORY_MAX_RESULTS,

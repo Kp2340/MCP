@@ -1,0 +1,10 @@
+{
+  "name": "MCP AI Assistant",
+  "version": "1.0.0",
+  "description": "Copilot-like AI assistant powered by MCP",
+  "endpoints": {
+    "chat": "/ai/chat",
+    "code": "/ai/code",
+    "stream": "/ai/stream"
+  }
+}

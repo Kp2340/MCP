@@ -90,6 +90,7 @@ export function attachMcpRoutes(app, mcpServer) {
             transport.close();
         });
         try {
+            try { await mcpServer.close?.(); } catch (e) {}
             await mcpServer.connect(transport);
             await transport.handleRequest(req, res, req.body);
         } catch (err) {
