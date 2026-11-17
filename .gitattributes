@@ -1,0 +1,14 @@
+# Enforce LF line endings for all text files.
+# Prevents CRLF from corrupting str_replace matching, Vite parsing, and diff output.
+* text=auto eol=lf
+
+# Explicitly binary — never touch line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.vsix binary
+*.gguf binary
+*.sqlite3 binary

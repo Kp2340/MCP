@@ -1,0 +1,163 @@
+/**
+ * src/http/mcpRouter.js
+ *
+ * Dual-transport MCP router:
+ *
+ *   POST /mcp  — Streamable HTTP, stateless + JSON response mode
+ *               Used by: Gemini CLI, Claude Code, Cursor, Windsurf
+ *               Each POST gets an immediate JSON response (no streaming).
+ *               Notifications return 202 immediately — no timeout.
+ *               Works cleanly through Cloudflare tunnels and any proxy.
+ *
+ *   GET  /sse       — Legacy SSE (2024-11-05 spec, kept for compatibility)
+ *   POST /message   — Legacy SSE message endpoint
+ *               Used by: Claude Desktop older versions, older IDE plugins
+ */
+
+import { SSEServerTransport }            from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createLogger }                  from "../core/logger.js";
+import { config }                        from "../core/config.js";
+import { logToolCall }                   from "../core/toolLogger.js";
+import { setRequestUser, clearRequestUser } from "../core/projectRegistry.js";
+
+const log = createLogger("mcp-router");
+
+// Legacy SSE sessions only
+const sseSessions = new Map();
+
+function resolvePublicBase(req) {
+    const proto = req.headers["x-forwarded-proto"]?.split(",")[0].trim();
+    const host  = req.headers["x-forwarded-host"]?.split(",")[0].trim()
+               || req.headers["host"];
+    if (proto && host) return `${proto}://${host}`;
+    if (host)          return `${req.secure ? "https" : "http"}://${host}`;
+    return config.BASE_URL;
+}
+
+export function attachMcpRoutes(app, mcpServer) {
+
+    // ── Streamable HTTP — stateless, JSON response mode ────────────────────────────────
+    // One shared mcpServer, new transport per request.
+    // enableJsonResponse:true makes every response immediate JSON — no open connections.
+    // sessionIdGenerator:undefined = stateless, no Mcp-Session-Id tracking.
+    app.post("/mcp", async (req, res) => {
+        // ── Tool Logger: intercept JSON-RPC tools/call before SDK dispatch ───────────────
+        // This is the cleanest hook point: body is parsed, transport not yet started.
+        // Captures: WHO (caller IP / session), WHICH tool, WHEN, HOW LONG, result status.
+        const body       = req.body || {};
+        const isToolCall = body.method === "tools/call";
+        const toolName   = isToolCall ? (body.params?.name   ?? "unknown") : null;
+        const toolArgs   = isToolCall ? (body.params?.arguments ?? {})     : null;
+        const caller     = req.headers["mcp-session-id"]
+            || req.headers["x-session-id"]
+            || req.headers["x-forwarded-for"]?.split(",")[0].trim()
+            || req.ip
+            || "http-client";
+        const startedAt  = isToolCall ? Date.now() : null;
+
+        if (isToolCall) {
+            // Monkey-patch res.json to capture the response payload after dispatch
+            const origJson = res.json.bind(res);
+            res.json = function loggedJson(payload) {
+                res.json = origJson;   // restore before calling original (re-entrant safety)
+                const rpcErr = payload?.error;
+                logToolCall({
+                    toolName,
+                    args:        toolArgs,
+                    caller,
+                    startedAt,
+                    success:     !rpcErr,
+                    error:       rpcErr ? `[${rpcErr.code}] ${rpcErr.message}` : undefined,
+                    resultBytes: Buffer.byteLength(JSON.stringify(payload ?? ""), "utf8")
+                });
+                return origJson(payload);
+            };
+        }
+        // ───────────────────────────────────────────────────────────────────────
+
+        // Set request-scoped user so getProject() enforces ownership
+        // for every tool call in this request, across all tool handlers.
+        // req.user is set by authMiddleware; "anonymous" if no keys configured.
+        setRequestUser(req.user || "anonymous");
+
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            enableJsonResponse:  true,
+        });
+        res.on("close", () => {
+            clearRequestUser();
+            transport.close();
+        });
+        try {
+            try { await mcpServer.close?.(); } catch (e) {}
+            await mcpServer.connect(transport);
+            await transport.handleRequest(req, res, req.body);
+        } catch (err) {
+            if (isToolCall) {
+                // Transport-level crash: log the failure before re-throwing
+                logToolCall({ toolName, args: toolArgs, caller, startedAt, success: false, error: err.message });
+            }
+            log.error("/mcp error:", err.message);
+            if (!res.headersSent) res.status(500).json({
+                jsonrpc: "2.0",
+                error: { code: -32603, message: err.message },
+                id: null
+            });
+        }
+    });
+
+    app.delete("/mcp", (_req, res) => res.status(200).end());
+
+    // GET /mcp — required by mcp-remote for discovery handshake
+    // Returns 405 with correct Allow header so mcp-remote knows to use POST
+    app.get("/mcp", (_req, res) => {
+        res.setHeader("Allow", "GET, POST, DELETE");
+        res.status(405).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Use POST /mcp to send MCP requests" },
+            id: null
+        });
+    });
+
+    // ── Legacy SSE transport ────────────────────────────────────────────────────────────
+    app.get("/sse", async (req, res) => {
+        const publicBase = resolvePublicBase(req);
+        const messageUrl = `${publicBase}/message`;
+        log.info(`Legacy SSE connect from ${req.headers["x-forwarded-for"] || req.ip} — endpoint=${messageUrl}`);
+
+        const transport = new SSEServerTransport(messageUrl, res);
+        sseSessions.set(transport.sessionId, transport);
+        res.setHeader("x-session-id", transport.sessionId);
+
+        req.on("close", () => {
+            sseSessions.delete(transport.sessionId);
+            log.info(`Legacy SSE closed: ${transport.sessionId}`);
+        });
+
+        try {
+            await mcpServer.connect(transport);
+        } catch (err) {
+            log.error("Legacy SSE connect error:", err.message);
+            sseSessions.delete(transport.sessionId);
+        }
+    });
+
+    app.post("/message", async (req, res) => {
+        const sessionId = req.query.sessionId || req.headers["x-session-id"];
+        if (!sessionId) return res.status(400).json({ error: "Missing sessionId" });
+        const transport = sseSessions.get(sessionId);
+        if (!transport) {
+            log.warn(`Legacy SSE session not found: ${sessionId}`);
+            return res.status(404).json({ error: `Session ${sessionId} not found. Reconnect to /sse.` });
+        }
+        try {
+            await transport.handlePostMessage(req, res);
+        } catch (err) {
+            log.error("/message error:", err.message);
+            if (!res.headersSent) res.status(500).json({ error: err.message });
+        }
+    });
+
+    log.info("MCP routes: POST /mcp (Streamable HTTP stateless)  GET /sse  POST /message (Legacy SSE)");
+}
